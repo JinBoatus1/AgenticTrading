@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: agentic-trading-api
+    env: python
+    region: oregon
+    plan: standard
+    
+    # Root directory for this service
+    rootDir: agentic-trading/backend
+    
+    # Build command
+    buildCommand: pip install -r requirements.txt
+    
+    # Start command
+    startCommand: python app.py
+    
+    # Port
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: PYTHONUNBUFFERED
+        value: true
+    
+    # Health check
+    healthCheckPath: /health
+    
+    # File storage for SQLite database (persistent)
+    disks:
+      - name: database
+        mountPath: /data
+        sizeGB: 1

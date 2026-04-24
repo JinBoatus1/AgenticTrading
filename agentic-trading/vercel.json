@@ -1,0 +1,13 @@
+{
+  "buildCommand": "echo 'Static build complete'",
+  "outputDirectory": "frontend",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "env": {
+    "REACT_APP_API_URL": "@api_url"
+  }
+}

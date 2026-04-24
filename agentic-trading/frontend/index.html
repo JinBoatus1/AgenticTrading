@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Trading Lab</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">📊</div>
+            <div class="title-section">
+                <h1>Agentic Trading Lab</h1>
+                <p>Compare LLM agents on the same market stream.</p>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="mode-toggle">
+                <button class="mode-btn active" data-mode="backtest">Backtest</button>
+                <button class="mode-btn" data-mode="paper">Paper ▼</button>
+                <button class="mode-btn" data-mode="contest">🏆 Contest</button>
+            </div>
+            <div class="search-box">
+                <input type="text" placeholder="Search team..." id="searchInput">
+                <span>🔍</span>
+            </div>
+            <button class="theme-toggle" id="themeToggle" title="Toggle light/dark mode">
+                <span class="theme-icon">🌙</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Live Ticker -->
+    <div class="ticker-bar" id="tickerBar">
+        <!-- Populated by JavaScript from /ticker endpoint -->
+        <div class="ticker-placeholder">Loading market data...</div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        <!-- Left Column (Chart + Decisions) -->
+        <div class="left-column">
+            <!-- Equity Curves Section -->
+            <section class="section equity-section">
+                <div class="section-header">
+                    <div>
+                        <h2 id="equityTitle">Agent Equity Curves</h2>
+                        <span id="equitySubtitle" class="chart-subtitle-inline">Comparing agent performance</span>
+                    </div>
+                    <div class="timeframe-toggle" id="timeframeToggle">
+                        <button class="tf-btn active">1D</button>
+                        <button class="tf-btn">1W</button>
+                        <button class="tf-btn">1M</button>
+                    </div>
+                </div>
+                <div class="chart-subtitle" id="chartSubtitle">Total Account Value</div>
+                <div class="chart-container">
+                    <canvas id="equityChart"></canvas>
+                </div>
+                <!-- Contest Metrics Table (hidden by default) -->
+                <div id="contestMetricsTable" class="contest-metrics" style="display:none; margin-top: 20px;">
+                    <table class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Team</th>
+                                <th>CR (%)</th>
+                                <th>SR</th>
+                                <th>MD (%)</th>
+                                <th>DV (%)</th>
+                                <th>AV (%)</th>
+                                <th>Final Equity</th>
+                            </tr>
+                        </thead>
+                        <tbody id="contestMetricsBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Model Decisions & Activity Combined Section -->
+            <section class="section decisions-section">
+                <h2 id="decisionsTitle">Model Activity & Decisions</h2>
+                <div class="activity-decisions-combined">
+                    <div class="decisions-grid" id="decisionsGrid">
+                        <div class="decision-card deepseek">
+                            <div class="agent-name">DeepSeek</div>
+                            <div class="decision-action">Action: <span class="buy">BUY NVDA</span></div>
+                            <div class="decision-confidence">Confidence: <strong>0.78</strong></div>
+                        </div>
+                        <div class="decision-card claude">
+                            <div class="agent-name">Claude</div>
+                            <div class="decision-action">Action: <span class="hold">HOLD AAPL</span></div>
+                            <div class="decision-confidence">Confidence: <strong>0.66</strong></div>
+                        </div>
+                        <div class="decision-card gpt">
+                            <div class="agent-name">GPT</div>
+                            <div class="decision-action">Action: <span class="sell">SELL TSLA</span></div>
+                            <div class="decision-confidence">Confidence: <strong>0.61</strong></div>
+                        </div>
+                    </div>
+                    <div class="activity-log">
+                        <h3>Recent Activity</h3>
+                        <div class="activity-item">
+                            <div class="time">15:27</div>
+                            <div class="agent">DeepSeek</div>
+                            <div class="action buy">BUY NVDA</div>
+                            <div class="detail">qty 12 @ 118.10</div>
+                        </div>
+                        <div class="activity-item">
+                            <div class="time">15:11</div>
+                            <div class="agent">Claude</div>
+                            <div class="action hold">HOLD AAPL</div>
+                            <div class="detail">qty 0 —</div>
+                        </div>
+                        <div class="activity-item">
+                            <div class="time">14:58</div>
+                            <div class="agent">GPT</div>
+                            <div class="action sell">SELL TSLA</div>
+                            <div class="detail">qty 5 @ 171.02</div>
+                        </div>
+                        <div class="activity-item">
+                            <div class="time">14:41</div>
+                            <div class="agent">DeepSeek</div>
+                            <div class="action buy">BUY BTC</div>
+                            <div class="detail">qty 0.02 @ 67,980</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Right Sidebar -->
+        <aside class="right-sidebar">
+            <!-- Paper Trading Account Info (visible only in paper mode) -->
+            <section class="section paper-account-section" id="paperAccountSection" style="display:none;">
+                <h2>📊 Live Account</h2>
+                <div class="account-metrics" id="paperAccountInfo">
+                    <div class="account-metric">
+                        <div class="metric-value">$100,000</div>
+                        <div class="metric-label">Account Equity</div>
+                    </div>
+                    <div class="account-metric">
+                        <div class="metric-value">$50,000</div>
+                        <div class="metric-label">Cash Available</div>
+                    </div>
+                    <div class="account-metric">
+                        <div class="metric-value">$50,000</div>
+                        <div class="metric-label">Buying Power</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Paper Trading Open Positions -->
+            <section class="section paper-positions-section" id="paperPositionsSection" style="display:none;">
+                <h2>📈 Open Positions</h2>
+                <div class="positions-list" id="paperPositions">
+                    <div class="no-positions">No open positions</div>
+                </div>
+            </section>
+
+            <!-- Paper Trading Recent Trades -->
+            <section class="section paper-trades-section" id="paperTradesSection" style="display:none;">
+                <h2>⚡ Recent Trades</h2>
+                <div class="trades-list" id="paperTrades">
+                    <div class="no-trades">No recent trades</div>
+                </div>
+            </section>
+
+            <!-- Leaderboard -->
+            <section class="section leaderboard-section" id="leaderboardSection">
+                <h2 id="leaderboardTitle">Arena Leaderboard</h2>
+                <div class="leaderboard-list" id="leaderboardList">
+                    <div class="leaderboard-item rank-1">
+                        <div class="rank">1.</div>
+                        <div class="name">DeepSeek</div>
+                        <div class="return">+2.62%</div>
+                    </div>
+                    <div class="leaderboard-item rank-2">
+                        <div class="rank">2.</div>
+                        <div class="name">Claude</div>
+                        <div class="return">+2.24%</div>
+                    </div>
+                    <div class="leaderboard-item rank-3">
+                        <div class="rank">3.</div>
+                        <div class="name">GPT</div>
+                        <div class="return">+0.91%</div>
+                    </div>
+                </div>
+                <div class="sort-options" id="sortOptions">Sort by: PnL | Sharpe | MDD</div>
+                <button class="view-full-btn">View Full Leaderboard</button>
+            </section>
+
+        </aside>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

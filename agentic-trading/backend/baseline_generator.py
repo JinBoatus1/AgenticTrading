@@ -1,0 +1,365 @@
+"""
+Shared Baseline Generator for Backtesting and Paper Trading
+
+This module generates baseline equity curves (Buy & Hold, Index) for a given:
+- Date range
+- Symbol list
+- Mode (backtest or paper)
+
+Can be called by:
+- Backtest script (historical data, mode="backtest")
+- Paper trading service (live data, mode="paper")
+
+Same logic, different contexts.
+"""
+
+import json
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime, timedelta
+import sys
+
+# Try to import numpy
+try:
+    import numpy as np
+except ImportError:
+    import subprocess
+    subprocess.check_call(["pip", "install", "numpy"])
+    import numpy as np
+
+try:
+    import pandas as pd
+except ImportError:
+    import subprocess
+    subprocess.check_call(["pip", "install", "pandas"])
+    import pandas as pd
+
+
+class BaselineGenerator:
+    """Generates baseline equity curves from real historical data."""
+    
+    def __init__(self):
+        """Initialize with Alpaca credentials."""
+        self._load_credentials()
+    
+    def _load_credentials(self):
+        """Load Alpaca credentials from file."""
+        creds_path = Path(__file__).parent.parent / "credentials" / "alpaca.json"
+        try:
+            with open(creds_path, 'r') as f:
+                creds = json.load(f)
+                self.api_key = creds.get('api_key')
+                self.secret_key = creds.get('secret_key')
+                
+                if not self.api_key or not self.secret_key:
+                    raise ValueError("Missing Alpaca credentials")
+                
+                self.headers = {
+                    "APCA-API-KEY-ID": self.api_key,
+                    "APCA-API-SECRET-KEY": self.secret_key,
+                }
+        except Exception as e:
+            print(f"❌ Failed to load credentials: {e}")
+            sys.exit(1)
+    
+    def _fetch_bars_for_symbol(self, symbol: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+        """
+        Fetch REAL historical bars from Alpaca API.
+        
+        Args:
+            symbol: Stock symbol (e.g., "AAPL")
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+        
+        Returns:
+            DataFrame with OHLCV data, indexed by timestamp
+        """
+        try:
+            from alpaca.data.historical import StockHistoricalDataClient
+            from alpaca.data.requests import StockBarsRequest
+            from alpaca.data.timeframe import TimeFrame
+        except ImportError:
+            print("❌ alpaca-py not installed. Install with: pip install alpaca-py")
+            sys.exit(1)
+        
+        try:
+            client = StockHistoricalDataClient(self.api_key, self.secret_key)
+            
+            request = StockBarsRequest(
+                symbol_or_symbols=[symbol],
+                timeframe=TimeFrame.Hour,
+                start=start_date,
+                end=end_date,
+            )
+            
+            bars_data = client.get_stock_bars(request)
+            
+            if symbol in bars_data.df.index.get_level_values(0):
+                df = bars_data.df.loc[symbol].copy()
+                return df
+            else:
+                return None
+        
+        except Exception as e:
+            print(f"⚠️ Error fetching {symbol}: {e}")
+            return None
+    
+    def generate_buyhold_baseline(
+        self, 
+        bars_by_symbol: Dict[str, pd.DataFrame],
+        start_date: str,
+        end_date: str,
+        initial_capital: float = 100000
+    ) -> List[Dict]:
+        """
+        Generate Buy & Hold baseline curve.
+        
+        Strategy: Buy equal amounts of all symbols at start, hold until end.
+        
+        Args:
+            bars_by_symbol: Dict of {symbol: DataFrame with OHLCV}
+            start_date: Start date string
+            end_date: End date string
+            initial_capital: Initial portfolio value
+        
+        Returns:
+            List of equity points: [{timestamp, equity, cash, positions_value}, ...]
+        """
+        if not bars_by_symbol:
+            return []
+        
+        # Get all timestamps across all symbols
+        all_timestamps = set()
+        for df in bars_by_symbol.values():
+            all_timestamps.update(df.index)
+        all_timestamps = sorted(all_timestamps)
+        
+        if not all_timestamps:
+            return []
+        
+        # Filter: only keep regular market hours (9:30 AM - 4:00 PM ET)
+        import pytz
+        et_tz = pytz.timezone('US/Eastern')
+        market_hours_only = []
+        
+        for ts in all_timestamps:
+            ts_et = ts.astimezone(et_tz)
+            hour = ts_et.hour
+            minute = ts_et.minute
+            
+            # Market hours: 9:30 AM through 4:00 PM ET
+            is_market_hours = (hour > 9 and hour < 16) or \
+                             (hour == 9 and minute >= 30) or \
+                             (hour == 16 and minute == 0)
+            
+            if is_market_hours:
+                market_hours_only.append(ts)
+        
+        all_timestamps = market_hours_only
+        
+        if not all_timestamps:
+            return []
+        
+        first_ts = all_timestamps[0]
+        
+        # Buy equal amounts of available stocks
+        positions = {}
+        cash = initial_capital
+        num_symbols = len(bars_by_symbol)
+        
+        for symbol, df in bars_by_symbol.items():
+            if first_ts not in df.index:
+                continue
+            
+            price = df.loc[first_ts, "close"]
+            allocation = initial_capital / num_symbols
+            shares = int(allocation / price)
+            
+            if shares > 0:
+                positions[symbol] = shares
+                cash -= shares * price
+        
+        # Build forward-filled price cache for smooth equity curve
+        price_cache = {}
+        for symbol, df in bars_by_symbol.items():
+            if symbol not in positions:
+                continue
+            
+            price_cache[symbol] = {}
+            last_price = df.loc[first_ts, "close"] if first_ts in df.index else None
+            
+            if last_price is None:
+                continue
+            
+            for timestamp in all_timestamps:
+                if timestamp in df.index:
+                    last_price = df.loc[timestamp, "close"]
+                # Forward-fill missing data
+                price_cache[symbol][timestamp] = last_price
+        
+        # Calculate equity at each timestamp
+        equity_curve = []
+        for timestamp in all_timestamps:
+            positions_value = 0
+            
+            for symbol, shares in positions.items():
+                if symbol in price_cache and timestamp in price_cache[symbol]:
+                    positions_value += shares * price_cache[symbol][timestamp]
+            
+            total_equity = cash + positions_value
+            
+            equity_curve.append({
+                "timestamp": timestamp.isoformat() if hasattr(timestamp, 'isoformat') else str(timestamp),
+                "equity": round(total_equity, 2),
+                "cash": round(cash, 2),
+                "positions_value": round(positions_value, 2),
+                "daily_return": 0
+            })
+        
+        return equity_curve
+    
+    def generate_index_baseline(
+        self,
+        bars_by_symbol: Dict[str, pd.DataFrame],
+        start_date: str,
+        end_date: str,
+        initial_capital: float = 100000
+    ) -> List[Dict]:
+        """
+        Generate Index baseline curve (equal-weight index).
+        
+        Strategy: Equal-weight portfolio of all symbols, rebalanced daily.
+        
+        Args:
+            bars_by_symbol: Dict of {symbol: DataFrame with OHLCV}
+            start_date: Start date string
+            end_date: End date string
+            initial_capital: Initial portfolio value
+        
+        Returns:
+            List of equity points: [{timestamp, equity, cash, positions_value}, ...]
+        """
+        if not bars_by_symbol:
+            return []
+        
+        # Get all timestamps
+        all_timestamps = set()
+        for df in bars_by_symbol.values():
+            all_timestamps.update(df.index)
+        all_timestamps = sorted(all_timestamps)
+        
+        if not all_timestamps:
+            return []
+        
+        # Filter: only keep regular market hours (9:30 AM - 4:00 PM ET)
+        import pytz
+        et_tz = pytz.timezone('US/Eastern')
+        market_hours_only = []
+        
+        for ts in all_timestamps:
+            ts_et = ts.astimezone(et_tz)
+            hour = ts_et.hour
+            minute = ts_et.minute
+            
+            # Market hours: 9:30 AM through 4:00 PM ET
+            is_market_hours = (hour > 9 and hour < 16) or \
+                             (hour == 9 and minute >= 30) or \
+                             (hour == 16 and minute == 0)
+            
+            if is_market_hours:
+                market_hours_only.append(ts)
+        
+        all_timestamps = market_hours_only
+        
+        if not all_timestamps:
+            return []
+        
+        first_ts = all_timestamps[0]
+        
+        # Get initial prices
+        initial_prices = {}
+        for symbol, df in bars_by_symbol.items():
+            if first_ts in df.index:
+                initial_prices[symbol] = df.loc[first_ts, "close"]
+        
+        if not initial_prices:
+            return []
+        
+        # Build forward-filled price cache
+        price_cache = {}
+        for symbol, df in bars_by_symbol.items():
+            if symbol not in initial_prices:
+                continue
+            
+            price_cache[symbol] = {}
+            last_price = df.loc[first_ts, "close"]
+            
+            for timestamp in all_timestamps:
+                if timestamp in df.index:
+                    last_price = df.loc[timestamp, "close"]
+                # Forward-fill
+                price_cache[symbol][timestamp] = last_price
+        
+        # Calculate index equity at each timestamp
+        equity_curve = []
+        num_symbols = len(initial_prices)
+        
+        for timestamp in all_timestamps:
+            index_return = 0
+            valid_count = 0
+            
+            for symbol in initial_prices:
+                if symbol in price_cache and timestamp in price_cache[symbol]:
+                    current_price = price_cache[symbol][timestamp]
+                    symbol_return = (current_price / initial_prices[symbol]) - 1
+                    index_return += symbol_return
+                    valid_count += 1
+            
+            if valid_count > 0:
+                avg_return = index_return / valid_count
+                total_equity = initial_capital * (1 + avg_return)
+                positions_value = total_equity  # All in positions, no cash
+            else:
+                total_equity = initial_capital
+                positions_value = 0
+            
+            equity_curve.append({
+                "timestamp": timestamp.isoformat() if hasattr(timestamp, 'isoformat') else str(timestamp),
+                "equity": round(total_equity, 2),
+                "cash": 0,
+                "positions_value": round(positions_value, 2),
+                "daily_return": 0
+            })
+        
+        return equity_curve
+
+
+def generate_baselines(
+    bars_by_symbol: Dict[str, pd.DataFrame],
+    start_date: str,
+    end_date: str,
+    initial_capital: float = 100000
+) -> Tuple[List[Dict], List[Dict]]:
+    """
+    Generate both baselines (Buy & Hold, Index).
+    
+    Args:
+        bars_by_symbol: Dict of {symbol: DataFrame with OHLCV}
+        start_date: Start date string
+        end_date: End date string
+        initial_capital: Initial portfolio value
+    
+    Returns:
+        Tuple of (buyhold_curve, index_curve)
+    """
+    generator = BaselineGenerator()
+    
+    buyhold_curve = generator.generate_buyhold_baseline(
+        bars_by_symbol, start_date, end_date, initial_capital
+    )
+    
+    index_curve = generator.generate_index_baseline(
+        bars_by_symbol, start_date, end_date, initial_capital
+    )
+    
+    return buyhold_curve, index_curve
