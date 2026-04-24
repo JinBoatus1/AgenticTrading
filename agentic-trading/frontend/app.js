@@ -6,7 +6,7 @@
 // Auto-detect API base URL (localhost for dev, production URL for deployed)
 const API_BASE = window.location.hostname === 'localhost' 
   ? 'http://localhost:8000'
-  : 'https://agentic-trading-api.onrender.com';  // ← Replace with your Render URL
+  : 'https://agentictrading.onrender.com';  // Render backend URL
 
 let chartInstance = null;
 let currentMode = "backtest";
