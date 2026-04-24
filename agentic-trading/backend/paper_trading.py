@@ -43,6 +43,10 @@ class AlpacaPaperTradingClient:
     def __init__(self, api_key: Optional[str] = None, 
                  secret_key: Optional[str] = None):
         """Initialize with Alpaca credentials."""
+        # Always initialize these first
+        self.api_key = None
+        self.secret_key = None
+        
         if api_key is None:
             self._load_from_credentials()
         else:

@@ -31,6 +31,10 @@ class PaperTradingBaselineCalculator:
     
     def __init__(self, api_key: Optional[str] = None, secret_key: Optional[str] = None):
         """Initialize with Alpaca credentials."""
+        # Always initialize these first
+        self.api_key = None
+        self.secret_key = None
+        
         if api_key is None:
             self._load_credentials()
         else:
@@ -48,6 +52,9 @@ class PaperTradingBaselineCalculator:
         # Try environment variables first (for Render, Docker, etc.)
         self.api_key = os.getenv('ALPACA_API_KEY')
         self.secret_key = os.getenv('ALPACA_SECRET_KEY')
+        
+        print(f"🔍 DEBUG: ALPACA_API_KEY env var = {self.api_key is not None}")
+        print(f"🔍 DEBUG: ALPACA_SECRET_KEY env var = {self.secret_key is not None}")
         
         if self.api_key and self.secret_key:
             print("✅ Loaded Alpaca credentials from environment variables")

@@ -22,7 +22,11 @@ class AlpacaMarketData:
             secret_key: Alpaca secret key
             paper: Use paper trading endpoint (default True)
         """
-        # Try to load from credentials file first
+        # Always initialize these first
+        self.api_key = None
+        self.secret_key = None
+        
+        # Try to load from credentials
         if api_key is None:
             self._load_from_credentials()
         else:
