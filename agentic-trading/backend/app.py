@@ -192,16 +192,22 @@ async def run_backtest_endpoint(start_date: str = "2026-03-01", end_date: str = 
         
         import subprocess
         import sys
-        import os
         
-        # Get the working directory
-        backend_dir = Path(__file__).parent
-        project_dir = backend_dir.parent
-        scripts_dir = project_dir / "scripts"
+        # Get absolute paths
+        backend_dir = Path(__file__).parent.resolve()
+        project_dir = backend_dir.parent.resolve()
+        script_path = project_dir / "scripts" / "backtest_hourly_agent.py"
         
-        # Run backtest script
+        print(f"DEBUG: Project dir = {project_dir}")
+        print(f"DEBUG: Script path = {script_path}")
+        print(f"DEBUG: Script exists = {script_path.exists()}")
+        
+        if not script_path.exists():
+            return {"success": False, "error": f"Script not found at {script_path}"}
+        
+        # Run backtest script from project directory
         result = subprocess.run(
-            [sys.executable, str(scripts_dir / "backtest_hourly_agent.py"),
+            [sys.executable, str(script_path),
              "--start", start_date, "--end", end_date],
             cwd=str(project_dir),
             capture_output=True,
@@ -209,12 +215,17 @@ async def run_backtest_endpoint(start_date: str = "2026-03-01", end_date: str = 
             timeout=120
         )
         
+        print(f"DEBUG: Return code = {result.returncode}")
+        print(f"DEBUG: Stdout = {result.stdout[-200:]}")
+        print(f"DEBUG: Stderr = {result.stderr[-200:]}")
+        
         if result.returncode != 0:
-            print(f"❌ Backtest error: {result.stderr}")
+            error_msg = result.stderr if result.stderr else result.stdout
+            print(f"❌ Backtest failed: {error_msg}")
             return {
                 "success": False,
-                "error": result.stderr[-500:],  # Last 500 chars
-                "stdout": result.stdout[-500:]
+                "error": error_msg[-500:] if error_msg else "Unknown error",
+                "returncode": result.returncode
             }
         
         # Get the results
@@ -232,7 +243,8 @@ async def run_backtest_endpoint(start_date: str = "2026-03-01", end_date: str = 
         return {"success": False, "error": "Backtest timed out (>120 seconds)"}
     except Exception as e:
         print(f"❌ Backtest exception: {e}")
-        return {"success": False, "error": str(e)}
+        import traceback
+        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 # ============================================================================
