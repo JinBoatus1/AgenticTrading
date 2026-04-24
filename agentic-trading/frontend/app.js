@@ -83,14 +83,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Load market ticker data (optional - requires valid Alpaca API key)
-    // await loadTickerData();
+    // Load market ticker data
+    await loadTickerData();
 
     // Load initial data
     await loadData();
     
-    // Refresh ticker every 30 seconds (optional)
-    // setInterval(loadTickerData, 30000);
+    // Refresh ticker every 30 seconds
+    setInterval(loadTickerData, 30000);
 });
 
 /**
@@ -132,23 +132,33 @@ function applyTheme(theme) {
  */
 async function loadTickerData() {
     try {
-        console.log('Fetching live ticker data...');
+        console.log('📊 Fetching live ticker data...');
         
         const response = await fetch(`${API_BASE}/ticker?symbols=AAPL,NVDA,MSFT,BTC`);
         if (!response.ok) {
-            console.error('Failed to fetch ticker:', response.status);
+            console.error('❌ Failed to fetch ticker:', response.status);
             return;
         }
         
         const data = await response.json();
         
         if (data.success && data.quotes && data.quotes.length > 0) {
+            console.log('✅ Ticker data received:', data.quotes.length, 'symbols');
             renderTicker(data.quotes);
         } else {
-            console.warn('No quote data returned:', data);
+            console.warn('⚠️ No quote data returned:', data);
+            // Show fallback message if no data
+            const tickerBar = document.getElementById('tickerBar');
+            if (tickerBar && tickerBar.innerHTML.includes('Loading')) {
+                tickerBar.innerHTML = '<div class="ticker-placeholder">Market data unavailable</div>';
+            }
         }
     } catch (error) {
-        console.error('Error loading ticker:', error);
+        console.error('❌ Error loading ticker:', error);
+        const tickerBar = document.getElementById('tickerBar');
+        if (tickerBar) {
+            tickerBar.innerHTML = '<div class="ticker-placeholder">Error loading market data</div>';
+        }
     }
 }
 
