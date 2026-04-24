@@ -19,6 +19,7 @@ Usage:
 import sys
 import json
 import argparse
+import os
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
@@ -97,12 +98,23 @@ class AlpacaDataLoader:
             sys.exit(1)
     
     def _load_credentials(self) -> Dict:
-        """Load Alpaca credentials from credentials/alpaca.json."""
+        """Load Alpaca credentials from environment variables or file."""
+        # Try environment variables first (for Render, Docker, etc.)
+        api_key = os.getenv('ALPACA_API_KEY')
+        secret_key = os.getenv('ALPACA_SECRET_KEY')
+        
+        if api_key and secret_key:
+            print("✅ Loaded Alpaca credentials from environment variables")
+            return {"api_key": api_key, "secret_key": secret_key}
+        
+        # Fall back to credentials file (for local development)
         creds_path = Path(__file__).parent.parent / "credentials" / "alpaca.json"
         if not creds_path.exists():
-            print(f"❌ Credentials file not found: {creds_path}")
+            print(f"❌ Credentials not found in environment variables or file: {creds_path}")
+            print("   Set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables")
             sys.exit(1)
         
+        print(f"✅ Loaded Alpaca credentials from {creds_path}")
         with open(creds_path) as f:
             return json.load(f)
     
