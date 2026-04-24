@@ -93,6 +93,10 @@ class CSPHeaderMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         # Allow Chart.js and scripts from same origin, plus unsafe-inline for development
         response.headers["Content-Security-Policy"] = "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src *; img-src * data:;"
+        # Explicitly set CORS headers
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         return response
 
 app.add_middleware(CSPHeaderMiddleware)
