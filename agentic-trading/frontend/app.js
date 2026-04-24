@@ -355,16 +355,34 @@ async function pollBacktestStatus(btn, originalText) {
                 if (status.error) {
                     console.error('❌ Backtest error:', status.error);
                     alert(`❌ Backtest failed:\n\n${status.error}`);
+                    btn.textContent = originalText;
+                    btn.disabled = false;
                 } else if (status.success) {
                     console.log('✅ Backtest completed!', status.runs_count, 'runs');
-                    alert(`✅ Backtest completed! Found ${status.runs_count} runs.\n\nReloading dashboard...`);
                     
-                    // Reload data
+                    // Show success message
+                    btn.textContent = '✅ Completed! Updating chart...';
+                    
+                    // Wait a moment for DB to sync, then reload
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    // Destroy old chart and fetch fresh data
+                    if (chartInstance) {
+                        chartInstance.destroy();
+                        chartInstance = null;
+                    }
+                    
+                    // Reload data from API
+                    console.log('🔄 Fetching fresh backtest data...');
                     await loadData();
+                    
+                    // Show success and reset button
+                    btn.textContent = '✅ Chart updated!';
+                    setTimeout(() => {
+                        btn.textContent = originalText;
+                        btn.disabled = false;
+                    }, 2000);
                 }
-                
-                btn.textContent = originalText;
-                btn.disabled = false;
                 return;
             }
             
