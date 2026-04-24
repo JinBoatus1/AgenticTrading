@@ -173,6 +173,68 @@ async def health():
     return {"status": "ok"}
 
 
+@app.post("/backtest/run")
+async def run_backtest_endpoint(start_date: str = "2026-03-01", end_date: str = "2026-04-23"):
+    """
+    Run backtest on-demand and store results in database.
+    
+    WARNING: Takes ~30-60 seconds. Only call once at startup or manually.
+    
+    Args:
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD)
+    
+    Returns:
+        Success status and number of runs created
+    """
+    try:
+        print(f"🚀 Running backtest: {start_date} to {end_date}")
+        
+        import subprocess
+        import sys
+        import os
+        
+        # Get the working directory
+        backend_dir = Path(__file__).parent
+        project_dir = backend_dir.parent
+        scripts_dir = project_dir / "scripts"
+        
+        # Run backtest script
+        result = subprocess.run(
+            [sys.executable, str(scripts_dir / "backtest_hourly_agent.py"),
+             "--start", start_date, "--end", end_date],
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        
+        if result.returncode != 0:
+            print(f"❌ Backtest error: {result.stderr}")
+            return {
+                "success": False,
+                "error": result.stderr[-500:],  # Last 500 chars
+                "stdout": result.stdout[-500:]
+            }
+        
+        # Get the results
+        runs = db.get_runs_by_mode("backtest")
+        
+        print(f"✅ Backtest completed. Found {len(runs)} runs.")
+        
+        return {
+            "success": True,
+            "message": f"Backtest completed: {start_date} to {end_date}",
+            "runs_count": len(runs),
+            "runs": [{"agent_name": r["agent_name"], "return": r.get("total_return", 0)} for r in runs[:3]]
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "Backtest timed out (>120 seconds)"}
+    except Exception as e:
+        print(f"❌ Backtest exception: {e}")
+        return {"success": False, "error": str(e)}
+
+
 # ============================================================================
 # Backtest Routes
 # ============================================================================

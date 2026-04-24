@@ -74,6 +74,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             switchMode(e.target.dataset.mode);
         });
     });
+    
+    // Setup backtest run button
+    const runBacktestBtn = document.getElementById('runBacktestBtn');
+    if (runBacktestBtn) {
+        runBacktestBtn.addEventListener('click', async () => {
+            await triggerBacktest();
+        });
+    }
 
     // Load market ticker data (optional - requires valid Alpaca API key)
     // await loadTickerData();
@@ -269,6 +277,46 @@ function updateUI() {
         paperPositionsSection.style.display = "none";
         paperTradesSection.style.display = "none";
         leaderboardSection.style.display = "block";
+    }
+}
+
+/**
+ * Trigger backtest run on backend
+ */
+async function triggerBacktest() {
+    const btn = document.getElementById('runBacktestBtn');
+    const originalText = btn.textContent;
+    
+    try {
+        btn.textContent = '⏳ Running backtest...';
+        btn.disabled = true;
+        
+        console.log('🚀 Triggering backtest...');
+        
+        const response = await fetch(`${API_BASE}/backtest/run?start_date=2026-03-01&end_date=2026-04-23`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            console.log('✅ Backtest completed!', data.runs_count, 'runs');
+            alert(`✅ Backtest completed! Found ${data.runs_count} runs.\n\nReloading dashboard...`);
+            
+            // Reload data
+            await loadData();
+            btn.textContent = originalText;
+        } else {
+            console.error('❌ Backtest failed:', data.error);
+            alert(`❌ Backtest failed:\n\n${data.error}`);
+            btn.textContent = originalText;
+        }
+    } catch (error) {
+        console.error('❌ Error triggering backtest:', error);
+        alert(`❌ Error: ${error.message}`);
+        btn.textContent = originalText;
+    } finally {
+        btn.disabled = false;
     }
 }
 
