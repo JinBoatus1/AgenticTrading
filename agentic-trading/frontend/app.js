@@ -287,14 +287,32 @@ async function triggerBacktest() {
     const btn = document.getElementById('runBacktestBtn');
     const originalText = btn.textContent;
     
+    // Get dates from input fields
+    const startDateInput = document.getElementById('backtestStartDate');
+    const endDateInput = document.getElementById('backtestEndDate');
+    
+    const startDate = startDateInput.value;
+    const endDate = endDateInput.value;
+    
+    // Validate dates
+    if (!startDate || !endDate) {
+        alert('⚠️ Please select both start and end dates');
+        return;
+    }
+    
+    if (new Date(startDate) >= new Date(endDate)) {
+        alert('⚠️ Start date must be before end date');
+        return;
+    }
+    
     try {
         btn.textContent = '⏳ Starting backtest...';
         btn.disabled = true;
         
-        console.log('🚀 Triggering backtest...');
+        console.log(`🚀 Triggering backtest: ${startDate} to ${endDate}...`);
         
         // Trigger backtest (non-blocking)
-        const response = await fetch(`${API_BASE}/backtest/run?start_date=2026-04-15&end_date=2026-04-23`, {
+        const response = await fetch(`${API_BASE}/backtest/run?start_date=${startDate}&end_date=${endDate}`, {
             method: 'POST'
         });
         

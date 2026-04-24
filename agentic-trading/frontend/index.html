@@ -50,7 +50,15 @@
                         <h2 id="equityTitle">Agent Equity Curves</h2>
                         <span id="equitySubtitle" class="chart-subtitle-inline">Comparing agent performance</span>
                     </div>
-                    <div style="display: flex; gap: 10px; align-items: center;">
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <label for="backtestStartDate" style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">From:</label>
+                            <input type="date" id="backtestStartDate" value="2026-04-15" style="padding: 6px 10px; border: 1px solid var(--border-light); border-radius: 4px; background: var(--bg-card); color: var(--text-primary); font-size: 12px;">
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <label for="backtestEndDate" style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">To:</label>
+                            <input type="date" id="backtestEndDate" value="2026-04-23" style="padding: 6px 10px; border: 1px solid var(--border-light); border-radius: 4px; background: var(--bg-card); color: var(--text-primary); font-size: 12px;">
+                        </div>
                         <button id="runBacktestBtn" class="tf-btn" style="background: #4a90e2; color: white; padding: 8px 16px; cursor: pointer; font-weight: 600;">▶ Run Backtest</button>
                         <div class="timeframe-toggle" id="timeframeToggle">
                             <button class="tf-btn active">1D</button>
