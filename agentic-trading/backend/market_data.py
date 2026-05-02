@@ -162,15 +162,12 @@ class AlpacaMarketData:
             end_date = datetime.now().strftime("%Y-%m-%d")
             start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
             
-            url = f"{self.data_api_url}/v2/stocks/{symbol}/bars"
-            params = {
-                "start": start_date,
-                "end": end_date,
-                "timeframe": "1d",
-                "limit": 5
-            }
+            # Alpaca bars endpoint with correct timeframe format
+            url = f"{self.data_api_url}/v2/stocks/{symbol}/bars?timeframe=1Day&start={start_date}&end={end_date}&limit=5"
             
-            response = requests.get(url, headers=self.headers, params=params, timeout=5)
+            response = requests.get(url, headers=self.headers, timeout=5)
+            
+            print(f"DEBUG {symbol}: Fetching bars from {url}")
             
             if response.status_code == 200:
                 data = response.json()
@@ -207,7 +204,10 @@ class AlpacaMarketData:
                                 print(f"DEBUG {symbol}: Could not convert close price: {e}")
                                 return None
             else:
+                error_msg = response.text[:300] if response.text else "No response"
                 print(f"Error fetching bars for {symbol}: {response.status_code}")
+                print(f"  URL: {url}")
+                print(f"  Response: {error_msg}")
                     
         except Exception as e:
             print(f"Error getting previous close for {symbol}: {e}")
