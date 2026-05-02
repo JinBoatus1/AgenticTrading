@@ -83,13 +83,7 @@ async function loadPerformanceMetrics() {
     try {
         // Add cache-busting timestamp to ensure fresh data
         const cacheBustUrl = `${API_BASE}/runs/latest/metrics?t=${Date.now()}`;
-        const response = await fetch(cacheBustUrl, {
-            // Force fresh data, don't use browser cache
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache'
-            }
-        });
+        const response = await fetch(cacheBustUrl);
         
         if (response.ok) {
             const metrics = await response.json();
@@ -931,12 +925,7 @@ async function displayEquityCurve(equityCurve) {
     // Fetch DJIA baseline
     let djiaValues = [];
     try {
-        const response = await fetch(`${API_BASE}/paper/baselines?t=${Date.now()}`, {
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache'
-            }
-        });
+        const response = await fetch(`${API_BASE}/paper/baselines?t=${Date.now()}`);
         if (response.ok) {
             const data = await response.json();
             if (data.baselines && data.baselines.djia) {
