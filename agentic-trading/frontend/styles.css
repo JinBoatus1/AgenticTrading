@@ -673,7 +673,7 @@ body {
     background-color: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: 4px;
-    padding: 16px;
+    padding: 14px;
     flex: 0 0 auto;
 }
 
@@ -686,17 +686,20 @@ body {
     justify-content: space-between;
     align-items: flex-start;
     gap: 12px;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     border-bottom: 1px solid var(--border-color);
-    padding-bottom: 10px;
+    padding-bottom: 8px;
 }
 
 .section-card h2 {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--text-primary);
     text-transform: uppercase;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.4px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 8px;
 }
 
 .section-card h3 {
@@ -704,8 +707,8 @@ body {
     font-weight: 700;
     color: var(--text-primary);
     text-transform: uppercase;
-    letter-spacing: 0.3px;
-    margin-bottom: 10px;
+    letter-spacing: 0.4px;
+    margin-bottom: 8px;
 }
 
 .section-subtitle {
@@ -822,12 +825,7 @@ body {
 
 .chart-container {
     position: relative;
-    height: 260px;
-    margin-bottom: 12px;
-    background-color: var(--bg-input);
-    border-radius: 4px;
-    padding: 10px;
-    border: 1px solid var(--border-color);
+    height: 380px;
 }
 
 .chart-legend {
@@ -1417,11 +1415,6 @@ body {
     color: var(--text-muted);
     padding: 16px;
     font-size: 11px;
-}
-
-.chart-container {
-    height: 380px;
-    position: relative;
 }
 
 .paper-center-panel .chart-container {

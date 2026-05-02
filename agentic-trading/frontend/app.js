@@ -619,11 +619,10 @@ function initializeCharts() {
                 plugins: {
                     legend: {
                         display: true,
-                        position: 'top',
                         labels: {
                             color: '#e5e7eb',
-                            font: { size: 12, weight: '500' },
-                            padding: 16,
+                            font: { size: 12, weight: '600' },
+                            padding: 15,
                             usePointStyle: true,
                             pointStyle: 'line',
                             boxWidth: 12,
@@ -632,9 +631,9 @@ function initializeCharts() {
                     },
                     tooltip: {
                         enabled: true,
-                        backgroundColor: 'rgba(10, 14, 39, 0.95)',
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
                         titleColor: '#e5e7eb',
-                        bodyColor: '#9ca3af',
+                        bodyColor: '#e5e7eb',
                         borderColor: '#1f2937',
                         borderWidth: 1,
                         padding: 12,
@@ -651,21 +650,21 @@ function initializeCharts() {
                     y: {
                         beginAtZero: false,
                         ticks: {
-                            color: '#9ca3af',
-                            font: { size: 11, family: 'Monaco, Courier New' },
+                            color: '#e5e7eb',
+                            font: { size: 11, weight: '500' },
                             callback: function(value) {
                                 return '$' + value.toLocaleString();
                             }
                         },
                         grid: {
-                            color: '#111827',
+                            color: '#1f2937',
                             drawBorder: false,
                         },
                     },
                     x: {
                         ticks: {
-                            color: '#9ca3af',
-                            font: { size: 11 }
+                            color: '#e5e7eb',
+                            font: { size: 11, weight: '500' }
                         },
                         grid: {
                             display: false,
