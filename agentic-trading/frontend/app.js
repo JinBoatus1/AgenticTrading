@@ -919,15 +919,12 @@ function displayEquityCurve(equityCurve) {
                 label: 'Portfolio Equity',
                 data: equityValues,
                 borderColor: '#4FC3F7',
-                backgroundColor: 'rgba(79, 195, 247, 0.1)',
+                backgroundColor: 'transparent',
                 borderWidth: 2.5,
-                fill: true,
+                fill: false,
                 tension: 0.3,
-                pointRadius: 3,
-                pointHoverRadius: 8,
-                pointBackgroundColor: '#4FC3F7',
-                pointBorderColor: '#fff',
-                pointBorderWidth: 2
+                pointRadius: 0,
+                pointHoverRadius: 5
             }]
         },
         options: {
@@ -942,21 +939,27 @@ function displayEquityCurve(equityCurve) {
                     display: true,
                     labels: {
                         color: '#e5e7eb',
-                        usePointStyle: true,
+                        font: { size: 12, weight: '600' },
                         padding: 15,
-                        font: { size: 12, weight: '600' }
+                        usePointStyle: true,
+                        pointStyle: 'line',
+                        boxWidth: 12,
+                        boxHeight: 2,
                     }
                 },
                 tooltip: {
+                    enabled: true,
                     backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                    titleColor: '#4FC3F7',
+                    titleColor: '#e5e7eb',
                     bodyColor: '#e5e7eb',
-                    borderColor: '#4FC3F7',
+                    borderColor: '#1f2937',
                     borderWidth: 1,
                     padding: 12,
+                    displayColors: true,
                     callbacks: {
-                        label: (context) => {
-                            return 'Equity: ' + formatCurrency(context.parsed.y);
+                        label: function(context) {
+                            const value = context.parsed.y;
+                            return context.dataset.label + ': $' + value.toFixed(0);
                         }
                     }
                 }
