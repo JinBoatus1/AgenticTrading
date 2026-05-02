@@ -50,6 +50,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // Setup collapsible advanced settings
+    const advancedToggle = document.getElementById('advancedToggle');
+    const advancedContent = document.getElementById('advancedContent');
+    if (advancedToggle && advancedContent) {
+        advancedToggle.addEventListener('click', () => {
+            advancedToggle.classList.toggle('active');
+            advancedContent.style.display = advancedContent.style.display === 'none' ? 'block' : 'none';
+        });
+    }
+
     // Load initial data
     await loadData();
 });

@@ -80,14 +80,14 @@
 
     <!-- Main Content: 3-Column Layout -->
     <div class="main-container">
-        <!-- Left Panel: Market Setup & Agent Config -->
+        <!-- Left Panel: Setup -->
         <aside class="left-panel">
             <!-- Backtest Setup Section -->
             <section class="control-section">
                 <h3 class="control-title">BACKTEST SETUP</h3>
                 
                 <div class="control-group">
-                    <label>Backtest Period</label>
+                    <label>Period</label>
                     <div class="date-range-inputs">
                         <input type="date" id="startDate" value="2026-04-15" class="date-input">
                         <span class="date-separator">→</span>
@@ -112,16 +112,6 @@
                 </div>
 
                 <div class="control-group">
-                    <label>Initial Capital</label>
-                    <div style="padding: 8px 0; color: #e5e7eb; font-weight: 500;">$100,000</div>
-                </div>
-            </section>
-
-            <!-- Agent Config Section -->
-            <section class="control-section">
-                <h3 class="control-title">AGENT CONFIG</h3>
-                
-                <div class="control-group">
                     <label>Agent Type</label>
                     <select class="control-select">
                         <option>Momentum Agent</option>
@@ -136,73 +126,81 @@
                         <option>claude haiku 4.5</option>
                     </select>
                 </div>
-
-                <div class="control-group">
-                    <label>Risk Aversion</label>
-                    <div class="slider-container">
-                        <input type="range" min="0" max="100" value="60" class="slider">
-                        <div class="slider-labels">
-                            <span>Conservative</span>
-                            <span class="slider-value">0.60</span>
-                            <span>Aggressive</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="control-group">
-                    <label>Trades per Day (Target)</label>
-                    <div class="slider-container">
-                        <input type="range" min="0" max="10" value="3.2" step="0.1" class="slider">
-                        <div class="slider-labels">
-                            <span>0</span>
-                            <span class="slider-value">3.2</span>
-                            <span>10</span>
-                        </div>
-                    </div>
-                </div>
             </section>
 
-            <!-- Execution & Costs Section -->
+            <!-- Advanced Settings Section (Collapsible) -->
             <section class="control-section">
-                <h3 class="control-title">EXECUTION & COSTS</h3>
+                <button class="collapsible-header" id="advancedToggle">
+                    <span class="toggle-icon">▶</span>
+                    <h3 class="control-title" style="display: inline; margin: 0;">ADVANCED SETTINGS</h3>
+                </button>
                 
-                <div class="control-group">
-                    <label>Slippage (%)</label>
-                    <div class="slider-container">
-                        <input type="range" min="0" max="1" value="0.1" step="0.01" class="slider">
-                        <div class="slider-labels">
-                            <span>0%</span>
-                            <span class="slider-value">0.10%</span>
-                            <span>1%</span>
+                <div class="collapsible-content" id="advancedContent" style="display: none;">
+                    <div class="control-group">
+                        <label>Initial Capital</label>
+                        <div style="padding: 8px 0; color: #e5e7eb; font-weight: 500;">$100,000</div>
+                    </div>
+
+                    <div class="control-group">
+                        <label>Risk Aversion</label>
+                        <div class="slider-container">
+                            <input type="range" min="0" max="100" value="60" class="slider">
+                            <div class="slider-labels">
+                                <span>Conservative</span>
+                                <span class="slider-value">0.60</span>
+                                <span>Aggressive</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <label>Trades/Day</label>
+                        <div class="slider-container">
+                            <input type="range" min="0" max="10" value="3.2" step="0.1" class="slider">
+                            <div class="slider-labels">
+                                <span>0</span>
+                                <span class="slider-value">3.2</span>
+                                <span>10</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <label>Slippage (%)</label>
+                        <div class="slider-container">
+                            <input type="range" min="0" max="1" value="0.1" step="0.01" class="slider">
+                            <div class="slider-labels">
+                                <span>0%</span>
+                                <span class="slider-value">0.10%</span>
+                                <span>1%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <label>Transaction Cost (%)</label>
+                        <div class="slider-container">
+                            <input type="range" min="0" max="1" value="0.1" step="0.01" class="slider">
+                            <div class="slider-labels">
+                                <span>0%</span>
+                                <span class="slider-value">0.10%</span>
+                                <span>1%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <label>Max Position per Asset (%)</label>
+                        <div class="slider-container">
+                            <input type="range" min="0" max="100" value="50" class="slider">
+                            <div class="slider-labels">
+                                <span>0%</span>
+                                <span class="slider-value">50%</span>
+                                <span>100%</span>
+                            </div>
                         </div>
                     </div>
                 </div>
-
-                <div class="control-group">
-                    <label>Transaction Cost (%)</label>
-                    <div class="slider-container">
-                        <input type="range" min="0" max="1" value="0.1" step="0.01" class="slider">
-                        <div class="slider-labels">
-                            <span>0%</span>
-                            <span class="slider-value">0.10%</span>
-                            <span>1%</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="control-group">
-                    <label>Max Position Size (%)</label>
-                    <div class="slider-container">
-                        <input type="range" min="0" max="100" value="50" class="slider">
-                        <div class="slider-labels">
-                            <span>0%</span>
-                            <span class="slider-value">50%</span>
-                            <span>100%</span>
-                        </div>
-                    </div>
-                </div>
-
-                <button class="reset-defaults-btn">⟲ Reset to Defaults</button>
             </section>
 
         </aside>
