@@ -388,12 +388,12 @@ body {
 .date-input,
 .control-select {
     flex: 1;
-    padding: 7px 8px;
+    padding: 4px 6px;
     background-color: var(--bg-input);
     border: 1px solid var(--border-color);
     border-radius: 3px;
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: 11px;
     font-family: var(--font-mono);
 }
 
