@@ -83,6 +83,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Type", "Cache-Control", "ETag"],
 )
 
 # CSP Middleware: Permit Chart.js and inline scripts (for development)
