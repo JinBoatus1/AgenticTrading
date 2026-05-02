@@ -87,8 +87,7 @@ async function loadPerformanceMetrics() {
             // Force fresh data, don't use browser cache
             headers: {
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0'
+                'Pragma': 'no-cache'
             }
         });
         
@@ -919,8 +918,7 @@ async function displayEquityCurve(equityCurve) {
         const response = await fetch(`${API_BASE}/paper/baselines?t=${Date.now()}`, {
             headers: {
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0'
+                'Pragma': 'no-cache'
             }
         });
         if (response.ok) {
