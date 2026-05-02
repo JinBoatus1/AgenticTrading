@@ -3,7 +3,10 @@
  * Connects to backend API for real data
  */
 
-const API_BASE = "http://localhost:8000";
+// Use production URL on Vercel, localhost for local development
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:8000'
+    : 'https://agentictrading.onrender.com';
 
 let chartInstance = null;
 let currentMode = "backtest";
