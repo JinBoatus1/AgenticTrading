@@ -66,9 +66,98 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Load market ticker data
     await loadMarketTicker();
     
+    // Load performance metrics
+    await loadPerformanceMetrics();
+    
     // Refresh ticker every 30 seconds
     setInterval(loadMarketTicker, 30000);
 });
+
+/**
+ * Load performance metrics from latest backtest run
+ */
+async function loadPerformanceMetrics() {
+    try {
+        const response = await fetch(`${API_BASE}/runs/latest/metrics`);
+        
+        if (response.ok) {
+            const metrics = await response.json();
+            displayPerformanceMetrics(metrics);
+            console.log('✅ Performance metrics loaded:', metrics);
+        } else {
+            console.warn('Could not fetch metrics:', response.status);
+            // Show placeholder if no data available
+            displayNoMetrics();
+        }
+    } catch (error) {
+        console.warn('Error fetching performance metrics:', error.message);
+        displayNoMetrics();
+    }
+}
+
+/**
+ * Display performance metrics in the summary panel
+ */
+function displayPerformanceMetrics(metrics) {
+    // Calculate final value from initial equity and total return
+    const initialCapital = metrics.initial_equity || 100000;
+    const totalReturnPercent = metrics.total_return || 0;
+    const finalValue = initialCapital * (1 + totalReturnPercent / 100);
+    
+    // Update Final Value
+    const finalValueEl = document.querySelector('[data-metric="final-value"]');
+    if (finalValueEl) {
+        finalValueEl.textContent = '$' + finalValue.toLocaleString('en-US', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        });
+        finalValueEl.className = 'metric-value ' + (totalReturnPercent >= 0 ? 'positive' : 'negative');
+    }
+    
+    // Update Total Return
+    const returnEl = document.querySelector('[data-metric="total-return"]');
+    if (returnEl) {
+        const returnSign = totalReturnPercent >= 0 ? '+' : '';
+        returnEl.textContent = returnSign + totalReturnPercent.toFixed(2) + '%';
+        returnEl.className = 'metric-value ' + (totalReturnPercent >= 0 ? 'positive' : 'negative');
+    }
+    
+    // Update Max Drawdown
+    const drawdownEl = document.querySelector('[data-metric="max-drawdown"]');
+    if (drawdownEl) {
+        const maxDrawdown = metrics.max_drawdown || 0;
+        drawdownEl.textContent = maxDrawdown.toFixed(2) + '%';
+        drawdownEl.className = 'metric-value ' + (maxDrawdown >= 0 ? 'positive' : 'negative');
+    }
+    
+    // Update Sharpe Ratio
+    const sharpeEl = document.querySelector('[data-metric="sharpe"]');
+    if (sharpeEl) {
+        const sharpe = metrics.sharpe_ratio || 0;
+        sharpeEl.textContent = sharpe.toFixed(2);
+        sharpeEl.className = 'metric-value';
+    }
+}
+
+/**
+ * Display placeholder when no metrics available
+ */
+function displayNoMetrics() {
+    const elements = [
+        '[data-metric="final-value"]',
+        '[data-metric="total-return"]',
+        '[data-metric="max-drawdown"]',
+        '[data-metric="sharpe"]'
+    ];
+    
+    elements.forEach(selector => {
+        const el = document.querySelector(selector);
+        if (el) {
+            el.textContent = '--';
+            el.className = 'metric-value';
+        }
+    });
+}
 
 /**
  * Load live market data from Alpaca API

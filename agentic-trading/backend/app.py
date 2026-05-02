@@ -357,6 +357,18 @@ async def compare_latest_backtests():
     )
 
 
+@app.get("/runs/latest/metrics", response_model=RunMetadata)
+async def get_latest_metrics():
+    """Get metrics for the latest agent backtest run."""
+    runs = db.get_runs_by_mode("backtest") or []
+    if not runs:
+        raise HTTPException(status_code=404, detail="No backtest runs found")
+    
+    # Get the most recent run
+    latest_run = max(runs, key=lambda r: r['created_at'])
+    return RunMetadata(**latest_run)
+
+
 @app.get("/runs", response_model=List[RunMetadata])
 async def get_runs(mode: Optional[str] = None):
     """
