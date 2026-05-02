@@ -82,12 +82,12 @@
     <div class="main-container">
         <!-- Left Panel: Market Setup & Agent Config -->
         <aside class="left-panel">
-            <!-- Market Setup Section -->
+            <!-- Backtest Setup Section -->
             <section class="control-section">
-                <h3 class="control-title">MARKET SETUP</h3>
+                <h3 class="control-title">BACKTEST SETUP</h3>
                 
                 <div class="control-group">
-                    <label>Time Range</label>
+                    <label>Backtest Period</label>
                     <div class="date-range-inputs">
                         <input type="date" id="startDate" value="2026-04-15" class="date-input">
                         <span class="date-separator">→</span>
@@ -96,7 +96,7 @@
                 </div>
 
                 <div class="control-group">
-                    <label>Companies / Assets</label>
+                    <label>Assets</label>
                     <div class="checkbox-list">
                         <label class="checkbox-item">
                             <input type="checkbox" checked> <span>AAPL</span> <span class="company-name">Apple Inc.</span>
@@ -108,7 +108,12 @@
                             <input type="checkbox"> <span>GOOGL</span> <span class="company-name">Alphabet Inc.</span>
                         </label>
                     </div>
-                    <button class="add-company-btn">+ Add Company / Asset</button>
+                    <button class="add-company-btn">+ Add Asset</button>
+                </div>
+
+                <div class="control-group">
+                    <label>Initial Capital</label>
+                    <div style="padding: 8px 0; color: #e5e7eb; font-weight: 500;">$100,000</div>
                 </div>
             </section>
 
@@ -299,24 +304,20 @@
                 <h3 class="section-title">📊 TRADING PERFORMANCE SUMMARY</h3>
                 
                 <div class="metric-row">
-                    <span class="metric-label">Total Return</span>
-                    <span class="metric-value positive">+12.45%</span>
+                    <span class="metric-label">Final Value</span>
+                    <span class="metric-value positive">$112,450</span>
                 </div>
                 <div class="metric-row">
-                    <span class="metric-label">Sharpe Ratio</span>
-                    <span class="metric-value">0.85</span>
+                    <span class="metric-label">Total Return</span>
+                    <span class="metric-value positive">+12.45%</span>
                 </div>
                 <div class="metric-row">
                     <span class="metric-label">Max Drawdown</span>
                     <span class="metric-value negative">-8.20%</span>
                 </div>
                 <div class="metric-row">
-                    <span class="metric-label">Win Rate</span>
-                    <span class="metric-value">54%</span>
-                </div>
-                <div class="metric-row">
-                    <span class="metric-label">Trades</span>
-                    <span class="metric-value">128</span>
+                    <span class="metric-label">Sharpe</span>
+                    <span class="metric-value">0.85</span>
                 </div>
                 
                 <button class="view-more-btn">View More Metrics →</button>
