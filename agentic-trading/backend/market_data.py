@@ -205,12 +205,16 @@ class AlpacaMarketData:
                                 return None
             else:
                 error_msg = response.text[:300] if response.text else "No response"
-                print(f"Error fetching bars for {symbol}: {response.status_code}")
-                print(f"  URL: {url}")
+                print(f"Warning: Could not fetch bars for {symbol}: {response.status_code}")
+                if "subscription does not permit" in response.text.lower():
+                    print(f"  (Subscription limitation - historical bar data not available)")
                 print(f"  Response: {error_msg}")
+                # Return None - will display "--" in UI
+                return None
                     
         except Exception as e:
-            print(f"Error getting previous close for {symbol}: {e}")
+            print(f"Warning: Error getting previous close for {symbol}: {e}")
+            # Return None - will display "--" in UI
         
         return None
     
