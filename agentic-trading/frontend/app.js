@@ -333,7 +333,6 @@ async function runBacktest() {
     
     if (!startDateInput || !endDateInput) {
         console.error('Date inputs not found');
-        alert('Error: Date inputs not found');
         return;
     }
     
@@ -341,7 +340,7 @@ async function runBacktest() {
     const endDate = endDateInput.value;
     
     if (!startDate || !endDate) {
-        alert('Please select both start and end dates');
+        console.warn('⚠️ Please select both start and end dates');
         return;
     }
     
@@ -363,9 +362,12 @@ async function runBacktest() {
         const data = await response.json();
         
         if (!data.success) {
-            alert(`Error: ${data.error || 'Backtest failed'}`);
-            btn.textContent = '▶ Run Backtest';
+            console.error('❌ Backtest failed:', data.error || 'Unknown error');
+            btn.textContent = '❌ Error - Try Again';
             btn.disabled = false;
+            setTimeout(() => {
+                btn.textContent = '▶ Run Backtest';
+            }, 3000);
             return;
         }
         
@@ -375,10 +377,12 @@ async function runBacktest() {
         await pollBacktestStatus(btn);
         
     } catch (error) {
-        console.error('Error starting backtest:', error);
-        alert(`Error: ${error.message}`);
-        btn.textContent = '▶ Run Backtest';
+        console.error('❌ Error starting backtest:', error.message);
+        btn.textContent = '❌ Error - Try Again';
         btn.disabled = false;
+        setTimeout(() => {
+            btn.textContent = '▶ Run Backtest';
+        }, 3000);
     }
 }
 
@@ -401,11 +405,10 @@ async function pollBacktestStatus(btn) {
                     clearInterval(interval);
                     
                     if (status.error) {
-                        console.error('Backtest error:', status.error);
-                        alert(`Backtest failed: ${status.error}`);
+                        console.error('❌ Backtest error:', status.error);
                     } else if (status.success) {
                         console.log('✅ Backtest completed:', status.message);
-                        alert(`Backtest completed! Found ${status.runs_count} runs.`);
+                        console.log(`   Found ${status.runs_count} runs`);
                         
                         // CRITICAL: Reload data in correct order:
                         // 1. Load all runs from /runs endpoint (populates allRuns)
