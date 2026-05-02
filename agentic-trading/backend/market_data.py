@@ -83,6 +83,7 @@ class AlpacaMarketData:
                 # Extract quote from response
                 if "quote" in data:
                     quote = data["quote"]
+                    quote_timestamp = quote.get("t", "unknown")
                     
                     # STEP 1: Get current price using bid/ask midpoint
                     try:
@@ -109,20 +110,28 @@ class AlpacaMarketData:
                         
                         # Calculate current price with fallback logic
                         current_price = None
+                        price_source = None
+                        
                         if ap is not None and ap > 0 and bp is not None and bp > 0:
                             current_price = (ap + bp) / 2
+                            price_source = "midpoint(ap,bp)"
                         elif ap is not None and ap > 0:
                             current_price = ap
+                            price_source = "ask(ap)"
                         elif bp is not None and bp > 0:
                             current_price = bp
+                            price_source = "bid(bp)"
                         elif p is not None and p > 0:
                             current_price = p
+                            price_source = "last_trade(p)"
                         
                         if current_price is None or current_price <= 0:
-                            print(f"DEBUG {symbol}: Could not determine current price (ap={ap}, bp={bp}, p={p})")
+                            print(f"❌ {symbol}: Could not determine current price (ap={ap}, bp={bp}, p={p})")
                             return None
+                        
+                        print(f"✅ {symbol}: current_price={current_price} source={price_source} ts={quote_timestamp}")
                     except Exception as e:
-                        print(f"Error calculating current price for {symbol}: {e}")
+                        print(f"❌ {symbol}: Error calculating current price: {e}")
                         return None
                     
                     # STEP 2: Get previous close from historical daily bars
@@ -131,9 +140,11 @@ class AlpacaMarketData:
                     # STEP 3: Calculate % change
                     if prev_close and prev_close > 0:
                         change_percent = ((current_price - prev_close) / prev_close) * 100
+                        print(f"✅ {symbol}: change_percent={change_percent:.2f}% (current={current_price} - prev_close={prev_close})")
                     else:
                         # If we can't get previous close, return None for change_percent
                         change_percent = None
+                        print(f"⚠️ {symbol}: No previous_close available, showing '--' for % change")
                     
                     return {
                         "symbol": symbol,
@@ -142,11 +153,11 @@ class AlpacaMarketData:
                         "timestamp": datetime.now().isoformat()
                     }
             else:
-                print(f"Error fetching {symbol}: {response.status_code} - {response.text[:200]}")
+                print(f"❌ {symbol}: Error fetching quote: {response.status_code} - {response.text[:200]}")
                 return None
         
         except Exception as e:
-            print(f"Exception fetching {symbol}: {e}")
+            print(f"❌ {symbol}: Exception fetching quote: {e}")
             return None
     
     def _get_previous_close(self, symbol: str) -> Optional[float]:
@@ -169,8 +180,10 @@ class AlpacaMarketData:
             
             # ===== ATTEMPT 1: Try IEX feed (free tier) =====
             url_iex = f"{self.data_api_url}/v2/stocks/{symbol}/bars?timeframe=1Day&start={start_date}&end={end_date}&limit=5&feed=iex"
+            print(f"  Fetching {symbol} previous_close from IEX: {url_iex}")
             
             response = requests.get(url_iex, headers=self.headers, timeout=5)
+            print(f"  IEX response: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
@@ -183,17 +196,21 @@ class AlpacaMarketData:
                     if len(bars_sorted) > 1:
                         # Use 2nd most recent (in case most recent is incomplete)
                         try:
+                            bar_timestamp = bars_sorted[1].get("t", "unknown")
                             prev_close = float(bars_sorted[1].get("c", 0))
-                            print(f"✅ {symbol}: previous_close={prev_close} (from IEX feed)")
+                            print(f"✅ {symbol}: previous_close={prev_close} (from IEX feed, ts={bar_timestamp})")
                             return prev_close if prev_close > 0 else None
-                        except (ValueError, TypeError):
+                        except (ValueError, TypeError) as e:
+                            print(f"⚠️ {symbol}: Could not parse IEX bar data: {e}")
                             pass
                     elif len(bars_sorted) == 1:
                         try:
+                            bar_timestamp = bars_sorted[0].get("t", "unknown")
                             prev_close = float(bars_sorted[0].get("c", 0))
-                            print(f"✅ {symbol}: previous_close={prev_close} (from IEX feed - 1 bar only)")
+                            print(f"✅ {symbol}: previous_close={prev_close} (from IEX feed - 1 bar only, ts={bar_timestamp})")
                             return prev_close if prev_close > 0 else None
-                        except (ValueError, TypeError):
+                        except (ValueError, TypeError) as e:
+                            print(f"⚠️ {symbol}: Could not parse IEX bar data: {e}")
                             pass
             
             # ===== ATTEMPT 2: Try SIP with delayed end time (15+ mins ago) =====
@@ -202,8 +219,10 @@ class AlpacaMarketData:
             delayed_end_str = delayed_end.strftime("%Y-%m-%d")
             
             url_sip = f"{self.data_api_url}/v2/stocks/{symbol}/bars?timeframe=1Day&start={start_date}&end={delayed_end_str}&limit=5"
+            print(f"  Fetching {symbol} previous_close from delayed SIP (end={delayed_end_str}): {url_sip}")
             
             response = requests.get(url_sip, headers=self.headers, timeout=5)
+            print(f"  SIP response: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
@@ -215,17 +234,21 @@ class AlpacaMarketData:
                     
                     if len(bars_sorted) > 1:
                         try:
+                            bar_timestamp = bars_sorted[1].get("t", "unknown")
                             prev_close = float(bars_sorted[1].get("c", 0))
-                            print(f"✅ {symbol}: previous_close={prev_close} (from delayed SIP data)")
+                            print(f"✅ {symbol}: previous_close={prev_close} (from delayed SIP, ts={bar_timestamp})")
                             return prev_close if prev_close > 0 else None
-                        except (ValueError, TypeError):
+                        except (ValueError, TypeError) as e:
+                            print(f"⚠️ {symbol}: Could not parse SIP bar data: {e}")
                             pass
                     elif len(bars_sorted) == 1:
                         try:
+                            bar_timestamp = bars_sorted[0].get("t", "unknown")
                             prev_close = float(bars_sorted[0].get("c", 0))
-                            print(f"✅ {symbol}: previous_close={prev_close} (from delayed SIP data - 1 bar only)")
+                            print(f"✅ {symbol}: previous_close={prev_close} (from delayed SIP - 1 bar only, ts={bar_timestamp})")
                             return prev_close if prev_close > 0 else None
-                        except (ValueError, TypeError):
+                        except (ValueError, TypeError) as e:
+                            print(f"⚠️ {symbol}: Could not parse SIP bar data: {e}")
                             pass
             
             # ===== BOTH FAILED: Return None =====
