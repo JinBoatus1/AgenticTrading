@@ -62,7 +62,67 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Load initial data
     await loadData();
+    
+    // Load market ticker data
+    await loadMarketTicker();
+    
+    // Refresh ticker every 30 seconds
+    setInterval(loadMarketTicker, 30000);
 });
+
+/**
+ * Load live market data from Alpaca API
+ */
+async function loadMarketTicker() {
+    try {
+        // Default symbols: SPY, QQQ, AAPL, MSFT, NVDA, BTC
+        const response = await fetch(`${API_BASE}/ticker?symbols=SPY,QQQ,AAPL,MSFT,NVDA,BTC`);
+        const data = await response.json();
+        
+        if (data.quotes && data.quotes.length > 0) {
+            updateTickerDisplay(data.quotes);
+            console.log('✅ Market ticker updated:', data.quotes.length, 'symbols');
+        }
+    } catch (error) {
+        console.warn('Could not fetch market ticker:', error.message);
+        // Silently fail - ticker is non-critical
+    }
+}
+
+/**
+ * Update ticker bar with real market data
+ */
+function updateTickerDisplay(quotes) {
+    const tickerBar = document.getElementById('tickerBar');
+    if (!tickerBar) return;
+    
+    // Build ticker items from quotes
+    let tickerHTML = '';
+    
+    quotes.forEach(quote => {
+        const changeClass = quote.changePercent >= 0 ? 'positive' : 'negative';
+        const changeSign = quote.changePercent >= 0 ? '+' : '';
+        
+        tickerHTML += `
+            <div class="ticker-item">
+                <span class="symbol">${quote.symbol}</span>
+                <span class="price">${quote.price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                <span class="change ${changeClass}">${changeSign}${quote.changePercent.toFixed(2)}%</span>
+                <svg class="ticker-chart" viewBox="0 0 30 12"><path d="M0,8 L5,6 L10,7 L15,4 L20,5 L25,3 L30,5" stroke="currentColor" fill="none" stroke-width="1"/></svg>
+            </div>
+        `;
+    });
+    
+    // Add spacer at end
+    tickerHTML += `
+        <div class="ticker-spacer">
+            <span class="ticker-dropdown">Market ▼</span>
+            <span class="ticker-filter">US Equities</span>
+        </div>
+    `;
+    
+    tickerBar.innerHTML = tickerHTML;
+}
 
 /**
  * Update slider value display

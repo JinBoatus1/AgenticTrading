@@ -286,6 +286,12 @@ body {
     height: 10px;
 }
 
+.ticker-placeholder {
+    padding: 10px 12px;
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
 .ticker-spacer {
     display: flex;
     align-items: center;
