@@ -20,14 +20,6 @@
                 <p>Compare LLM agents and baselines on the same market</p>
             </div>
         </div>
-        <div class="header-center">
-            <div class="market-info">
-                <span class="info-label">Market:</span>
-                <span class="info-value">US Equities</span>
-                <span class="info-label">Data as of:</span>
-                <span class="info-value" id="dataTimestamp">04/23 16:00 ET</span>
-            </div>
-        </div>
         <div class="header-right">
             <div class="mode-toggle">
                 <button class="mode-btn active" data-mode="backtest">Backtest</button>
@@ -130,6 +122,15 @@
                         <option>Momentum Agent</option>
                         <option>Mean Reversion</option>
                         <option>Custom</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>Model</label>
+                    <select class="control-select" id="modelSelect">
+                        <option>Claude</option>
+                        <option>GPT-4</option>
+                        <option>DeepSeek</option>
                     </select>
                 </div>
 
