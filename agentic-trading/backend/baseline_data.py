@@ -213,6 +213,7 @@ class BaselineDataFetcher:
         
         db.insert_run(
             run_id=djia_run_id,
+            session_id="baseline-demo",
             agent_name="DJIA Index",
             mode="baseline",
             start_date=now.isoformat(),
@@ -235,6 +236,7 @@ class BaselineDataFetcher:
         
         db.insert_run(
             run_id=bah_run_id,
+            session_id="baseline-demo",
             agent_name="Buy & Hold DJIA",
             mode="baseline",
             start_date=now.isoformat(),
@@ -314,6 +316,7 @@ def create_synthetic_baselines(days: int = 31) -> bool:
         
         db.insert_run(
             run_id=djia_run_id,
+            session_id="baseline-demo",
             agent_name="DJIA Index (Synthetic)",
             mode="baseline",
             start_date=now.isoformat(),
@@ -344,6 +347,7 @@ def create_synthetic_baselines(days: int = 31) -> bool:
         
         db.insert_run(
             run_id=bah_run_id,
+            session_id="baseline-demo",
             agent_name="Buy & Hold DJIA (Synthetic)",
             mode="baseline",
             start_date=now.isoformat(),

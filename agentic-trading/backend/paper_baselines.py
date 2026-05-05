@@ -274,6 +274,7 @@ class PaperTradingBaselineCalculator:
         
         db.insert_run(
             run_id=djia_run_id,
+            session_id="baseline-demo",
             agent_name="DJIA Index",
             mode="paper_baseline",
             start_date=start_date.isoformat(),
@@ -296,6 +297,7 @@ class PaperTradingBaselineCalculator:
         
         db.insert_run(
             run_id=bah_run_id,
+            session_id="baseline-demo",
             agent_name="Buy & Hold DJIA",
             mode="paper_baseline",
             start_date=start_date.isoformat(),
