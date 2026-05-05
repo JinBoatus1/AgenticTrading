@@ -3,7 +3,99 @@
  * Connects to backend API for real data
  */
 
+// ============================================================================
+// Session Management (Anonymous Browser Isolation)
+// ============================================================================
+
+// Initialize anonymous session on first load
+function initSession() {
+  let sessionId = localStorage.getItem('trading-session-id');
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    localStorage.setItem('trading-session-id', sessionId);
+    console.log('🆕 New anonymous session:', sessionId);
+  } else {
+    console.log('📋 Restored session:', sessionId);
+  }
+  window.SESSION_ID = sessionId;
+}
+
+// Parse URL config for TensorFlow Playground-style sharing
+function loadConfigFromURL() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    assets: params.get('assets') || 'AAPL,MSFT',
+    startDate: params.get('startDate') || '2024-01-01',
+    endDate: params.get('endDate') || '2024-12-31',
+    agent: params.get('agent') || 'claude',
+    benchmark: params.get('benchmark') || 'djia',
+    slippage: parseFloat(params.get('slippage') || '0.001'),
+    txCost: parseFloat(params.get('txCost') || '10'),
+  };
+}
+
+// Generate shareable URL with current config
+function generateShareURL(config) {
+  const params = new URLSearchParams(config);
+  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+// ============================================================================
+// Robust API Wrapper (auto-attaches X-Session-Id for backtest routes)
+// ============================================================================
+
+const API = {
+  async request(endpoint, options = {}) {
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Session-Id': window.SESSION_ID,
+      ...options.headers,
+    };
+    
+    try {
+      const response = await fetch(endpoint, { 
+        ...options, 
+        headers,
+      });
+      
+      const contentType = response.headers.get('content-type');
+      let data;
+      
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${text.substring(0, 200)}`);
+        }
+        return text;
+      }
+      
+      if (!response.ok) {
+        const errorMsg = data.error || data.message || `HTTP ${response.status}`;
+        throw new Error(errorMsg);
+      }
+      
+      return data;
+    } catch (error) {
+      console.error(`❌ API Error [${endpoint}]:`, error.message);
+      throw error;
+    }
+  },
+  
+  get(endpoint) {
+    return this.request(endpoint, { method: 'GET' });
+  },
+  
+  post(endpoint, data) {
+    return this.request(endpoint, { method: 'POST', body: JSON.stringify(data) });
+  },
+};
+
+// ============================================================================
 // Use production URL on Vercel, localhost for local development
+// ============================================================================
+
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? 'http://localhost:8000'
     : 'https://agentictrading.onrender.com';
@@ -15,6 +107,13 @@ let comparisonData = null;
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
+    // Initialize session FIRST (before any API calls)
+    initSession();
+    const config = loadConfigFromURL();
+    window.CURRENT_CONFIG = config;
+    console.log('⚙️ Experiment config:', config);
+    console.log('📋 Session ID:', window.SESSION_ID);
+    
     console.log('Dashboard initializing...');
     
     // Setup mode toggle
@@ -91,33 +190,24 @@ async function loadPerformanceMetrics() {
     try {
         // Add cache-busting timestamp to ensure fresh data
         const cacheBustUrl = `${API_BASE}/runs/latest/metrics?t=${Date.now()}`;
-        const response = await fetch(cacheBustUrl);
+        const metrics = await API.get(cacheBustUrl);
         
-        if (response.ok) {
-            const metrics = await response.json();
-            
-            // Validate metrics data
-            if (!metrics || !metrics.initial_equity) {
-                console.warn('Invalid metrics data:', metrics);
-                displayNoMetrics();
-                return;
-            }
-            
-            displayPerformanceMetrics(metrics);
-            console.log('✅ Performance metrics loaded:', metrics);
-            
-            // Log summary for debugging
-            const finalValue = metrics.initial_equity * (1 + (metrics.total_return || 0) / 100);
-            console.log(`   Final Value: $${finalValue.toFixed(0)}`);
-            console.log(`   Return: ${(metrics.total_return || 0).toFixed(2)}%`);
-            console.log(`   Max Drawdown: ${(metrics.max_drawdown || 0).toFixed(2)}%`);
-            console.log(`   Sharpe: ${(metrics.sharpe_ratio || 0).toFixed(2)}`);
-        } else {
-            const errorText = await response.text();
-            console.warn(`Could not fetch metrics: ${response.status}`, errorText);
-            // Show placeholder if no data available
+        // Validate metrics data
+        if (!metrics || !metrics.initial_equity) {
+            console.warn('Invalid metrics data:', metrics);
             displayNoMetrics();
+            return;
         }
+        
+        displayPerformanceMetrics(metrics);
+        console.log('✅ Performance metrics loaded:', metrics);
+        
+        // Log summary for debugging
+        const finalValue = metrics.initial_equity * (1 + (metrics.total_return || 0) / 100);
+        console.log(`   Final Value: $${finalValue.toFixed(0)}`);
+        console.log(`   Return: ${(metrics.total_return || 0).toFixed(2)}%`);
+        console.log(`   Max Drawdown: ${(metrics.max_drawdown || 0).toFixed(2)}%`);
+        console.log(`   Sharpe: ${(metrics.sharpe_ratio || 0).toFixed(2)}`);
     } catch (error) {
         console.warn('Error fetching performance metrics:', error.message);
         displayNoMetrics();
@@ -378,15 +468,8 @@ async function runBacktest() {
     btn.disabled = true;
     
     try {
-        // Call API to start backtest
-        const response = await fetch(`${API_BASE}/backtest/run?start_date=${startDate}&end_date=${endDate}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-        
-        const data = await response.json();
+        // Call API with session ID
+        const data = await API.post(`${API_BASE}/backtest/run?start_date=${startDate}&end_date=${endDate}`, {});
         
         if (!data.success) {
             console.error('❌ Backtest failed:', data.error || 'Unknown error');
@@ -400,7 +483,7 @@ async function runBacktest() {
         
         console.log('✅ Backtest started:', data.message);
         
-        // Poll for status
+        // Poll for status (now session-aware)
         await pollBacktestStatus(btn);
         
     } catch (error) {
@@ -428,8 +511,8 @@ async function pollBacktestStatus(btn) {
             attempts++;
             
             try {
-                const response = await fetch(`${API_BASE}/backtest/status`);
-                const status = await response.json();
+                // Status endpoint now session-specific
+                const status = await API.get(`${API_BASE}/backtest/status`);
                 
                 if (!status.running) {
                     isComplete = true;
@@ -522,13 +605,9 @@ async function loadData() {
         
         if (currentMode === 'backtest') {
             // Fetch all runs (with cache-busting)
-            const runsResponse = await fetch(`${API_BASE}/runs?t=${Date.now()}`);
-            if (!runsResponse.ok) {
-                console.error('Failed to fetch runs:', runsResponse.status);
-                return;
-            }
+            const runsData = await API.get(`${API_BASE}/runs?t=${Date.now()}`);
             
-            allRuns = await runsResponse.json();
+            allRuns = runsData;
             console.log('Loaded runs:', allRuns.length, allRuns);
             
             if (allRuns.length === 0) {
@@ -542,15 +621,9 @@ async function loadData() {
             
             // Fetch comparison data with run IDs (with cache-busting)
             const compareUrl = `${API_BASE}/compare?run_ids=${encodeURIComponent(runIds)}&t=${Date.now()}`;
-            const compareResponse = await fetch(compareUrl);
-            if (!compareResponse.ok) {
-                console.error('Failed to fetch comparison:', compareResponse.status);
-                const errorText = await compareResponse.text();
-                console.error('Error details:', errorText);
-                return;
-            }
+            const compareData = await API.get(compareUrl);
             
-            comparisonData = await compareResponse.json();
+            comparisonData = compareData;
             console.log('Loaded comparison data:', comparisonData);
             
             // Display charts with real data

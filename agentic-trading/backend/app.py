@@ -3,7 +3,7 @@ FastAPI backend for agentic trading dashboard.
 Serves equity curves, run metadata, and comparison data.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pathlib import Path
@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from database import db
 from market_data import get_market_quotes
+from middleware import SessionMiddleware
 from paper_trading import AlpacaPaperTradingClient, create_paper_trading_session
 from paper_baselines import create_paper_baselines_if_not_exists
 from baselines_endpoint import get_baselines_from_db
@@ -85,6 +86,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Type", "Cache-Control", "ETag"],
 )
+
+# Add session middleware (selective: backtest routes only)
+app.add_middleware(SessionMiddleware)
 
 # CSP Middleware: Permit Chart.js and inline scripts (for development)
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -178,9 +182,12 @@ import threading
 
 # Global state for background backtest
 backtest_status = {"running": False, "error": None, "runs_count": 0}
+backtest_session_id = None  # Track which session owns the running backtest
 
-def run_backtest_background(start_date: str, end_date: str):
+def run_backtest_background(start_date: str, end_date: str, session_id: str):
     """Run backtest in background thread."""
+    global backtest_status, backtest_session_id
+    
     try:
         import subprocess
         import sys
@@ -188,8 +195,10 @@ def run_backtest_background(start_date: str, end_date: str):
         
         backtest_status["running"] = True
         backtest_status["error"] = None
+        backtest_session_id = session_id  # Store session for status polling
         
         print(f"🚀 Background: Running backtest: {start_date} to {end_date}", flush=True)
+        print(f"   Session: {session_id[:8]}...", flush=True)
         
         backend_dir = Path(__file__).parent.resolve()
         project_dir = backend_dir.parent.resolve()
@@ -204,7 +213,8 @@ def run_backtest_background(start_date: str, end_date: str):
         # Run backtest script
         result = subprocess.run(
             [sys.executable, str(script_path),
-             "--start", start_date, "--end", end_date],
+             "--start", start_date, "--end", end_date,
+             "--session-id", session_id],  # Pass session_id to script
             cwd=str(project_dir),
             capture_output=True,
             text=True,
@@ -235,13 +245,15 @@ def run_backtest_background(start_date: str, end_date: str):
         print(f"✋ Backtest background thread finished", flush=True)
 
 @app.post("/backtest/run")
-async def run_backtest_endpoint(start_date: str = "2026-04-15", end_date: str = "2026-04-23"):
+async def run_backtest_endpoint(request: Request, start_date: str = "2026-04-15", end_date: str = "2026-04-23"):
     """
     Trigger backtest in background (non-blocking).
     
     Returns immediately with status. Check /backtest/status to monitor progress.
     """
+    session_id = request.state.session_id
     print(f"📌 /backtest/run endpoint called: start_date={start_date}, end_date={end_date}", flush=True)
+    print(f"   Session: {session_id[:8]}...", flush=True)
     
     if backtest_status["running"]:
         print(f"⚠️ Backtest already running, rejecting request", flush=True)
@@ -254,7 +266,7 @@ async def run_backtest_endpoint(start_date: str = "2026-04-15", end_date: str = 
     print(f"🧵 Starting background thread for backtest", flush=True)
     thread = threading.Thread(
         target=run_backtest_background,
-        args=(start_date, end_date),
+        args=(start_date, end_date, session_id),  # Pass session_id
         daemon=True
     )
     thread.start()
@@ -266,8 +278,10 @@ async def run_backtest_endpoint(start_date: str = "2026-04-15", end_date: str = 
     }
 
 @app.get("/backtest/status")
-async def get_backtest_status():
+async def get_backtest_status(request: Request):
     """Get backtest status (running, error, or completed)."""
+    session_id = request.state.session_id
+    
     if backtest_status["running"]:
         return {
             "running": True,
@@ -280,10 +294,20 @@ async def get_backtest_status():
             "message": "Backtest failed"
         }
     elif backtest_status["runs_count"] > 0:
+        # Verify the completed backtest belongs to this session
+        runs = db.get_runs_by_session(session_id)
+        if not runs:
+            return {
+                "running": False,
+                "error": "Backtest completed but no runs found for this session",
+                "message": "Session mismatch"
+            }
+        
         return {
             "running": False,
             "success": True,
             "runs_count": backtest_status["runs_count"],
+            "session_id": session_id,
             "message": "Backtest completed successfully"
         }
     else:
@@ -298,44 +322,29 @@ async def get_backtest_status():
 # ============================================================================
 
 @app.get("/api/backtest/runs", response_model=List[RunMetadata])
-async def get_backtest_runs():
-    """Get all backtest runs."""
-    runs = db.get_runs_by_mode("backtest")
+async def get_backtest_runs(request: Request):
+    """Get all backtest runs for this session."""
+    session_id = request.state.session_id
+    runs = db.get_runs_by_session(session_id)
+    runs = [r for r in runs if r['mode'] == 'backtest']
     return [RunMetadata(**run) for run in runs]
 
 
-@app.get("/api/backtest/{run_id}", response_model=EquityCurve)
-async def get_backtest_run(run_id: str):
-    """Get specific backtest run with equity curve."""
-    run = db.get_run(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
-    
-    equity_data = db.get_equity_curve(run_id)
-    
-    return EquityCurve(
-        run_id=run_id,
-        agent_name=run['agent_name'],
-        data=[EquityPoint(**point) for point in equity_data],
-        metrics={
-            'total_return': run['total_return'],
-            'sharpe_ratio': run['sharpe_ratio'],
-            'max_drawdown': run['max_drawdown'],
-            'num_trades': run['num_trades']
-        }
-    )
-
+# IMPORTANT: Register /compare/latest BEFORE /{run_id} to prevent {run_id} from matching "compare/latest"
 
 @app.get("/api/backtest/compare/latest", response_model=ComparisonResponse)
-async def compare_latest_backtests():
-    """Compare the latest backtest runs + baselines."""
-    # Get both backtest and baseline runs
-    backtest_runs = db.get_runs_by_mode("backtest") or []
-    baseline_runs = db.get_runs_by_mode("baseline") or []
+async def compare_latest_backtests(request: Request):
+    """Compare the latest backtest runs + baselines for this session."""
+    session_id = request.state.session_id
+    
+    # Get this session's runs
+    all_runs = db.get_runs_by_session(session_id) or []
+    backtest_runs = [r for r in all_runs if r['mode'] == 'backtest']
+    baseline_runs = [r for r in all_runs if r['mode'] == 'baseline']
     runs = backtest_runs + baseline_runs
     
     if not runs:
-        raise HTTPException(status_code=404, detail="No backtest or baseline runs found")
+        raise HTTPException(status_code=404, detail="No backtest or baseline runs found for this session")
     
     # Group by agent and get latest for each
     latest_by_agent = {}
@@ -364,7 +373,7 @@ async def compare_latest_backtests():
             ))
     
     if not comparison_runs:
-        raise HTTPException(status_code=404, detail="No equity data found")
+        raise HTTPException(status_code=404, detail="No equity data found for session")
     
     best_run = max(comparison_runs, key=lambda r: r.metrics['total_return'] or 0)
     
@@ -378,54 +387,81 @@ async def compare_latest_backtests():
     )
 
 
-@app.get("/runs/latest/metrics", response_model=RunMetadata)
-async def get_latest_metrics():
-    """Get metrics for the latest agent backtest run."""
-    runs = db.get_runs_by_mode("backtest") or []
-    if not runs:
-        raise HTTPException(status_code=404, detail="No backtest runs found")
+@app.get("/api/backtest/{run_id}", response_model=EquityCurve)
+async def get_backtest_run(run_id: str, request: Request):
+    """Get specific backtest run with equity curve."""
+    session_id = request.state.session_id
+    run = db.get_run_with_session(run_id, session_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found or not yours")
     
-    # Get the most recent run
+    equity_data = db.get_equity_curve(run_id)
+    
+    return EquityCurve(
+        run_id=run_id,
+        agent_name=run['agent_name'],
+        data=[EquityPoint(**point) for point in equity_data],
+        metrics={
+            'total_return': run['total_return'],
+            'sharpe_ratio': run['sharpe_ratio'],
+            'max_drawdown': run['max_drawdown'],
+            'num_trades': run['num_trades']
+        }
+    )
+
+
+@app.get("/runs/latest/metrics", response_model=RunMetadata)
+async def get_latest_metrics(request: Request):
+    """Get metrics for the latest agent backtest run in this session."""
+    session_id = request.state.session_id
+    runs = [r for r in db.get_runs_by_session(session_id) or [] if r['mode'] == 'backtest']
+    if not runs:
+        raise HTTPException(status_code=404, detail="No backtest runs found for this session")
+    
     latest_run = max(runs, key=lambda r: r['created_at'])
     return RunMetadata(**latest_run)
 
 
 @app.get("/runs", response_model=List[RunMetadata])
-async def get_runs(mode: Optional[str] = None):
+async def get_runs(request: Request, mode: Optional[str] = None):
     """
-    Get all backtest/paper runs.
+    Get all backtest/paper runs for this session.
     
     Query params:
     - mode: 'backtest' or 'paper' (optional)
     """
+    session_id = request.state.session_id
     if mode:
-        runs = db.get_runs_by_mode(mode)
+        runs = [r for r in db.get_runs_by_session(session_id) if r['mode'] == mode]
     else:
-        runs = db.get_all_runs()
+        # Default: backtest runs only (for isolation)
+        runs = [r for r in db.get_runs_by_session(session_id) if r['mode'] == 'backtest']
     
     return [RunMetadata(**run) for run in runs]
 
 
 @app.get("/runs/{run_id}", response_model=RunMetadata)
-async def get_run(run_id: str):
+async def get_run(run_id: str, request: Request):
     """Get metadata for a specific run."""
-    run = db.get_run(run_id)
+    session_id = request.state.session_id
+    run = db.get_run_with_session(run_id, session_id)
     if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise HTTPException(status_code=404, detail="Run not found or not yours")
     return RunMetadata(**run)
 
 
 @app.get("/runs/{run_id}/equity", response_model=EquityCurve)
-async def get_equity_curve(run_id: str):
+async def get_equity_curve(run_id: str, request: Request):
     """
     Get equity curve for a specific run.
     
     Returns time-series data with equity, cash, positions_value, daily_return.
     Filtered to market hours only (9:30 AM - 4:00 PM ET).
     """
-    run = db.get_run(run_id)
+    session_id = request.state.session_id
+    run = db.get_run_with_session(run_id, session_id)
     if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise HTTPException(status_code=404, detail="Run not found or not yours")
     
     equity_data = db.get_equity_curve(run_id)
     equity_data = filter_market_hours(equity_data)
@@ -444,15 +480,16 @@ async def get_equity_curve(run_id: str):
 
 
 @app.get("/compare", response_model=ComparisonResponse)
-async def compare_runs(run_ids: str):
+async def compare_runs(run_ids: str, request: Request):
     """
-    Compare multiple runs.
+    Compare multiple runs for this session.
     
     Query params:
     - run_ids: comma-separated list of run IDs (e.g., "run1,run2,run3")
     
     Returns equity curves for all specified runs, ready for multi-line chart.
     """
+    session_id = request.state.session_id
     ids = [rid.strip() for rid in run_ids.split(',') if rid.strip()]
     
     if not ids:
@@ -462,7 +499,7 @@ async def compare_runs(run_ids: str):
     final_equities = []
     
     for run_id in ids:
-        run = db.get_run(run_id)
+        run = db.get_run_with_session(run_id, session_id)
         if not run:
             continue
         
@@ -875,8 +912,15 @@ async def admin_clear_all():
 
 
 @app.delete("/admin/runs/{run_id}")
-async def admin_delete_run(run_id: str):
-    """⚠️ Delete a specific run."""
+async def admin_delete_run(run_id: str, request: Request):
+    """⚠️ Delete a specific run (must be owned by session)."""
+    session_id = request.state.session_id
+    
+    # Verify ownership before deleting
+    run = db.get_run_with_session(run_id, session_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found or not yours")
+    
     db.delete_run(run_id)
     return {"status": "deleted", "run_id": run_id}
 

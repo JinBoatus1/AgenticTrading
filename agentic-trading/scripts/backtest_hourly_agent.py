@@ -428,9 +428,10 @@ class PortfolioManager:
 class HourlyBacktester:
     """Runs hourly backtest with agent and baselines."""
     
-    def __init__(self, start_date: str, end_date: str):
+    def __init__(self, start_date: str, end_date: str, session_id: str = "legacy-demo-session"):
         self.start_date = start_date
         self.end_date = end_date
+        self.session_id = session_id
         self.data_loader = AlpacaDataLoader()
         self.all_data = {}
     
@@ -561,6 +562,7 @@ class HourlyBacktester:
         
         db.insert_run(
             run_id=run_id,
+            session_id=self.session_id,
             agent_name="Agent",
             mode="backtest",
             start_date=self.start_date,
@@ -606,6 +608,7 @@ class HourlyBacktester:
         
         db.insert_run(
             run_id=run_id,
+            session_id=self.session_id,
             agent_name="buy-and-hold",
             mode="backtest",
             start_date=self.start_date,
@@ -650,6 +653,7 @@ class HourlyBacktester:
         
         db.insert_run(
             run_id=run_id,
+            session_id=self.session_id,
             agent_name="DJIA",
             mode="backtest",
             start_date=self.start_date,
@@ -730,9 +734,12 @@ def main():
     )
     parser.add_argument("--start", default=DEFAULT_START, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", default=DEFAULT_END, help="End date (YYYY-MM-DD)")
+    parser.add_argument("--session-id", default="legacy-demo-session", help="Session ID for isolation")
     parser.add_argument("--clear", action="store_true", help="Clear all data first")
     
     args = parser.parse_args()
+    
+    session_id = args.session_id
     
     if args.clear:
         print("🗑️ Clearing all existing data...\n")
@@ -741,13 +748,14 @@ def main():
     print(f"\n🚀 Hourly Agent Backtest Framework")
     print(f"{'='*70}")
     print(f"Period: {args.start} → {args.end}")
+    print(f"Session: {session_id[:8]}...")
     print(f"Stocks: {len(DJIA_30)} (DJIA)")
     print(f"Trading: Hourly (Agent decisions based on indicators)")
     print(f"Capital: ${INITIAL_CAPITAL:,.0f}")
     print(f"{'='*70}\n")
     
     # Initialize backtester
-    backtester = HourlyBacktester(args.start, args.end)
+    backtester = HourlyBacktester(args.start, args.end, session_id)
     
     # Step 1: Load data
     print("1️⃣ Loading historical hourly data from Alpaca...")

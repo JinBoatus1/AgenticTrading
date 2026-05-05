@@ -1,6 +1,9 @@
 """
 SQLite database layer for agentic trading backtesting.
 Handles schema initialization and CRUD operations.
+
+Session isolation: session_id added to agent_runs table only.
+Equity timeseries and trades can be verified through agent_runs ownership.
 """
 
 import sqlite3
@@ -19,6 +22,7 @@ class BacktestDatabase:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
+        self._migrate_schema()  # Handle existing DBs
     
     def _get_connection(self):
         """Get database connection."""
@@ -27,7 +31,7 @@ class BacktestDatabase:
         return conn
     
     def _init_schema(self):
-        """Create tables if they don't exist."""
+        """Create tables if they don't exist (new installations)."""
         conn = self._get_connection()
         cursor = conn.cursor()
         
@@ -35,6 +39,7 @@ class BacktestDatabase:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS agent_runs (
                 run_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
                 agent_name TEXT NOT NULL,
                 mode TEXT NOT NULL,
                 start_date TEXT NOT NULL,
@@ -49,6 +54,21 @@ class BacktestDatabase:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        # Index for session-scoped queries (only if table has session_id)
+        try:
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_agent_runs_session 
+                ON agent_runs(session_id)
+            """)
+            
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_agent_runs_session_mode 
+                ON agent_runs(session_id, mode)
+            """)
+        except Exception:
+            # Indexes may fail if table exists without session_id; will be handled by migration
+            pass
         
         # equity_timeseries: daily snapshots
         cursor.execute("""
@@ -66,13 +86,12 @@ class BacktestDatabase:
             )
         """)
         
-        # Index for fast lookups
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_run_timestamp 
             ON equity_timeseries(run_id, timestamp)
         """)
         
-        # trades: detailed trade log (optional, for later)
+        # trades: detailed trade log
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,7 +111,52 @@ class BacktestDatabase:
         conn.commit()
         conn.close()
     
-    def insert_run(self, run_id: str, agent_name: str, mode: str, 
+    def _migrate_schema(self):
+        """Migrate existing databases: add session_id column if missing."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Check if session_id column exists
+            cursor.execute("PRAGMA table_info(agent_runs)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'session_id' not in columns:
+                print("🔄 Migrating: Adding session_id to agent_runs...")
+                
+                # Add session_id column with default value
+                cursor.execute("""
+                    ALTER TABLE agent_runs 
+                    ADD COLUMN session_id TEXT DEFAULT 'legacy-demo-session'
+                """)
+                
+                # Update any NULL values
+                cursor.execute("UPDATE agent_runs SET session_id = 'legacy-demo-session' WHERE session_id IS NULL")
+                
+                # Add indexes
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_agent_runs_session 
+                    ON agent_runs(session_id)
+                """)
+                
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_agent_runs_session_mode 
+                    ON agent_runs(session_id, mode)
+                """)
+                
+                conn.commit()
+                print("✅ Migration complete: session_id added to agent_runs")
+            else:
+                print("✅ Schema already up-to-date (session_id exists)")
+        
+        except Exception as e:
+            print(f"⚠️ Migration warning: {e}")
+            # If migration fails, it's OK - proceed anyway
+        
+        finally:
+            conn.close()
+    
+    def insert_run(self, run_id: str, session_id: str, agent_name: str, mode: str, 
                    start_date: str, end_date: str, 
                    initial_equity: float,
                    final_equity: Optional[float] = None,
@@ -100,17 +164,17 @@ class BacktestDatabase:
                    sharpe_ratio: Optional[float] = None,
                    max_drawdown: Optional[float] = None,
                    num_trades: int = 0) -> None:
-        """Insert a new backtest run."""
+        """Insert a new backtest run with session_id."""
         conn = self._get_connection()
         cursor = conn.cursor()
         
         cursor.execute("""
             INSERT OR REPLACE INTO agent_runs 
-            (run_id, agent_name, mode, start_date, end_date, 
+            (run_id, session_id, agent_name, mode, start_date, end_date, 
              initial_equity, final_equity, total_return, sharpe_ratio, 
              max_drawdown, num_trades)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (run_id, agent_name, mode, start_date, end_date,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (run_id, session_id, agent_name, mode, start_date, end_date,
               initial_equity, final_equity, total_return, sharpe_ratio,
               max_drawdown, num_trades))
         
@@ -165,10 +229,22 @@ class BacktestDatabase:
         conn = self._get_connection()
         cursor = conn.cursor()
         
+        cursor.execute("SELECT * FROM agent_runs ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return [dict(row) for row in rows]
+    
+    def get_runs_by_session(self, session_id: str) -> List[Dict]:
+        """Get all runs for a specific session."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
         cursor.execute("""
             SELECT * FROM agent_runs 
+            WHERE session_id = ?
             ORDER BY created_at DESC
-        """)
+        """, (session_id,))
         
         rows = cursor.fetchall()
         conn.close()
@@ -176,11 +252,25 @@ class BacktestDatabase:
         return [dict(row) for row in rows]
     
     def get_run(self, run_id: str) -> Optional[Dict]:
-        """Get metadata for a specific run."""
+        """Get metadata for a specific run (no session check)."""
         conn = self._get_connection()
         cursor = conn.cursor()
         
         cursor.execute("SELECT * FROM agent_runs WHERE run_id = ?", (run_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        return dict(row) if row else None
+    
+    def get_run_with_session(self, run_id: str, session_id: str) -> Optional[Dict]:
+        """Get a run, verifying it belongs to the session."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT * FROM agent_runs 
+            WHERE run_id = ? AND session_id = ?
+        """, (run_id, session_id))
         row = cursor.fetchone()
         conn.close()
         
