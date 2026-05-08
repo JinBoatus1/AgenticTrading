@@ -410,11 +410,12 @@ async def get_backtest_run(run_id: str, request: Request):
 
 @app.get("/runs/latest/metrics", response_model=RunMetadata)
 async def get_latest_metrics(request: Request):
-    """Get metrics for the latest agent backtest run in this session."""
+    """Get metrics for the latest Agent backtest run in this session (excludes baselines)."""
     session_id = request.state.session_id
-    runs = [r for r in db.get_runs_by_session(session_id) or [] if r['mode'] == 'backtest']
+    runs = [r for r in db.get_runs_by_session(session_id) or [] 
+            if r['mode'] == 'backtest' and r['agent_name'] == 'Agent']
     if not runs:
-        raise HTTPException(status_code=404, detail="No backtest runs found for this session")
+        raise HTTPException(status_code=404, detail="No Agent backtest runs found for this session")
     
     latest_run = max(runs, key=lambda r: r['created_at'])
     return RunMetadata(**latest_run)
