@@ -156,12 +156,12 @@ If you cannot make a valid decision, respond with: {"action": "hold"}""",
             logger.info(
                 f"✅ LLM decision validated and logged",
                 extra={
-                    "decision": decision.dict(),
+                    "decision": decision.model_dump(),
                     "session_id": session_id
                 }
             )
             
-            return decision.dict()
+            return decision.model_dump()
         
         except Exception as e:
             logger.error(

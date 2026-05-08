@@ -17,7 +17,7 @@ from typing import Dict, Any, Optional
 from enum import Enum
 from decimal import Decimal
 from datetime import datetime
-from pydantic import BaseModel, validator, ValidationError
+from pydantic import BaseModel, field_validator, ValidationError, ConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,8 @@ class LLMTradingDecision(BaseModel):
     The LLM MUST respond with JSON matching this schema.
     Any attempt to call tools or functions will be rejected.
     """
+    model_config = ConfigDict(use_enum_values=True)
+    
     action: TradingAction
     symbol: str
     confidence: float
@@ -54,17 +56,16 @@ class LLMTradingDecision(BaseModel):
     stop_loss_price: Optional[float] = None
     take_profit_price: Optional[float] = None
     
-    class Config:
-        use_enum_values = True
-    
-    @validator('symbol')
+    @field_validator('symbol')
+    @classmethod
     def validate_symbol(cls, v):
         """Ensure symbol is in DJIA 30"""
         if v not in DJIA_30:
             raise ValueError(f"Invalid symbol: {v}. Must be one of {DJIA_30}")
         return v
     
-    @validator('confidence')
+    @field_validator('confidence')
+    @classmethod
     def validate_confidence(cls, v):
         """Confidence must be 0.0 to 1.0"""
         if not isinstance(v, (int, float)):
@@ -73,7 +74,8 @@ class LLMTradingDecision(BaseModel):
             raise ValueError(f"Confidence {v} out of range [0.0, 1.0]")
         return float(v)
     
-    @validator('reasoning')
+    @field_validator('reasoning')
+    @classmethod
     def validate_reasoning(cls, v):
         """Reasoning must be string, max 500 chars"""
         if not isinstance(v, str):
@@ -84,7 +86,8 @@ class LLMTradingDecision(BaseModel):
             raise ValueError(f"Reasoning too short: {len(v)} < 5 chars")
         return v
     
-    @validator('position_size')
+    @field_validator('position_size')
+    @classmethod
     def validate_position_size(cls, v):
         """Position size must be non-negative integer"""
         if not isinstance(v, int):
@@ -95,9 +98,10 @@ class LLMTradingDecision(BaseModel):
             raise ValueError(f"Position size too large: {v} > 10000")
         return v
     
-    @validator('stop_loss_price', pre=True, always=True)
-    def validate_stop_loss(cls, v, values):
-        """Stop loss must be valid and < current price"""
+    @field_validator('stop_loss_price', mode='before')
+    @classmethod
+    def validate_stop_loss(cls, v):
+        """Stop loss must be valid and positive"""
         if v is None:
             return v
         if not isinstance(v, (int, float)):
@@ -106,9 +110,10 @@ class LLMTradingDecision(BaseModel):
             raise ValueError(f"Stop loss must be positive: {v}")
         return float(v)
     
-    @validator('take_profit_price', pre=True, always=True)
-    def validate_take_profit(cls, v, values):
-        """Take profit must be valid and > current price"""
+    @field_validator('take_profit_price', mode='before')
+    @classmethod
+    def validate_take_profit(cls, v):
+        """Take profit must be valid and positive"""
         if v is None:
             return v
         if not isinstance(v, (int, float)):
@@ -192,7 +197,7 @@ def validate_llm_response(
         logger.info(
             f"⏭️ Decision confidence {decision.confidence} below minimum {constraints.min_confidence}. "
             f"Treating as HOLD.",
-            extra={"decision": decision.dict()}
+            extra={"decision": decision.model_dump()}
         )
         decision.action = TradingAction.HOLD
         decision.position_size = 0
@@ -207,7 +212,7 @@ def validate_llm_response(
             logger.warning(
                 f"❌ BUY {decision.symbol}: Insufficient cash. "
                 f"Need ${total_cost:,.2f}, have ${constraints.cash_available:,.2f}",
-                extra={"decision": decision.dict(), "cost": total_cost}
+                extra={"decision": decision.model_dump(), "cost": total_cost}
             )
             return None
         
@@ -215,7 +220,7 @@ def validate_llm_response(
             logger.warning(
                 f"❌ BUY {decision.symbol}: Position size {decision.position_size} "
                 f"exceeds max {constraints.max_position_size}",
-                extra={"decision": decision.dict()}
+                extra={"decision": decision.model_dump()}
             )
             return None
         
@@ -223,7 +228,7 @@ def validate_llm_response(
             logger.warning(
                 f"❌ BUY {decision.symbol}: Position value ${total_cost:,.2f} "
                 f"exceeds max ${constraints.max_position_value:,.2f}",
-                extra={"decision": decision.dict()}
+                extra={"decision": decision.model_dump()}
             )
             return None
     
@@ -233,7 +238,7 @@ def validate_llm_response(
         if decision.symbol not in positions:
             logger.warning(
                 f"❌ SELL {decision.symbol}: No position to sell",
-                extra={"decision": decision.dict(), "positions": positions}
+                extra={"decision": decision.model_dump(), "positions": positions}
             )
             return None
         
@@ -241,14 +246,14 @@ def validate_llm_response(
             logger.warning(
                 f"❌ SELL {decision.symbol}: Trying to sell {decision.position_size} "
                 f"shares, only have {positions[decision.symbol]}",
-                extra={"decision": decision.dict()}
+                extra={"decision": decision.model_dump()}
             )
             return None
     
     logger.info(
         f"✅ LLM decision validated: {decision.action.upper()} {decision.symbol} "
         f"{decision.position_size} @ confidence {decision.confidence:.0%}",
-        extra={"decision": decision.dict()}
+        extra={"decision": decision.model_dump()}
     )
     
     return decision
@@ -274,7 +279,7 @@ def log_audit_trail(
     audit_record = {
         "timestamp": datetime.utcnow().isoformat(),
         "session_id": session_id,
-        "decision": decision.dict() if decision else None,
+        "decision": decision.model_dump() if decision else None,
         "execution_status": execution_status,
         "error": error_msg,
         "llm_response_preview": llm_raw_response[:300]
