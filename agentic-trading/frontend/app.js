@@ -1365,7 +1365,13 @@ function generateMockEquityCurveData() {
         let value = config.initialValue;
         
         for (let i = 0; i < days.length; i++) {
-            // Random walk with drift
+            // On day 0 (Nov 15), all teams start at exactly $100k
+            if (i === 0) {
+                curve.push(config.initialValue);
+                continue;
+            }
+            
+            // Random walk with drift (starting from day 1)
             const random = (Math.random() - 0.5) * 2;
             const drift = config.trend * config.initialValue;
             const volatilityComponent = random * config.volatility * value;
