@@ -1599,13 +1599,14 @@ async function renderEquityCurvesChart() {
             data: data,
             borderColor: config.color,
             backgroundColor: config.bgColor,
-            borderWidth: 2,
+            borderWidth: 2.5,  // Thicker lines for better visibility
             pointRadius: 0,
-            pointHoverRadius: 4,
-            tension: 0.4, // Smooth curve
+            pointHoverRadius: 5,
+            tension: 0.3,  // Slightly less tension for crisper lines
             fill: false,
             spanGaps: false,
-            hoverBorderWidth: 3,
+            hoverBorderWidth: 4,
+            hoverBorderColor: config.color,
         };
     });
     
@@ -1633,15 +1634,15 @@ async function renderEquityCurvesChart() {
                     display: true,
                     position: 'bottom',
                     labels: {
-                        color: 'var(--text-secondary)',
+                        color: '#e5e7eb',  // Brighter text for better contrast
                         font: {
-                            size: 11,
-                            weight: '500',
+                            size: 12,
+                            weight: '600',
                         },
                         padding: 15,
                         usePointStyle: true,
                         pointStyle: 'circle',
-                        boxWidth: 6,
+                        boxWidth: 8,
                     },
                     onClick: (e, legendItem, legend) => {
                         // Allow toggling dataset visibility
@@ -1656,19 +1657,19 @@ async function renderEquityCurvesChart() {
                     enabled: true,
                     mode: 'index',
                     intersect: false,
-                    backgroundColor: 'rgba(10, 14, 39, 0.9)',
-                    borderColor: 'var(--border-color)',
-                    borderWidth: 1,
-                    titleColor: 'var(--text-primary)',
-                    bodyColor: 'var(--text-secondary)',
+                    backgroundColor: 'rgba(5, 7, 20, 0.95)',
+                    borderColor: '#404854',
+                    borderWidth: 2,
+                    titleColor: '#e5e7eb',
+                    bodyColor: '#d1d5db',
                     padding: 12,
-                    cornerRadius: 4,
+                    cornerRadius: 6,
                     titleFont: {
-                        size: 12,
+                        size: 13,
                         weight: 'bold',
                     },
                     bodyFont: {
-                        size: 11,
+                        size: 12,
                     },
                     callbacks: {
                         title: function(context) {
@@ -1691,13 +1692,14 @@ async function renderEquityCurvesChart() {
                 x: {
                     display: true,
                     grid: {
-                        color: 'var(--grid-color)',
+                        color: 'rgba(31, 41, 55, 0.8)',  // Brighter grid lines
                         drawBorder: false,
                     },
                     ticks: {
-                        color: 'var(--text-muted)',
+                        color: '#9ca3af',  // Brighter axis labels
                         font: {
-                            size: 10,
+                            size: 11,
+                            weight: '500',
                         },
                         maxRotation: 0,
                         autoSkip: true,
@@ -1707,13 +1709,14 @@ async function renderEquityCurvesChart() {
                 y: {
                     display: true,
                     grid: {
-                        color: 'var(--grid-color)',
+                        color: 'rgba(31, 41, 55, 0.8)',  // Brighter grid lines
                         drawBorder: false,
                     },
                     ticks: {
-                        color: 'var(--text-muted)',
+                        color: '#9ca3af',  // Brighter axis labels
                         font: {
-                            size: 10,
+                            size: 11,
+                            weight: '500',
                         },
                         callback: function(value) {
                             if (currentChartView === 'cumulative' || currentChartView === 'drawdown') {
@@ -1733,20 +1736,20 @@ async function renderEquityCurvesChart() {
 }
 
 /**
- * Get team color configuration
+ * Get team color configuration - Bright colors for dark background (10jqka inspired)
  */
 function getTeamColorConfig(teamName) {
     const colors = {
-        'AlphaForge': { color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.1)' },
-        'SignalWeaver': { color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.1)' },
-        'RiskPilot': { color: '#06b6d4', bgColor: 'rgba(6, 182, 212, 0.1)' },
-        'MarketMinds': { color: '#8b5cf6', bgColor: 'rgba(139, 92, 246, 0.1)' },
-        'QuantNebula': { color: '#ec4899', bgColor: 'rgba(236, 72, 153, 0.1)' },
-        'CashGuard': { color: '#84cc16', bgColor: 'rgba(132, 204, 22, 0.1)' },
-        'DeltaVector': { color: '#f43f5e', bgColor: 'rgba(244, 63, 94, 0.1)' },
-        'DJIA Buy-and-Hold': { color: '#9ca3af', bgColor: 'rgba(156, 163, 175, 0.1)' },
+        'AlphaForge': { color: '#60a5fa', bgColor: 'rgba(96, 165, 250, 0.15)' },           // Bright Blue
+        'SignalWeaver': { color: '#fb923c', bgColor: 'rgba(251, 147, 60, 0.15)' },        // Bright Orange
+        'RiskPilot': { color: '#22d3ee', bgColor: 'rgba(34, 211, 238, 0.15)' },           // Bright Cyan
+        'MarketMinds': { color: '#a78bfa', bgColor: 'rgba(167, 139, 250, 0.15)' },       // Bright Purple
+        'QuantNebula': { color: '#f472b6', bgColor: 'rgba(244, 114, 182, 0.15)' },        // Bright Pink
+        'CashGuard': { color: '#bef264', bgColor: 'rgba(190, 242, 100, 0.15)' },          // Bright Lime
+        'DeltaVector': { color: '#ff6b7a', bgColor: 'rgba(255, 107, 122, 0.15)' },        // Bright Red
+        'DJIA Buy-and-Hold': { color: '#d1d5db', bgColor: 'rgba(209, 213, 219, 0.15)' },  // Bright Gray
     };
-    return colors[teamName] || { color: '#5c7cfa', bgColor: 'rgba(92, 124, 250, 0.1)' };
+    return colors[teamName] || { color: '#818cf8', bgColor: 'rgba(129, 140, 248, 0.15)' };
 }
 
 /**
