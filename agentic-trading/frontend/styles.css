@@ -1787,8 +1787,6 @@ body {
 
 .table-wrapper.compact {
     overflow-x: auto;
-    overflow-y: auto;
-    max-height: 250px;
     border-radius: 3px;
 }
 
