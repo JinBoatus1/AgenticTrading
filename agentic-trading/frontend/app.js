@@ -1250,12 +1250,12 @@ function displayPaperError(message) {
  * Each team has daily portfolio value data from Sept 1 - Oct 31, 2026
  */
 function generateMockEquityCurveData() {
-    const startDate = new Date('2026-09-01');
-    const endDate = new Date('2026-10-31');
+    const startDate = new Date('2026-11-15');
+    const endDate = new Date('2026-12-15');
     const days = [];
     const dates = [];
     
-    // Generate 61 trading days (excluding weekends)
+    // Generate trading days (excluding weekends)
     let current = new Date(startDate);
     while (current <= endDate) {
         const dayOfWeek = current.getDay();
@@ -1272,64 +1272,64 @@ function generateMockEquityCurveData() {
             initialValue: 100000,
             volatility: 0.008,
             trend: 0.0002,
-            peakDay: 45,
-            drawdownDays: [[50, 55]],
+            peakDay: 18,
+            drawdownDays: [[20, 22]],
             color: '#3b82f6'
         },
         'SignalWeaver': {
             initialValue: 100000,
             volatility: 0.010,
             trend: 0.00015,
-            peakDay: 40,
-            drawdownDays: [[48, 58]],
+            peakDay: 16,
+            drawdownDays: [[19, 24]],
             color: '#f97316'
         },
         'RiskPilot': {
             initialValue: 100000,
             volatility: 0.009,
             trend: 0.0001,
-            peakDay: 35,
-            drawdownDays: [[45, 52]],
+            peakDay: 14,
+            drawdownDays: [[18, 21]],
             color: '#06b6d4'
         },
         'MarketMinds': {
             initialValue: 100000,
             volatility: 0.011,
             trend: 0.00005,
-            peakDay: 38,
-            drawdownDays: [[42, 60]],
+            peakDay: 15,
+            drawdownDays: [[17, 24]],
             color: '#8b5cf6'
         },
         'QuantNebula': {
             initialValue: 100000,
             volatility: 0.012,
             trend: 0.000020,
-            peakDay: 32,
-            drawdownDays: [[35, 61]],
+            peakDay: 13,
+            drawdownDays: [[14, 25]],
             color: '#ec4899'
         },
         'CashGuard': {
             initialValue: 100000,
             volatility: 0.006,
             trend: -0.000008,
-            peakDay: 20,
-            drawdownDays: [[25, 61]],
+            peakDay: 8,
+            drawdownDays: [[10, 25]],
             color: '#84cc16'
         },
         'DeltaVector': {
             initialValue: 100000,
             volatility: 0.013,
             trend: -0.00005,
-            peakDay: 25,
-            drawdownDays: [[30, 61]],
+            peakDay: 10,
+            drawdownDays: [[12, 25]],
             color: '#f43f5e'
         },
         'OpenClaw Baseline': {
             initialValue: 100000,
             volatility: 0.009,
             trend: -0.00008,
-            peakDay: 20,
-            drawdownDays: [[25, 61]],
+            peakDay: 8,
+            drawdownDays: [[10, 25]],
             color: '#a1a1a1',
             isBaseline: true
         },
@@ -1337,8 +1337,8 @@ function generateMockEquityCurveData() {
             initialValue: 100000,
             volatility: 0.007,
             trend: 0.000035,
-            peakDay: 55,
-            drawdownDays: [[20, 25]],
+            peakDay: 22,
+            drawdownDays: [[8, 10]],
             color: '#9ca3af',
             isBaseline: true
         },
@@ -1346,8 +1346,8 @@ function generateMockEquityCurveData() {
             initialValue: 100000,
             volatility: 0.0065,
             trend: 0.00005,
-            peakDay: 58,
-            drawdownDays: [[18, 23]],
+            peakDay: 23,
+            drawdownDays: [[7, 9]],
             color: '#d1d5db',
             isBaseline: true
         }
