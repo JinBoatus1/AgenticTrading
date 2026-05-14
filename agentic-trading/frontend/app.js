@@ -584,14 +584,22 @@ function switchMode(mode) {
     // Show/hide appropriate views
     const backtestView = document.querySelector('.main-container');
     const paperView = document.getElementById('paperTradingView');
+    const leaderboardView = document.getElementById('leaderboardView');
     
     if (mode === 'paper') {
         if (backtestView) backtestView.style.display = 'none';
         if (paperView) paperView.style.display = 'block';
+        if (leaderboardView) leaderboardView.style.display = 'none';
         loadPaperTradingData();
+    } else if (mode === 'contest') {
+        if (backtestView) backtestView.style.display = 'none';
+        if (paperView) paperView.style.display = 'none';
+        if (leaderboardView) leaderboardView.style.display = 'flex';
+        loadLeaderboardData();
     } else {
         if (backtestView) backtestView.style.display = 'grid';
         if (paperView) paperView.style.display = 'none';
+        if (leaderboardView) leaderboardView.style.display = 'none';
         loadData();
     }
 }
@@ -1231,6 +1239,324 @@ function displayPaperError(message) {
     if (positionsList) {
         positionsList.innerHTML = `<div class="loading" style="color: var(--danger-color);">Error: ${message}</div>`;
     }
+}
+
+// ============================================================================
+// LEADERBOARD MODE
+// ============================================================================
+
+/**
+ * Mock leaderboard data for MVP
+ */
+const MOCK_LEADERBOARD_DATA = [
+    {
+        rank: 1,
+        team_name: 'AlphaForge',
+        team_badge: 'LIVE',
+        model: 'Claude 3.7 Sonnet + RAG',
+        portfolio_value: 112472.93,
+        cumulative_return: 0.1247,
+        sharpe_ratio: 1.86,
+        win_loss_ratio: 1.72,
+        rank_cr: 2,
+        rank_sr: 1,
+        rank_wl: 1,
+        final_score: 1.33,
+        status: 'Live'
+    },
+    {
+        rank: 2,
+        team_name: 'SignalWeaver',
+        team_badge: 'LIVE',
+        model: 'GPT-4o + Workflow',
+        portfolio_value: 109210.58,
+        cumulative_return: 0.0921,
+        sharpe_ratio: 1.32,
+        win_loss_ratio: 1.58,
+        rank_cr: 3,
+        rank_sr: 2,
+        rank_wl: 2,
+        final_score: 2.33,
+        status: 'Live'
+    },
+    {
+        rank: 3,
+        team_name: 'RiskPilot',
+        team_badge: 'LIVE',
+        model: 'Gemini 2.5 Pro + RL',
+        portfolio_value: 106345.11,
+        cumulative_return: 0.0634,
+        sharpe_ratio: 1.21,
+        win_loss_ratio: 1.41,
+        rank_cr: 4,
+        rank_sr: 3,
+        rank_wl: 3,
+        final_score: 3.33,
+        status: 'Live'
+    },
+    {
+        rank: 4,
+        team_name: 'MarketMinds',
+        team_badge: 'LIVE',
+        model: 'Claude 3.7 Sonnet',
+        portfolio_value: 103724.61,
+        cumulative_return: 0.0372,
+        sharpe_ratio: 0.98,
+        win_loss_ratio: 1.36,
+        rank_cr: 6,
+        rank_sr: 4,
+        rank_wl: 4,
+        final_score: 4.67,
+        status: 'Live'
+    },
+    {
+        rank: 5,
+        team_name: 'QuantNebula',
+        team_badge: 'LIVE',
+        model: 'Llama 4 + FinBERT',
+        portfolio_value: 101183.76,
+        cumulative_return: 0.0118,
+        sharpe_ratio: 0.65,
+        win_loss_ratio: 1.29,
+        rank_cr: 7,
+        rank_sr: 6,
+        rank_wl: 5,
+        final_score: 6.00,
+        status: 'Live'
+    },
+    {
+        rank: 6,
+        team_name: 'CashGuard',
+        team_badge: 'LIVE',
+        model: 'Rule-Based + Sentiment',
+        portfolio_value: 99545.23,
+        cumulative_return: -0.0045,
+        sharpe_ratio: 0.31,
+        win_loss_ratio: 1.18,
+        rank_cr: 8,
+        rank_sr: 7,
+        rank_wl: 6,
+        final_score: 7.00,
+        status: 'Live'
+    },
+    {
+        rank: 7,
+        team_name: 'DeltaVector',
+        team_badge: 'LIVE',
+        model: 'XGBoost + Technicals',
+        portfolio_value: 97699.32,
+        cumulative_return: -0.0231,
+        sharpe_ratio: 0.12,
+        win_loss_ratio: 0.93,
+        rank_cr: 9,
+        rank_sr: 8,
+        rank_wl: 7,
+        final_score: 8.00,
+        status: 'Live'
+    },
+    {
+        rank: 8,
+        team_name: 'OpenClaw Baseline',
+        team_badge: 'BASELINE',
+        model: 'OpenAI Baseline Agent',
+        portfolio_value: 96875.12,
+        cumulative_return: -0.0312,
+        sharpe_ratio: -0.05,
+        win_loss_ratio: 0.78,
+        rank_cr: 10,
+        rank_sr: 9,
+        rank_wl: 8,
+        final_score: 9.00,
+        status: 'Baseline'
+    },
+    {
+        rank: 9,
+        team_name: 'DJIA Buy-and-Hold',
+        team_badge: 'BASELINE',
+        model: 'SPY Buy-and-Hold',
+        portfolio_value: 101860.50,
+        cumulative_return: 0.0186,
+        sharpe_ratio: 0.92,
+        win_loss_ratio: 1.15,
+        rank_cr: 5,
+        rank_sr: 5,
+        rank_wl: 10,
+        final_score: 6.67,
+        status: 'Baseline'
+    },
+    {
+        rank: 10,
+        team_name: 'SPY Buy-and-Hold',
+        team_badge: 'BASELINE',
+        model: 'SPY Buy-and-Hold',
+        portfolio_value: 102650.00,
+        cumulative_return: 0.0265,
+        sharpe_ratio: 1.15,
+        win_loss_ratio: 1.25,
+        rank_cr: 1,
+        rank_sr: 10,
+        rank_wl: 9,
+        final_score: 6.67,
+        status: 'Baseline'
+    }
+];
+
+let currentLeaderboardFilter = 'all';
+let currentLeaderboardMetric = 'final_rank';
+let selectedTeam = null;
+
+/**
+ * Initialize leaderboard event listeners
+ */
+function initLeaderboardListeners() {
+    // Filter tabs
+    document.querySelectorAll('.filter-tab').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            currentLeaderboardFilter = e.target.dataset.filter;
+            populateLeaderboardTable();
+        });
+    });
+
+    // Metric tabs
+    document.querySelectorAll('.metric-tab').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.metric-tab').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            currentLeaderboardMetric = e.target.dataset.metric;
+            // Note: In full implementation, would resort table by this metric
+        });
+    });
+}
+
+/**
+ * Load leaderboard data and display
+ */
+async function loadLeaderboardData() {
+    console.log('Loading leaderboard data...');
+    
+    try {
+        // TODO: Replace with actual API call when backend is ready
+        // const data = await API.get(`${API_BASE}/api/leaderboard`);
+        
+        // For now, use mock data
+        populateLeaderboardTable();
+        initLeaderboardListeners();
+        
+    } catch (error) {
+        console.error('Error loading leaderboard:', error);
+        displayLeaderboardError(error.message);
+    }
+}
+
+/**
+ * Populate leaderboard table with data
+ */
+function populateLeaderboardTable() {
+    const tbody = document.getElementById('leaderboardTableBody');
+    if (!tbody) return;
+
+    let filtered = MOCK_LEADERBOARD_DATA;
+
+    // Apply filter
+    if (currentLeaderboardFilter === 'top10') {
+        filtered = filtered.slice(0, 10);
+    } else if (currentLeaderboardFilter === 'top20') {
+        filtered = filtered.slice(0, 20);
+    } else if (currentLeaderboardFilter === 'my-team') {
+        // In real app, would filter for user's team
+        filtered = filtered.filter(t => t.team_name === 'AlphaForge');
+    } else if (currentLeaderboardFilter === 'baselines') {
+        filtered = filtered.filter(t => t.status === 'Baseline');
+    }
+
+    tbody.innerHTML = filtered.map(team => `
+        <tr onclick="selectLeaderboardTeam('${team.team_name}')">
+            <td class="rank-cell">${team.rank}</td>
+            <td>
+                <div class="team-name-badge">
+                    ${team.rank <= 3 ? '🏆' : ''}
+                    <span>${team.team_name}</span>
+                    <span class="team-badge">${team.team_badge}</span>
+                </div>
+            </td>
+            <td>${team.model}</td>
+            <td style="text-align: right; font-family: var(--font-mono);">$${formatNumber(team.portfolio_value)}</td>
+            <td style="text-align: right;" class="${team.cumulative_return >= 0 ? 'return-positive' : 'return-negative'}">
+                <span class="metric-value-text">${(team.cumulative_return * 100).toFixed(2)}%</span>
+            </td>
+            <td style="text-align: right; font-family: var(--font-mono);">${team.sharpe_ratio.toFixed(2)}</td>
+            <td style="text-align: right; font-family: var(--font-mono);">${team.win_loss_ratio.toFixed(2)}</td>
+            <td style="text-align: center;">
+                <span class="rank-badge ${team.rank_cr <= 3 ? 'top3' : ''}">${team.rank_cr}</span>
+                <span class="rank-badge ${team.rank_sr <= 3 ? 'top3' : ''}">${team.rank_sr}</span>
+                <span class="rank-badge ${team.rank_wl <= 3 ? 'top3' : ''}">${team.rank_wl}</span>
+            </td>
+            <td style="text-align: right; font-weight: 600;">${team.final_score.toFixed(2)}</td>
+            <td style="text-align: center;">
+                <span class="status-badge ${team.status.toLowerCase()}">${team.status}</span>
+            </td>
+        </tr>
+    `).join('');
+}
+
+/**
+ * Select a team and show details in sidebar
+ */
+function selectLeaderboardTeam(teamName) {
+    selectedTeam = MOCK_LEADERBOARD_DATA.find(t => t.team_name === teamName);
+    if (!selectedTeam) return;
+
+    const detailPanel = document.getElementById('selectedTeamDetail');
+    if (!detailPanel) return;
+
+    detailPanel.innerHTML = `
+        <div class="team-detail-row">
+            <span class="team-detail-label">Team Name</span>
+            <span class="team-detail-value">${selectedTeam.team_name}</span>
+        </div>
+        <div class="team-detail-row">
+            <span class="team-detail-label">Live Return</span>
+            <span class="team-detail-value" style="color: ${selectedTeam.cumulative_return >= 0 ? 'var(--success-color)' : 'var(--danger-color)'};">
+                ${(selectedTeam.cumulative_return * 100).toFixed(2)}%
+            </span>
+        </div>
+        <div class="team-detail-row">
+            <span class="team-detail-label">Backtest Return</span>
+            <span class="team-detail-value">+15.62%</span>
+        </div>
+        <div class="team-detail-row">
+            <span class="team-detail-label">Live/Backtest Gap</span>
+            <span class="team-detail-value" style="color: var(--danger-color);">-3.15%</span>
+        </div>
+        <div class="team-detail-row">
+            <span class="team-detail-label">Current Rank</span>
+            <span class="team-detail-value">${selectedTeam.rank} / 128</span>
+        </div>
+        <div class="team-detail-row">
+            <span class="team-detail-label">Status</span>
+            <span class="team-detail-value">${selectedTeam.status}</span>
+        </div>
+        <button class="view-details-btn" style="margin-top: 8px; width: 100%;">View Team Analytics →</button>
+    `;
+}
+
+/**
+ * Display error in leaderboard view
+ */
+function displayLeaderboardError(message) {
+    const tbody = document.getElementById('leaderboardTableBody');
+    if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 30px; color: var(--danger-color);">Error: ${message}</td></tr>`;
+    }
+}
+
+/**
+ * Helper: Format large numbers
+ */
+function formatNumber(num) {
+    return num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 console.log('Frontend loaded - connecting to API at ' + API_BASE);

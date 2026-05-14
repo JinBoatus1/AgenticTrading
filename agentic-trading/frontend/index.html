@@ -400,6 +400,150 @@
         </div>
     </div>
 
+    <!-- Leaderboard View (Hidden by default, shown when Leaderboard tab selected) -->
+    <div id="leaderboardView" class="leaderboard-view" style="display: none;">
+        <div class="leaderboard-container">
+            <!-- Header Section with Stats -->
+            <div class="leaderboard-header">
+                <div class="header-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Registered Teams</span>
+                        <span class="stat-value" id="totalTeams">128</span>
+                        <span class="stat-subtext" id="newTeamsToday">+12 new today</span>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-input-wrapper">
+                            <span class="stat-label">Live Trading Window</span>
+                            <span class="stat-value" id="tradingWindow">Nov 15 – Dec 15, 2026</span>
+                            <span class="stat-subtext" id="daysRemaining">124d 14h remaining</span>
+                        </div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Last Update</span>
+                        <span class="stat-value" id="lastUpdate">Nov 27, 2026 15:42:18 UTC</span>
+                        <span class="stat-subtext">Live • Updates every 60s</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">🏆 Current Leader</span>
+                        <span class="stat-value" id="leaderTeam">AlphaForge</span>
+                        <span class="stat-subtext" id="leaderReturn">+12.47%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View Filters -->
+            <div class="leaderboard-controls">
+                <div class="filter-tabs">
+                    <button class="filter-tab active" data-filter="all">All Teams</button>
+                    <button class="filter-tab" data-filter="top10">Top 10</button>
+                    <button class="filter-tab" data-filter="top20">Top 20</button>
+                    <button class="filter-tab" data-filter="my-team">My Team</button>
+                    <button class="filter-tab" data-filter="baselines">Baselines Only</button>
+                </div>
+
+                <div class="metric-tabs">
+                    <button class="metric-tab active" data-metric="final_rank">Cumulative Return</button>
+                    <button class="metric-tab" data-metric="sharpe">Sharpe Ratio</button>
+                    <button class="metric-tab" data-metric="wl_ratio">Win/Loss Ratio</button>
+                    <button class="metric-tab" data-metric="final_score">Final Score</button>
+                </div>
+
+                <div class="control-options">
+                    <label class="normalize-checkbox">
+                        <input type="checkbox" id="normalizeStart"> Normalize at Start
+                    </label>
+                </div>
+            </div>
+
+            <!-- Main Content: 2-Column Layout -->
+            <div class="leaderboard-content">
+                <!-- Left: Leaderboard Table -->
+                <section class="leaderboard-table-section">
+                    <div class="section-header">
+                        <h2>📊 Official Rankings</h2>
+                        <span class="update-indicator">Updates every 60s</span>
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table class="leaderboard-table">
+                            <thead>
+                                <tr>
+                                    <th class="rank-col">Rank</th>
+                                    <th class="name-col">Team Name</th>
+                                    <th class="model-col">Model / Agent</th>
+                                    <th class="portfolio-col">Portfolio Value</th>
+                                    <th class="return-col">Cumulative Return</th>
+                                    <th class="sharpe-col">Sharpe Ratio</th>
+                                    <th class="wl-col">Win/Loss Ratio</th>
+                                    <th class="rank-badges-col">Metric Ranks</th>
+                                    <th class="final-score-col">Final Score</th>
+                                    <th class="status-col">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="leaderboardTableBody">
+                                <!-- Populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="leaderboard-footer">
+                        <button class="view-all-btn">View full rankings and all teams →</button>
+                    </div>
+                </section>
+
+                <!-- Right: Ranking Rules & Selected Team Detail -->
+                <aside class="leaderboard-sidebar">
+                    <!-- Ranking Rules -->
+                    <div class="sidebar-card">
+                        <h3 class="sidebar-title">⚖️ Ranking Rules</h3>
+                        <div class="ranking-formula">
+                            <p class="formula-text">
+                                <strong>Final Score = (rCR + rSR + rWL) / 3</strong>
+                            </p>
+                            <ul class="formula-items">
+                                <li><strong>rCR:</strong> Rank of Cumulative Return (higher is better)</li>
+                                <li><strong>rSR:</strong> Rank of Sharpe Ratio (higher is better)</li>
+                                <li><strong>rWL:</strong> Rank of Win/Loss Ratio (higher is better)</li>
+                            </ul>
+                            <p class="formula-note">Lower ranks are better. Ties broken by higher Cumulative Return, then Sharpe Ratio.</p>
+                        </div>
+                    </div>
+
+                    <!-- Selected Team Detail -->
+                    <div class="sidebar-card">
+                        <h3 class="sidebar-title">🎯 Selected Team Detail</h3>
+                        <div id="selectedTeamDetail" class="team-detail">
+                            <div class="no-selection">Select a team to view details</div>
+                        </div>
+                    </div>
+
+                    <!-- Competition Feed -->
+                    <div class="sidebar-card">
+                        <h3 class="sidebar-title">📢 Competition Feed</h3>
+                        <div class="feed-items">
+                            <div class="feed-item">
+                                <span class="feed-time">15:40</span>
+                                <span class="feed-text">AlphaForge took the lead</span>
+                                <span class="feed-change">+0.18%</span>
+                            </div>
+                            <div class="feed-item">
+                                <span class="feed-time">15:41</span>
+                                <span class="feed-text">SignalWeaver new all-time high</span>
+                                <span class="feed-change">+0.52%</span>
+                            </div>
+                            <div class="feed-item">
+                                <span class="feed-time">15:38</span>
+                                <span class="feed-text">MarketMinds improved to rank 4</span>
+                                <span class="feed-change">+1</span>
+                            </div>
+                        </div>
+                        <button class="view-feed-btn">View full feed →</button>
+                    </div>
+                </aside>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 </html>

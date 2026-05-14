@@ -1491,3 +1491,506 @@ body {
         max-height: 300px;
     }
 }
+
+/* ============================================================================
+   LEADERBOARD VIEW
+   ============================================================================ */
+
+.leaderboard-view {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: calc(100vh - 106px);
+    overflow-y: auto;
+    background-color: var(--bg-primary);
+}
+
+.leaderboard-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 20px;
+    max-width: 100%;
+}
+
+/* Header Stats Section */
+.leaderboard-header {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.header-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.stat-subtext {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* Control & Filter Tabs */
+.leaderboard-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.filter-tabs,
+.metric-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.filter-tab,
+.metric-tab {
+    background-color: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.filter-tab:hover,
+.metric-tab:hover {
+    background-color: var(--bg-hover);
+    border-color: var(--neutral-color);
+    color: var(--text-primary);
+}
+
+.filter-tab.active,
+.metric-tab.active {
+    background-color: var(--neutral-color);
+    border-color: var(--neutral-color);
+    color: white;
+}
+
+.control-options {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+}
+
+.normalize-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.normalize-checkbox input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--neutral-color);
+}
+
+/* Main Content Layout */
+.leaderboard-content {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 20px;
+    min-height: 500px;
+}
+
+/* Leaderboard Table Section */
+.leaderboard-table-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 12px;
+}
+
+.section-header h2 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.update-indicator {
+    font-size: 12px;
+    color: var(--success-color);
+    font-weight: 500;
+}
+
+.table-wrapper {
+    overflow-x: auto;
+    border-radius: 4px;
+}
+
+.leaderboard-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.leaderboard-table thead {
+    background-color: var(--bg-hover);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.leaderboard-table th {
+    padding: 12px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+.leaderboard-table th.rank-col { width: 60px; text-align: center; }
+.leaderboard-table th.name-col { width: 150px; }
+.leaderboard-table th.model-col { width: 140px; }
+.leaderboard-table th.portfolio-col { width: 130px; text-align: right; }
+.leaderboard-table th.return-col { width: 130px; text-align: right; }
+.leaderboard-table th.sharpe-col { width: 100px; text-align: right; }
+.leaderboard-table th.wl-col { width: 100px; text-align: right; }
+.leaderboard-table th.rank-badges-col { width: 120px; text-align: center; }
+.leaderboard-table th.final-score-col { width: 100px; text-align: right; }
+.leaderboard-table th.status-col { width: 80px; text-align: center; }
+
+.leaderboard-table tbody tr {
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.15s;
+}
+
+.leaderboard-table tbody tr:hover {
+    background-color: var(--bg-hover);
+    cursor: pointer;
+}
+
+.leaderboard-table td {
+    padding: 12px;
+    color: var(--text-primary);
+}
+
+.leaderboard-table td.rank-cell {
+    text-align: center;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--neutral-color);
+}
+
+.rank-badge {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    text-align: center;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 600;
+    background-color: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+.rank-badge.top3 {
+    background-color: rgba(0, 200, 81, 0.1);
+    color: var(--success-color);
+}
+
+.team-name-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+}
+
+.team-badge {
+    background-color: var(--neutral-color);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.return-positive {
+    color: var(--success-color);
+}
+
+.return-negative {
+    color: var(--danger-color);
+}
+
+.metric-value-text {
+    font-weight: 500;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-badge.live {
+    background-color: rgba(0, 200, 81, 0.15);
+    color: var(--success-color);
+}
+
+.status-badge.baseline {
+    background-color: rgba(200, 200, 81, 0.15);
+    color: #c8c851;
+}
+
+.leaderboard-footer {
+    text-align: center;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+
+.view-all-btn {
+    background-color: transparent;
+    border: none;
+    color: var(--neutral-color);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.view-all-btn:hover {
+    color: #7c8ff5;
+}
+
+/* Sidebar */
+.leaderboard-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.sidebar-card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sidebar-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Ranking Rules */
+.ranking-formula {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 12px;
+}
+
+.formula-text {
+    background-color: var(--bg-hover);
+    padding: 8px;
+    border-radius: 4px;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.formula-items {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.formula-items li {
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.formula-note {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin: 0;
+    font-style: italic;
+}
+
+/* Team Detail */
+.team-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 12px;
+}
+
+.no-selection {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 20px 10px;
+}
+
+.team-detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.team-detail-row:last-child {
+    border-bottom: none;
+}
+
+.team-detail-label {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.team-detail-value {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+/* Competition Feed */
+.feed-items {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.feed-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    background-color: var(--bg-hover);
+    border-radius: 4px;
+    font-size: 11px;
+}
+
+.feed-time {
+    color: var(--text-muted);
+    font-weight: 600;
+    min-width: 35px;
+}
+
+.feed-text {
+    flex: 1;
+    color: var(--text-primary);
+}
+
+.feed-change {
+    color: var(--success-color);
+    font-weight: 600;
+    min-width: 45px;
+    text-align: right;
+}
+
+.view-feed-btn {
+    background-color: transparent;
+    border: none;
+    color: var(--neutral-color);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 6px 0;
+    transition: color 0.2s;
+    margin-top: 4px;
+}
+
+.view-feed-btn:hover {
+    color: #7c8ff5;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+    .leaderboard-content {
+        grid-template-columns: 1fr;
+    }
+    
+    .leaderboard-sidebar {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .leaderboard-container {
+        padding: 12px;
+        gap: 12px;
+    }
+    
+    .header-stats {
+        grid-template-columns: 1fr;
+    }
+    
+    .filter-tabs,
+    .metric-tabs {
+        flex-direction: column;
+    }
+    
+    .leaderboard-table {
+        font-size: 11px;
+    }
+    
+    .leaderboard-table th,
+    .leaderboard-table td {
+        padding: 8px;
+    }
+}
