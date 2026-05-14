@@ -1323,6 +1323,24 @@ function generateMockEquityCurveData() {
             peakDay: 25,
             drawdownDays: [[30, 61]],
             color: '#f43f5e'
+        },
+        'DJIA Buy-and-Hold': {
+            initialValue: 100000,
+            volatility: 0.007,
+            trend: 0.000035,
+            peakDay: 55,
+            drawdownDays: [[20, 25]],
+            color: '#9ca3af',
+            isBaseline: true
+        },
+        'SPY Buy-and-Hold': {
+            initialValue: 100000,
+            volatility: 0.0065,
+            trend: 0.00005,
+            peakDay: 58,
+            drawdownDays: [[18, 23]],
+            color: '#d1d5db',
+            isBaseline: true
         }
     };
     
@@ -1353,7 +1371,7 @@ function generateMockEquityCurveData() {
         curves[teamName] = curve;
     }
     
-    return { dates, days, curves };
+    return { dates, days, curves, trajectories: teamTrajectories };
 }
 
 /**
@@ -1464,6 +1482,36 @@ const MOCK_LEADERBOARD_DATA = [
         rank_wl: 7,
         final_score: 7.00,
         status: 'Live'
+    },
+    {
+        rank: 8,
+        team_name: 'DJIA Buy-and-Hold',
+        team_badge: 'BASELINE',
+        model: 'Buy-and-Hold Baseline',
+        portfolio_value: 101860.50,
+        cumulative_return: 0.0186,
+        sharpe_ratio: 0.92,
+        win_loss_ratio: 1.15,
+        rank_cr: 8,
+        rank_sr: 8,
+        rank_wl: 8,
+        final_score: 8.00,
+        status: 'Baseline'
+    },
+    {
+        rank: 9,
+        team_name: 'SPY Buy-and-Hold',
+        team_badge: 'BASELINE',
+        model: 'Buy-and-Hold Baseline',
+        portfolio_value: 102650.00,
+        cumulative_return: 0.0265,
+        sharpe_ratio: 1.15,
+        win_loss_ratio: 1.25,
+        rank_cr: 9,
+        rank_sr: 9,
+        rank_wl: 9,
+        final_score: 9.00,
+        status: 'Baseline'
     }
 ];
 
@@ -1540,6 +1588,8 @@ async function renderEquityCurvesChart() {
     const datasets = Object.entries(curves).map(([teamName, curveValues]) => {
         const config = getTeamColorConfig(teamName);
         const data = transformChartData(curveValues, currentChartView);
+        const trajectoryConfig = equityCurvesData.trajectories[teamName];
+        const isBaseline = trajectoryConfig && trajectoryConfig.isBaseline;
         
         return {
             label: teamName,
@@ -1547,6 +1597,7 @@ async function renderEquityCurvesChart() {
             borderColor: config.color,
             backgroundColor: config.bgColor,
             borderWidth: 2.5,  // Thicker lines for better visibility
+            borderDash: isBaseline ? [5, 5] : [],  // Dotted line for baselines
             pointRadius: 0,
             pointHoverRadius: 5,
             tension: 0.3,  // Slightly less tension for crisper lines
@@ -1694,6 +1745,8 @@ function getTeamColorConfig(teamName) {
         'QuantNebula': { color: '#f472b6', bgColor: 'rgba(244, 114, 182, 0.15)' },        // Bright Pink
         'CashGuard': { color: '#bef264', bgColor: 'rgba(190, 242, 100, 0.15)' },          // Bright Lime
         'DeltaVector': { color: '#ff6b7a', bgColor: 'rgba(255, 107, 122, 0.15)' },        // Bright Red
+        'DJIA Buy-and-Hold': { color: '#9ca3af', bgColor: 'rgba(156, 163, 175, 0.15)' },  // Gray (Baseline)
+        'SPY Buy-and-Hold': { color: '#d1d5db', bgColor: 'rgba(209, 213, 219, 0.15)' },   // Light Gray (Baseline)
     };
     return colors[teamName] || { color: '#818cf8', bgColor: 'rgba(129, 140, 248, 0.15)' };
 }
