@@ -1246,6 +1246,125 @@ function displayPaperError(message) {
 // ============================================================================
 
 /**
+ * Generate mock equity curve data for teams
+ * Each team has daily portfolio value data from Sept 1 - Oct 31, 2026
+ */
+function generateMockEquityCurveData() {
+    const startDate = new Date('2026-09-01');
+    const endDate = new Date('2026-10-31');
+    const days = [];
+    const dates = [];
+    
+    // Generate 61 trading days (excluding weekends)
+    let current = new Date(startDate);
+    while (current <= endDate) {
+        const dayOfWeek = current.getDay();
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Exclude weekends
+            days.push(current.toISOString().split('T')[0]);
+            dates.push(new Date(current));
+        }
+        current.setDate(current.getDate() + 1);
+    }
+    
+    // Define each team's growth trajectory
+    const teamTrajectories = {
+        'AlphaForge': {
+            initialValue: 100000,
+            volatility: 0.008,
+            trend: 0.0002,
+            peakDay: 45,
+            drawdownDays: [[50, 55]],
+            color: '#3b82f6'
+        },
+        'SignalWeaver': {
+            initialValue: 100000,
+            volatility: 0.010,
+            trend: 0.00015,
+            peakDay: 40,
+            drawdownDays: [[48, 58]],
+            color: '#f97316'
+        },
+        'RiskPilot': {
+            initialValue: 100000,
+            volatility: 0.009,
+            trend: 0.0001,
+            peakDay: 35,
+            drawdownDays: [[45, 52]],
+            color: '#06b6d4'
+        },
+        'MarketMinds': {
+            initialValue: 100000,
+            volatility: 0.011,
+            trend: 0.00005,
+            peakDay: 38,
+            drawdownDays: [[42, 60]],
+            color: '#8b5cf6'
+        },
+        'QuantNebula': {
+            initialValue: 100000,
+            volatility: 0.012,
+            trend: 0.000020,
+            peakDay: 32,
+            drawdownDays: [[35, 61]],
+            color: '#ec4899'
+        },
+        'CashGuard': {
+            initialValue: 100000,
+            volatility: 0.006,
+            trend: -0.000008,
+            peakDay: 20,
+            drawdownDays: [[25, 61]],
+            color: '#84cc16'
+        },
+        'DeltaVector': {
+            initialValue: 100000,
+            volatility: 0.013,
+            trend: -0.00005,
+            peakDay: 25,
+            drawdownDays: [[30, 61]],
+            color: '#f43f5e'
+        },
+        'DJIA Buy-and-Hold': {
+            initialValue: 100000,
+            volatility: 0.007,
+            trend: 0.000035,
+            peakDay: 55,
+            drawdownDays: [[20, 25]],
+            color: '#a3a3a3'
+        }
+    };
+    
+    // Generate curves using geometric Brownian motion
+    const curves = {};
+    for (const [teamName, config] of Object.entries(teamTrajectories)) {
+        const curve = [];
+        let value = config.initialValue;
+        
+        for (let i = 0; i < days.length; i++) {
+            // Random walk with drift
+            const random = (Math.random() - 0.5) * 2;
+            const drift = config.trend * config.initialValue;
+            const volatilityComponent = random * config.volatility * value;
+            
+            // Apply drawdown periods
+            let drawdownFactor = 1.0;
+            for (const [start, end] of config.drawdownDays) {
+                if (i >= start && i <= end) {
+                    drawdownFactor *= (1 - (i - start) / (end - start) * 0.008);
+                }
+            }
+            
+            value *= (1 + drift / value + volatilityComponent / value) * drawdownFactor;
+            curve.push(Math.max(value, config.initialValue * 0.9)); // Floor at 90% to prevent collapse
+        }
+        
+        curves[teamName] = curve;
+    }
+    
+    return { dates, days, curves };
+}
+
+/**
  * Mock leaderboard data for MVP
  */
 const MOCK_LEADERBOARD_DATA = [
@@ -1404,6 +1523,9 @@ const MOCK_LEADERBOARD_DATA = [
 let currentLeaderboardFilter = 'all';
 let currentLeaderboardMetric = 'final_rank';
 let selectedTeam = null;
+let equityCurvesData = null;
+let equityCurvesChartInstance = null;
+let currentChartView = 'cumulative';
 
 /**
  * Initialize leaderboard event listeners
@@ -1428,6 +1550,9 @@ function initLeaderboardListeners() {
             // Note: In full implementation, would resort table by this metric
         });
     });
+    
+    // Chart view controls
+    initChartControls();
 }
 
 /**
@@ -1441,12 +1566,231 @@ async function loadLeaderboardData() {
         // const data = await API.get(`${API_BASE}/api/leaderboard`);
         
         // For now, use mock data
+        equityCurvesData = generateMockEquityCurveData();
         populateLeaderboardTable();
         initLeaderboardListeners();
+        await renderEquityCurvesChart();
         
     } catch (error) {
         console.error('Error loading leaderboard:', error);
         displayLeaderboardError(error.message);
+    }
+}
+
+/**
+ * Render equity curves chart with Chart.js
+ */
+async function renderEquityCurvesChart() {
+    if (!equityCurvesData) return;
+    
+    const canvas = document.getElementById('equityCurvesChart');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    const { dates, days, curves } = equityCurvesData;
+    
+    // Build datasets for all teams
+    const datasets = Object.entries(curves).map(([teamName, curveValues]) => {
+        const config = getTeamColorConfig(teamName);
+        const data = transformChartData(curveValues, currentChartView);
+        
+        return {
+            label: teamName,
+            data: data,
+            borderColor: config.color,
+            backgroundColor: config.bgColor,
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            tension: 0.4, // Smooth curve
+            fill: false,
+            spanGaps: false,
+            hoverBorderWidth: 3,
+        };
+    });
+    
+    // Destroy existing chart if it exists
+    if (equityCurvesChartInstance) {
+        equityCurvesChartInstance.destroy();
+    }
+    
+    // Create new chart
+    equityCurvesChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: days,
+            datasets: datasets,
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: {
+                        color: 'var(--text-secondary)',
+                        font: {
+                            size: 11,
+                            weight: '500',
+                        },
+                        padding: 15,
+                        usePointStyle: true,
+                        pointStyle: 'circle',
+                        boxWidth: 6,
+                    },
+                    onClick: (e, legendItem, legend) => {
+                        // Allow toggling dataset visibility
+                        const index = legendItem.datasetIndex;
+                        const chart = legend.chart;
+                        const meta = chart.getDatasetMeta(index);
+                        meta.hidden = !meta.hidden;
+                        chart.update();
+                    },
+                },
+                tooltip: {
+                    enabled: true,
+                    mode: 'index',
+                    intersect: false,
+                    backgroundColor: 'rgba(10, 14, 39, 0.9)',
+                    borderColor: 'var(--border-color)',
+                    borderWidth: 1,
+                    titleColor: 'var(--text-primary)',
+                    bodyColor: 'var(--text-secondary)',
+                    padding: 12,
+                    cornerRadius: 4,
+                    titleFont: {
+                        size: 12,
+                        weight: 'bold',
+                    },
+                    bodyFont: {
+                        size: 11,
+                    },
+                    callbacks: {
+                        title: function(context) {
+                            return 'Date: ' + context[0].label;
+                        },
+                        label: function(context) {
+                            const value = context.parsed.y;
+                            if (currentChartView === 'cumulative') {
+                                return context.dataset.label + ': ' + (value * 100).toFixed(2) + '%';
+                            } else if (currentChartView === 'absolute') {
+                                return context.dataset.label + ': $' + formatNumber(value);
+                            } else {
+                                return context.dataset.label + ': ' + (value * 100).toFixed(2) + '%';
+                            }
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    display: true,
+                    grid: {
+                        color: 'var(--grid-color)',
+                        drawBorder: false,
+                    },
+                    ticks: {
+                        color: 'var(--text-muted)',
+                        font: {
+                            size: 10,
+                        },
+                        maxRotation: 0,
+                        autoSkip: true,
+                        maxTicksLimit: 10,
+                    },
+                },
+                y: {
+                    display: true,
+                    grid: {
+                        color: 'var(--grid-color)',
+                        drawBorder: false,
+                    },
+                    ticks: {
+                        color: 'var(--text-muted)',
+                        font: {
+                            size: 10,
+                        },
+                        callback: function(value) {
+                            if (currentChartView === 'cumulative' || currentChartView === 'drawdown') {
+                                return (value * 100).toFixed(1) + '%';
+                            } else {
+                                return '$' + (value / 1000).toFixed(0) + 'k';
+                            }
+                        },
+                    },
+                    beginAtZero: currentChartView === 'drawdown',
+                },
+            },
+        },
+    });
+    
+    console.log('✅ Equity curves chart rendered');
+}
+
+/**
+ * Get team color configuration
+ */
+function getTeamColorConfig(teamName) {
+    const colors = {
+        'AlphaForge': { color: '#3b82f6', bgColor: 'rgba(59, 130, 246, 0.1)' },
+        'SignalWeaver': { color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.1)' },
+        'RiskPilot': { color: '#06b6d4', bgColor: 'rgba(6, 182, 212, 0.1)' },
+        'MarketMinds': { color: '#8b5cf6', bgColor: 'rgba(139, 92, 246, 0.1)' },
+        'QuantNebula': { color: '#ec4899', bgColor: 'rgba(236, 72, 153, 0.1)' },
+        'CashGuard': { color: '#84cc16', bgColor: 'rgba(132, 204, 22, 0.1)' },
+        'DeltaVector': { color: '#f43f5e', bgColor: 'rgba(244, 63, 94, 0.1)' },
+        'DJIA Buy-and-Hold': { color: '#9ca3af', bgColor: 'rgba(156, 163, 175, 0.1)' },
+    };
+    return colors[teamName] || { color: '#5c7cfa', bgColor: 'rgba(92, 124, 250, 0.1)' };
+}
+
+/**
+ * Transform chart data based on view type
+ */
+function transformChartData(curveValues, viewType) {
+    const initialValue = 100000;
+    
+    if (viewType === 'cumulative') {
+        // Return percentage change from start
+        return curveValues.map(v => (v - initialValue) / initialValue);
+    } else if (viewType === 'absolute') {
+        // Return absolute portfolio value
+        return curveValues;
+    } else if (viewType === 'drawdown') {
+        // Return max drawdown from peak
+        let maxValue = initialValue;
+        return curveValues.map(v => {
+            if (v > maxValue) maxValue = v;
+            return (v - maxValue) / maxValue; // Negative for drawdowns
+        });
+    }
+    return curveValues;
+}
+
+/**
+ * Initialize chart view controls
+ */
+function initChartControls() {
+    document.querySelectorAll('.chart-view-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            document.querySelectorAll('.chart-view-btn').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            currentChartView = e.target.dataset.view;
+            await renderEquityCurvesChart();
+        });
+    });
+    
+    const logToggle = document.getElementById('logScaleToggle');
+    if (logToggle) {
+        logToggle.addEventListener('change', async (e) => {
+            // TODO: Implement log scale toggle in Chart.js
+            console.log('Log scale:', e.target.checked);
+        });
     }
 }
 

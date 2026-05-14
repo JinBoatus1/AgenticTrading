@@ -431,6 +431,29 @@
                 </div>
             </div>
 
+            <!-- Equity Curves Chart -->
+            <section class="equity-curves-section">
+                <div class="section-header">
+                    <h2>📈 LIVE TRADING PERFORMANCE COMPARISON</h2>
+                    <div class="chart-controls">
+                        <button class="chart-view-btn active" data-view="cumulative">Cumulative Return (%)</button>
+                        <button class="chart-view-btn" data-view="absolute">Absolute Value ($)</button>
+                        <button class="chart-view-btn" data-view="drawdown">Max Drawdown (%)</button>
+                        <label class="log-scale-checkbox">
+                            <input type="checkbox" id="logScaleToggle"> Log Scale
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="chart-container large">
+                    <canvas id="equityCurvesChart"></canvas>
+                </div>
+                
+                <div class="chart-legend-info">
+                    <span class="legend-note">Click legend items to show/hide teams • Hover for values</span>
+                </div>
+            </section>
+
             <!-- View Filters -->
             <div class="leaderboard-controls">
                 <div class="filter-tabs">

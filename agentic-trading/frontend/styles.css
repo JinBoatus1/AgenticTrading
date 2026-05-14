@@ -1959,6 +1959,95 @@ body {
     color: #7c8ff5;
 }
 
+/* Equity Curves Chart Section */
+.equity-curves-section {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.chart-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.chart-view-btn {
+    background-color: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.chart-view-btn:hover {
+    background-color: var(--bg-hover);
+    border-color: var(--neutral-color);
+    color: var(--text-primary);
+}
+
+.chart-view-btn.active {
+    background-color: var(--neutral-color);
+    border-color: var(--neutral-color);
+    color: white;
+}
+
+.log-scale-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+    margin-left: auto;
+}
+
+.log-scale-checkbox input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--neutral-color);
+}
+
+.chart-container {
+    position: relative;
+    height: 300px;
+    border-radius: 4px;
+    background: linear-gradient(135deg, rgba(15, 19, 40, 0.5) 0%, rgba(13, 27, 42, 0.3) 100%);
+    padding: 10px;
+}
+
+.chart-container.large {
+    height: 400px;
+}
+
+.chart-container canvas {
+    max-height: 100%;
+}
+
+.chart-legend-info {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 8px 0;
+    border-top: 1px solid var(--border-color);
+}
+
+.legend-note {
+    display: inline-block;
+}
+
 /* Responsive Design */
 @media (max-width: 1200px) {
     .leaderboard-content {
