@@ -208,16 +208,15 @@
 
             </div>
 
-            <!-- Decision Log Section -->
+            <!-- Trading Log Section -->
             <div class="section-card">
                 <div class="section-header">
-                    <h2>📋 DECISION LOG</h2>
+                    <h2>📋 TRADING LOG</h2>
                     <div class="log-controls">
                         <select class="filter-select">
-                            <option>All Actions</option>
-                            <option>Buy Only</option>
-                            <option>Sell Only</option>
-                            <option>Hold Only</option>
+                            <option>All Trades</option>
+                            <option>Buys Only</option>
+                            <option>Sells Only</option>
                         </select>
                         <button class="filter-btn">🔽</button>
                     </div>
@@ -227,50 +226,50 @@
                     <thead>
                         <tr>
                             <th>Time</th>
-                            <th>Agent</th>
                             <th>Action</th>
                             <th>Company / Asset</th>
+                            <th>Quantity</th>
                             <th>Price</th>
-                            <th>Reasoning (Agent Rationale)</th>
+                            <th>Total Value</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
                             <td>14:35:21</td>
-                            <td>Claude</td>
                             <td><span class="action-buy">BUY</span></td>
                             <td>AAPL</td>
+                            <td>15 shares</td>
                             <td>$150.25</td>
-                            <td>Strong momentum, earnings beat, volume surge...</td>
+                            <td>$2,253.75</td>
                         </tr>
                         <tr>
                             <td>14:42:10</td>
-                            <td>DeepSeek</td>
                             <td><span class="action-sell">SELL</span></td>
                             <td>MSFT</td>
+                            <td>8 shares</td>
                             <td>$380.50</td>
-                            <td>Overbought signal, short-term reversal expected...</td>
+                            <td>$3,044.00</td>
                         </tr>
                         <tr>
                             <td>14:55:32</td>
-                            <td>Claude</td>
                             <td><span class="action-buy">BUY</span></td>
                             <td>NVDA</td>
+                            <td>2 shares</td>
                             <td>$875.10</td>
-                            <td>Breakout confirmed, trend continuation...</td>
+                            <td>$1,750.20</td>
                         </tr>
                         <tr>
                             <td>15:03:18</td>
-                            <td>Claude</td>
-                            <td><span class="action-hold">HOLD</span></td>
+                            <td><span class="action-sell">SELL</span></td>
                             <td>GOOGL</td>
+                            <td>12 shares</td>
                             <td>$162.45</td>
-                            <td>Consolidation phase, waiting for clearer signal...</td>
+                            <td>$1,949.40</td>
                         </tr>
                     </tbody>
                 </table>
 
-                <button class="view-all-btn">View Full Decision Log →</button>
+                <button class="view-all-btn">View Full Trading Log →</button>
             </div>
         </section>
 
