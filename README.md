@@ -1,6 +1,6 @@
 # Agentic Trading Lab
 
-Multi-agent backtesting and paper trading platform with real Alpaca market data. Compare LLM trading agents (DeepSeek, Claude, GPT) on the same market stream and benchmark performance against buy-and-hold and index baselines.
+Trading agents powered by LLMs backtesting and paper trading platform with real Alpaca market data. Compare LLM trading agents (DeepSeek, Claude, GPT) on the same market stream and benchmark performance against buy-and-hold and index baselines.
 
 ## Features
 
@@ -112,12 +112,6 @@ http://localhost:8000/
 - DJIA Index: Market-context baseline
 - Both use same real data as agent
 
-### Dark Theme
-- Light theme (default) with high contrast
-- Dark theme with TradingView-like colors
-- Toggle with theme button (Settings menu)
-- Grid lines and text colors adapt to theme
-
 ### LLM Security & Validation
 - **Pydantic V2 schema validation** - Strict response format enforcement
 - **Tool rejection** - Detects and rejects LLM tool-calling attempts
@@ -140,9 +134,9 @@ run_id (FK), timestamp, equity, cash, positions_value, daily_return
 ```
 
 **Modes:**
-- `backtest` - Historical agent performance (immutable)
-- `paper_baseline` - Current market context baselines (daily updates)
-- `paper` - Live trading equity (continuous updates)
+- `backtest` - test agent performance on historical data
+- `paper` - Live trading in alpaca paper trading account
+- `leaderboard` - submit and compete your agent with others!
 
 ## Performance Metrics
 
@@ -157,11 +151,8 @@ All teams start at $100,000 initial equity.
 ## Future Roadmap
 
 - [ ] Live paper trading service with Alpaca integration
-- [ ] Multi-agent committee voting (DeepSeek + Claude + GPT weighted votes)
-- [ ] Risk metrics dashboard (Sortino, Calmar, max drawdown analysis)
 - [ ] Sentiment analysis integration (Reddit, news APIs)
 - [ ] Monte Carlo simulation baselines
-- [ ] Full DJIA 30-stock portfolio optimization
 
 ## Development
 
@@ -190,29 +181,6 @@ pytest backend/tests/test_llm_validator.py -v
 # Database audit
 sqlite3 data/backtest.db "SELECT agent_name, total_return FROM runs LIMIT 5;"
 ```
-
-## Troubleshooting
-
-### Charts not rendering?
-- Hard refresh browser: `Ctrl+Shift+R` (or `Cmd+Shift+R` on Mac)
-- Check browser console for errors (F12 → Console tab)
-- Verify API is running: `curl http://localhost:8000/health`
-
-### No data displayed?
-- Check backtest has run: `python3 scripts/backtest_hourly_agent.py --start 2026-03-01 --end 2026-03-31`
-- Verify API endpoint: `curl http://localhost:8000/runs`
-- Check database: `sqlite3 data/backtest.db ".tables"`
-
-### Alpaca credentials error?
-- Verify `.env` file exists with valid API credentials
-- Check API key is valid and not expired
-- For paper trading, use: `https://paper-api.alpaca.markets`
-- Check credentials are readable: `cat .env | grep ALPACA`
-
-### Session not being isolated?
-- Check browser localStorage: Open DevTools (F12) → Storage → Local Storage → session key
-- Verify API is sending `X-Session-Id` header (Network tab → request headers)
-- Clear localStorage and refresh if session_id is stale
 
 ## Deployment
 
