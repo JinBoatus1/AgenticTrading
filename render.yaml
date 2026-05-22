@@ -6,7 +6,7 @@ services:
     plan: standard
     
     # Root directory for this service
-    rootDir: agentic-trading/backend
+    rootDir: backend
     
     # Build command
     buildCommand: pip install -r requirements.txt
