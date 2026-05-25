@@ -110,13 +110,50 @@ app.add_middleware(CSPHeaderMiddleware)
 async def startup_event():
     """Initialize API server."""
     import os
+    from pathlib import Path
+    import sqlite3
+    
     print("🚀 Starting API server...")
+    
+    # DEBUG: Database location
+    print("\n=== 📂 DATABASE DEBUG ===")
+    print(f"CWD: {os.getcwd()}")
+    print(f"data/ exists: {Path('data').exists()}")
+    if Path('data').exists():
+        print(f"data/ contents: {os.listdir('data')}")
+    print(f"data/backtest.db exists: {Path('data/backtest.db').exists()}")
+    
+    # Check database content
+    if Path('data/backtest.db').exists():
+        try:
+            conn = sqlite3.connect('data/backtest.db')
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM agent_runs")
+            count = cursor.fetchone()[0]
+            print(f"✅ Database has {count} runs")
+            
+            if count > 0:
+                cursor.execute("SELECT run_id, agent_name FROM agent_runs LIMIT 3")
+                print("Sample runs:")
+                for row in cursor.fetchall():
+                    print(f"  • {row[0]}: {row[1]}")
+            conn.close()
+        except Exception as e:
+            print(f"❌ Database error: {e}")
+    else:
+        print("❌ data/backtest.db NOT FOUND")
+    
+    print("=== END DATABASE DEBUG ===\n")
+    
     print("📊 Backtesting: LLM-powered agent via scripts/backtest_hourly_agent.py")
     if os.getenv("ANTHROPIC_API_KEY"):
         print("✅ ANTHROPIC_API_KEY detected - LLM trading enabled")
     else:
         print("⚠️ ANTHROPIC_API_KEY not set - LLM trading disabled")
     print("📊 Paper Trading: Baselines initialized on startup...")
+    
+    # Initialize paper trading baselines (non-blocking)
+    import threading
     
     # Initialize paper trading baselines (non-blocking)
     import threading
