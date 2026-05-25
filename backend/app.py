@@ -508,34 +508,22 @@ async def get_latest_metrics(request: Request):
 @app.get("/runs", response_model=List[RunMetadata])
 async def get_runs(request: Request, mode: Optional[str] = None):
     """
-    Get all backtest/paper runs for this session.
+    Get all backtest runs (public, not filtered by session).
+    Backtest results are meant to be shared/viewed, not isolated per user.
     
     Query params:
     - mode: 'backtest' or 'paper' (optional)
     """
-    session_id = request.state.session_id
-    
-    # DEBUG
-    print(f"\n\ud83d\udccd /runs endpoint called")
-    print(f"   Session ID: {session_id[:8]}...")
-    
-    # Check all runs in database
-    all_db_runs = db.get_all_runs()
-    print(f"   Total runs in DB: {len(all_db_runs)}")
-    for r in all_db_runs[:3]:
-        print(f"     - {r['run_id']}: session={r.get('session_id')}")
-    
-    # Get runs by session
-    session_runs = db.get_runs_by_session(session_id)
-    print(f"   Runs for THIS session: {len(session_runs)}")
+    # Get ALL runs - backtest results are public
+    all_runs = db.get_all_runs()
     
     if mode:
-        runs = [r for r in session_runs if r['mode'] == mode]
+        runs = [r for r in all_runs if r['mode'] == mode]
     else:
-        # Default: backtest runs only (for isolation)
-        runs = [r for r in session_runs if r['mode'] == 'backtest']
+        # Default: backtest runs only
+        runs = [r for r in all_runs if r['mode'] == 'backtest']
     
-    print(f"   After mode filter: {len(runs)} runs\n")
+    print(f"\n📍 /runs: returning {len(runs)} backtest runs")
     
     return [RunMetadata(**run) for run in runs]
 
@@ -582,14 +570,13 @@ async def get_equity_curve(run_id: str, request: Request):
 @app.get("/compare", response_model=ComparisonResponse)
 async def compare_runs(run_ids: str, request: Request):
     """
-    Compare multiple runs for this session.
+    Compare multiple runs (public, not filtered by session).
     
     Query params:
     - run_ids: comma-separated list of run IDs (e.g., "run1,run2,run3")
     
     Returns equity curves for all specified runs, ready for multi-line chart.
     """
-    session_id = request.state.session_id
     ids = [rid.strip() for rid in run_ids.split(',') if rid.strip()]
     
     if not ids:
@@ -599,7 +586,8 @@ async def compare_runs(run_ids: str, request: Request):
     final_equities = []
     
     for run_id in ids:
-        run = db.get_run_with_session(run_id, session_id)
+        # Get run without session filter - backtest results are public
+        run = db.get_run(run_id)
         if not run:
             continue
         
