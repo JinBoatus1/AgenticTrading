@@ -102,27 +102,31 @@ python3 backend/app.py
 http://localhost:8000/
 ```
 
-### 5. Run a backtest (optional)
+### 5. Run a backtest from the dashboard
 
-Requires valid Alpaca credentials (`.env` or `credentials/alpaca.json`):
+With the API server running and Alpaca credentials configured (step 2):
+
+1. Open **http://localhost:8000/** and stay on the **Backtest** tab.
+2. Set the date range, assets, and model in the sidebar controls.
+3. Click **▶ Run Backtest**.
+4. Wait for the run to finish — the UI polls `/backtest/status` and reloads the equity charts when complete.
+
+You get interactive charts and comparison views (agent, buy-and-hold, DJIA) in the **Trading Performance** panel.
+
+**CLI (optional)** — For headless or scripted runs only; there is little visualization in the terminal:
 
 ```bash
 python3 scripts/backtest_hourly_agent.py --start 2026-03-01 --end 2026-03-31
+python3 scripts/backtest_hourly_agent.py --mode buy_and_hold   # validation mode
 ```
 
-Or trigger via API after starting the server: `POST /backtest/run`.
-
-**Agent modes** (CLI flag on `backtest_hourly_agent.py`):
-
-```bash
-python3 scripts/backtest_hourly_agent.py --mode safe_trading   # default — active strategy with indicators
-python3 scripts/backtest_hourly_agent.py --mode buy_and_hold   # validation — buy once, then hold
-```
+Use the dashboard to inspect results after a CLI run, or call `POST /backtest/run` with the same parameters the UI sends.
 
 ## Key Features
 
 ### Backtest mode (SQLite-backed)
 
+- Run from the dashboard (**▶ Run Backtest**) — primary workflow with live charts
 - Three curves: agent, buy-and-hold, DJIA
 - Session-scoped runs via `X-Session-Id` / middleware
 - Continuous trading-hour index on charts (no overnight line gaps)
