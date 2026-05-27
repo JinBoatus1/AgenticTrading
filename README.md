@@ -7,7 +7,7 @@ Trading agents powered by LLMs: backtesting and paper trading with real Alpaca m
 - **Real Alpaca data** — Hourly bars from the Alpaca API
 - **Agent trading logic** — Technical indicators (RSI-14, MACD, Bollinger Bands, SMAs)
 - **Backtest dashboard** — Three equity curves per run (agent, buy-and-hold, DJIA) from SQLite
-- **Leaderboard view (mock MVP)** — Ten-team comparison UI with simulated curves (not stored in the demo DB)
+- **Leaderboard view (mock MVP)** — Ten-team comparison UI with simulated curves
 - **Paper trading API** — Live Alpaca paper account endpoints (`/paper/*`)
 - **REST API** — Run metadata, equity curves, comparison, ticker
 - **Web dashboard** — Chart.js, light/dark theme, session-aware backtests
@@ -24,26 +24,11 @@ AgenticTrading/
 ├── frontend/             # Dashboard (served by backend at http://localhost:8000)
 ├── scripts/              # CLI backtest (backtest_hourly_agent.py, etc.)
 ├── config/               # Default run IDs and date range (defaults.json)
-├── data/
-│   └── backtest.db       # Bundled demo database (3 backtest runs)
+├── data/                 # SQLite backtest results (backtest.db)
 ├── credentials/          # Local only — not in git (see alpaca.json.example)
 ├── backups/              # Database backups
 └── orchestration/        # FinAgent multi-agent framework (separate subsystem)
 ```
-
-## Bundled Demo Database
-
-The repo includes `data/backtest.db` so the dashboard works without running a backtest first. It contains **three** backtest runs (May 4–12, 2026, Magnificent 7 universe):
-
-| Agent        | Mode     | Period              | Total return |
-|-------------|----------|---------------------|--------------|
-| Agent       | backtest | 2026-05-04 → 05-12 | +2.66%       |
-| buy-and-hold| backtest | 2026-05-04 → 05-12 | -0.79%       |
-| DJIA        | backtest | 2026-05-04 → 05-12 | +1.13%       |
-
-Default run IDs and settings live in `config/defaults.json`.
-
-**Note:** The **Leaderboard** tab in the UI uses **mock** equity data (10 teams, Sep–Oct 2026 window) generated in `frontend/app.js`. That view is separate from the SQLite-backed backtest charts.
 
 ## Architecture
 
@@ -105,21 +90,24 @@ cp credentials/alpaca.json.example credentials/alpaca.json
 
 The `credentials/` folder is not tracked in git. See `credentials/README.md`.
 
-### 3. Run with bundled demo (no backtest required)
+### 3. Start API server
 
 ```bash
 python3 backend/app.py
-# Open http://localhost:8000/
 ```
 
-You should see three equity curves from `data/backtest.db`.
+### 4. Open dashboard
 
-### 4. Run a new backtest (optional)
+```
+http://localhost:8000/
+```
+
+### 5. Run a backtest (optional)
 
 Requires valid Alpaca credentials (`.env` or `credentials/alpaca.json`):
 
 ```bash
-python3 scripts/backtest_hourly_agent.py --start 2026-05-04 --end 2026-05-12
+python3 scripts/backtest_hourly_agent.py --start 2026-03-01 --end 2026-03-31
 ```
 
 Or trigger via API after starting the server: `POST /backtest/run`.
@@ -129,12 +117,6 @@ Or trigger via API after starting the server: `POST /backtest/run`.
 ```bash
 python3 scripts/backtest_hourly_agent.py --mode safe_trading   # default — active strategy with indicators
 python3 scripts/backtest_hourly_agent.py --mode buy_and_hold   # validation — buy once, then hold
-```
-
-### 5. Open dashboard
-
-```
-http://localhost:8000/
 ```
 
 ## Key Features
@@ -149,7 +131,6 @@ http://localhost:8000/
 ### Leaderboard mode (mock UI)
 
 - Ten-team table and charts with **simulated** performance (frontend only)
-- Useful for layout and UX demos; not persisted in the bundled `backtest.db`
 - Future work: wire to real multi-agent runs
 
 ### Paper trading
@@ -218,9 +199,6 @@ pytest backend/tests -v
 # Manual smoke test
 python3 backend/app.py
 # Open http://localhost:8000
-
-# Inspect bundled demo data
-sqlite3 data/backtest.db "SELECT agent_name, mode, total_return FROM agent_runs;"
 ```
 
 ## Deployment
