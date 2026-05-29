@@ -10,7 +10,7 @@ Trading agents powered by LLMs: backtesting and paper trading with real Alpaca m
 - **Agent trading logic** — Technical indicators (RSI-14, MACD, Bollinger Bands, SMAs)
 - **Backtest dashboard** — Three equity curves per run (agent, buy-and-hold, DJIA) from SQLite
 - **Leaderboard view (mock MVP)** — Ten-team comparison UI with simulated curves
-- **Paper trading API** — Live Alpaca paper account endpoints (`/paper/*`)
+- **Paper trading API** — Live Alpaca paper account endpoints (`/paper/`*)
 - **REST API** — Run metadata, equity curves, comparison, ticker
 - **Web dashboard** — Chart.js, light/dark theme, session-aware backtests
 - **Market ticker** — Stock quotes via Alpaca; crypto (e.g. BTC) via CoinGecko
@@ -108,7 +108,7 @@ http://localhost:8000/
 
 With the API server running and Alpaca credentials configured (step 2):
 
-1. Open **http://localhost:8000/** and stay on the **Backtest** tab.
+1. Open **[http://localhost:8000/](http://localhost:8000/)** and stay on the **Backtest** tab.
 2. Set the date range, assets, and model in the sidebar controls.
 3. Click **▶ Run Backtest**.
 4. Wait for the run to finish — the UI polls `/backtest/status` and reloads the equity charts when complete.
@@ -141,7 +141,7 @@ Use the dashboard to inspect results after a CLI run, or call `POST /backtest/ru
 
 ### Paper trading
 
-- Endpoints under `/paper/*` read live Alpaca paper account data when credentials are configured
+- Endpoints under `/paper/`* read live Alpaca paper account data when credentials are configured
 - Baselines for paper comparison: `/paper/baselines`
 
 ### LLM security and validation
@@ -238,18 +238,35 @@ docker run -p 8000:8000 \
 
 ## Future Roadmap
 
-- [ ] Leaderboard backed by real multi-agent runs (replace mock data)
-- [ ] Sentiment analysis (Reddit, news APIs)
-- [ ] Monte Carlo simulation baselines
-- [ ] Production-ready Docker image (frontend + data included)
+- Leaderboard backed by real multi-agent runs (replace mock data)
+- Sentiment analysis (Reddit, news APIs)
+- Monte Carlo simulation baselines
+- Production-ready Docker image (frontend + data included)
 
-## FinAgent Orchestration Framework
+## Acknowledgements
 
-This repo also includes the **FinAgent Orchestration Framework** under `orchestration/`. See `orchestration/README.md` for multi-agent architecture, memory systems, and DAG-based planning.
+Agentic Trading Lab builds on [Open-Finance-Lab/AgenticTrading](https://github.com/Open-Finance-Lab/AgenticTrading) and the **FinAgent Orchestration Framework** in `orchestration/` (Jifeng Li et al., [Open Finance Lab](https://github.com/Open-Finance-Lab)). See orchestration/README.md for multi-agent architecture, memory systems, and DAG-based planning.
+
+If you use the orchestration framework in research, please cite:
+
+```bibtex
+@inproceedings{orchestration_finagents_2025,
+   title     = {Orchestration Framework for Financial Agents: From Algorithmic Trading to Agentic Trading},
+   author    = {Jifeng Li et al.},
+   booktitle = {NeurIPS 2025 Workshop on Generative AI in Finance},
+   year      = {2025},
+}
+```
+
+Plain-text citation:
+
+> Jifeng Li et al. Orchestration Framework for Financial Agents: From Algorithmic Trading to Agentic Trading. NeurIPS 2025 Workshop on Generative AI in Finance.
+
+Orchestration documentation: [finagent-orchestration.readthedocs.io](https://finagent-orchestration.readthedocs.io)
 
 ## License
 
-MIT — See [LICENSE](LICENSE)
+OpenMDW-1.0 — See [LICENSE](LICENSE) (Copyright Jifeng Li @ SecureFinAI Lab)
 
 ## Contributing
 

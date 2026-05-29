@@ -359,13 +359,12 @@ If you use this system or build upon it in your research, please cite the follow
    author    = {Jifeng Li et al.},
    booktitle = {NeurIPS 2025 Workshop on Generative AI in Finance},
    year      = {2025},
-   note      = {To appear}
 }
 ```
 
 Plain-text citation:
 
-"Jifeng Li et al. Orchestration Framework for Financial Agents: From Algorithmic Trading to Agentic Trading. NeurIPS 2025 Workshop on Generative AI in Finance (to appear)."
+"Jifeng Li et al. Orchestration Framework for Financial Agents: From Algorithmic Trading to Agentic Trading. NeurIPS 2025 Workshop on Generative AI in Finance."
 
 ---
 
