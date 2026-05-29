@@ -4,19 +4,28 @@
 
 Trading agents powered by LLMs: backtesting and paper trading with real Alpaca market data. Compare agent strategies against buy-and-hold and index baselines, with a web dashboard for equity curves and live quotes.
 
-## Features
+## Overview
 
-- **Real Alpaca data** — Hourly bars from the Alpaca API
-- **Agent trading logic** — Technical indicators (RSI-14, MACD, Bollinger Bands, SMAs)
-- **Backtest dashboard** — Three equity curves per run (agent, buy-and-hold, DJIA) from SQLite
-- **Leaderboard view (mock MVP)** — Ten-team comparison UI with simulated curves
-- **Paper trading API** — Live Alpaca paper account endpoints (`/paper/`*)
-- **REST API** — Run metadata, equity curves, comparison, ticker
-- **Web dashboard** — Chart.js, light/dark theme, session-aware backtests
-- **Market ticker** — Stock quotes via Alpaca; crypto (e.g. BTC) via CoinGecko
-- **Market hours only** — Trading restricted to 9:30 AM–4:00 PM ET
-- **Session isolation** — Anonymous sessions for backtests (no auth required)
-- **LLM validation** — Pydantic V2 schemas and tests in `backend/tests/` (example endpoint in `llm_integration_example.py`)
+Agentic Trading Lab is an interactive research and educational platform for exploring trading systems powered by large language models. Built alongside a systematic survey of 130+ agentic trading papers, the project aims to make agentic trading research more accessible by allowing students, researchers, and developers to customize trading agents, evaluate their performance, and study how they behave in realistic market settings.
+
+The platform is designed to bridge the gap between alpha-seeking research and deployable trading systems. Instead of only measuring whether an agent can generate profitable signals, Agentic Trading Lab helps users understand the full trading workflow, including data processing, agent decision-making, backtesting, paper trading, execution constraints, risk control, and governance.
+
+The current system provides three main modes. The **Backtesting** mode evaluates trading agents on historical market data and compares their performance against market baselines. The **Paper Trading** mode connects agents to an Alpaca paper trading account for simulated real-time trading. The **Leaderboard** mode is designed for competition-style evaluation, where different agents or teams can be compared under standardized metrics.
+
+Agentic Trading Lab serves as both a research tool and an educational playground for studying how LLM-based trading agents perform beyond static benchmarks and under practical market constraints.
+
+## **Key Features**
+
+- **Trading Agents powered by LLMs**  
+It supports experimentation with language-model-driven decision-making (BUY / SELL / HOLD).
+- **Educational Playground**  
+Designed for students and beginners to explore trading without dealing with APIs or infrastructure.
+- **Interactive Backtesting Interface**  
+Users can select custom time ranges and simulate trading strategies on historical market data.
+- **Performance Evaluation**  
+It reports important trading metrics such as final portfolio value, cumulative return, maximum drawdown, and Sharpe ratio. These metrics help users compare strategies beyond simply looking at the equity curve.
+- **Paper Trading**  
+It includes a paper-trading interface where users can view simulated real-market trading performance, account summary, open positions, recent trades, and portfolio value over time.
 
 ## Project Structure
 
@@ -61,7 +70,28 @@ AgenticTrading/
 └──────────────────────────────────────────────────────────────┘
 ```
 
+
 ## Quick Start
+
+Run a backtest in the dashboard:
+
+1. Open **[agentic-trading-lab.vercel.app](https://agentic-trading-lab.vercel.app/)** or **[http://localhost:8000/](http://localhost:8000/)** (if deployed locally) and stay on the **Backtest** tab.
+2. Set the date range, assets, and model in the left sidebar.
+3. Click **▶ Run Backtest**.
+4. Wait for the run to finish — the UI polls `/backtest/status` and reloads the equity charts when complete.
+
+You get interactive charts and comparison views (agent, buy-and-hold, DJIA) in the **Trading Performance** panel.
+
+**CLI (optional)** — For headless or scripted runs only; there is little visualization in the terminal:
+
+```bash
+python3 scripts/backtest_hourly_agent.py --start 2026-03-01 --end 2026-03-31
+python3 scripts/backtest_hourly_agent.py --mode buy_and_hold   # validation mode
+```
+
+Use the dashboard to inspect results after a CLI run, or call `POST /backtest/run` with the same parameters the UI sends.
+
+## Local Deployment
 
 ### 1. Install dependencies
 
@@ -104,137 +134,7 @@ python3 backend/app.py
 http://localhost:8000/
 ```
 
-### 5. Run a backtest from the dashboard
 
-With the API server running and Alpaca credentials configured (step 2):
-
-1. Open **[http://localhost:8000/](http://localhost:8000/)** and stay on the **Backtest** tab.
-2. Set the date range, assets, and model in the sidebar controls.
-3. Click **▶ Run Backtest**.
-4. Wait for the run to finish — the UI polls `/backtest/status` and reloads the equity charts when complete.
-
-You get interactive charts and comparison views (agent, buy-and-hold, DJIA) in the **Trading Performance** panel.
-
-**CLI (optional)** — For headless or scripted runs only; there is little visualization in the terminal:
-
-```bash
-python3 scripts/backtest_hourly_agent.py --start 2026-03-01 --end 2026-03-31
-python3 scripts/backtest_hourly_agent.py --mode buy_and_hold   # validation mode
-```
-
-Use the dashboard to inspect results after a CLI run, or call `POST /backtest/run` with the same parameters the UI sends.
-
-## Key Features
-
-### Backtest mode (SQLite-backed)
-
-- Run from the dashboard (**▶ Run Backtest**) — primary workflow with live charts
-- Three curves: agent, buy-and-hold, DJIA
-- Session-scoped runs via `X-Session-Id` / middleware
-- Continuous trading-hour index on charts (no overnight line gaps)
-- Market-hours filter on equity points (9:30 AM–4:00 PM ET, `pytz`)
-
-### Leaderboard mode (mock UI)
-
-- Ten-team table and charts with **simulated** performance (frontend only)
-- Future work: wire to real multi-agent runs
-
-### Paper trading
-
-- Endpoints under `/paper/`* read live Alpaca paper account data when credentials are configured
-- Baselines for paper comparison: `/paper/baselines`
-
-### LLM security and validation
-
-- **Pydantic V2** — `backend/llm_validator.py`
-- **Tests** — `backend/tests/` (validator, isolation, endpoint integration)
-- **Example API** — `POST /api/llm-trading-decision` in `backend/llm_integration_example.py` (not mounted on the main `app.py` server)
-
-Run the example:
-
-```bash
-python3 backend/llm_integration_example.py
-```
-
-## Database Schema
-
-SQLite database path: `data/backtest.db` (override with `DATABASE_PATH`).
-
-### `agent_runs`
-
-```sql
-run_id (PK), session_id, agent_name, mode, start_date, end_date,
-initial_equity, final_equity, total_return, sharpe_ratio, max_drawdown,
-num_trades, llm_model, created_at, updated_at
-```
-
-### `equity_timeseries`
-
-```sql
-id (PK), run_id (FK), timestamp, equity, cash, positions_value, daily_return
-```
-
-### `trades`
-
-```sql
-id (PK), run_id (FK), timestamp, symbol, quantity, side, price, value, reason
-```
-
-**Modes in use:**
-
-- `backtest` — Historical runs stored in SQLite
-- `paper` — Live paper-trading sessions (when Alpaca is configured)
-
-## Development
-
-### Technology stack
-
-- **Backend:** FastAPI 0.135.3, SQLite, Uvicorn
-- **Frontend:** HTML5, Chart.js, vanilla JavaScript
-- **Broker:** Alpaca Trade API (paper)
-- **Python:** 3.13 (`.python-version`; Render uses `backend/runtime.txt`)
-
-### Testing
-
-```bash
-pip install pytest   # not pinned in requirements.txt
-
-# All backend tests
-pytest backend/tests -v
-
-# Manual smoke test
-python3 backend/app.py
-# Open http://localhost:8000
-```
-
-## Deployment
-
-### Local development
-
-See **Quick Start** above.
-
-### Docker (partial)
-
-The current `Dockerfile` copies `backend/` only. For a full local dashboard you also need `frontend/` and `data/` on the image or mounted volumes. Example (run from repo root):
-
-```bash
-docker build -t agentic-trading .
-docker run -p 8000:8000 \
-  -e ALPACA_API_KEY=your_key \
-  -e ALPACA_SECRET_KEY=your_secret \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/frontend:/app/frontend" \
-  agentic-trading
-```
-
-### Render.com
-
-- `render.yaml` — `rootDir: backend/`, persistent disk for DB
-- Set `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` in the service environment
-
-### Vercel (static frontend only)
-
-`vercel.json` serves static files from the project root. It does **not** run the FastAPI backend. Point the frontend at your API host (e.g. Render) if you split frontend and API.
 
 ## Future Roadmap
 
