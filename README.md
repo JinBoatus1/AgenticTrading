@@ -144,7 +144,7 @@ http://localhost:8000/
 
 ## Acknowledgements
 
-Agentic Trading Lab builds on [Open-Finance-Lab/AgenticTrading](https://github.com/Open-Finance-Lab/AgenticTrading) and the **FinAgent Orchestration Framework** in `orchestration/` (Jifeng Li et al., [Open Finance Lab](https://github.com/Open-Finance-Lab)). See orchestration/README.md for multi-agent architecture, memory systems, and DAG-based planning.
+This repository includes the FinAgent Orchestration Framework under `orchestration/`, originally developed by Jifeng Li et al. at Open Finance Lab as part of the work on financial agent orchestration. The orchestration framework provides multi-agent architecture, memory systems, and DAG-based planning components. See `orchestration/README.md` for details.
 
 If you use the orchestration framework in research, please cite:
 
@@ -155,13 +155,14 @@ If you use the orchestration framework in research, please cite:
    booktitle = {NeurIPS 2025 Workshop on Generative AI in Finance},
    year      = {2025},
 }
+
 ```
 
 Plain-text citation:
 
-> Jifeng Li et al. Orchestration Framework for Financial Agents: From Algorithmic Trading to Agentic Trading. NeurIPS 2025 Workshop on Generative AI in Finance.
+Jifeng Li, Arnav Grover, Abraham Alpuerto, Yupeng Cao, and Xiao-Yang Liu. *Orchestration Framework for Financial Agents: From Algorithmic Trading to Agentic Trading*. NeurIPS 2025 Workshop on Generative AI in Finance, 2025.
 
-Orchestration documentation: [finagent-orchestration.readthedocs.io](https://finagent-orchestration.readthedocs.io)
+Orchestration documentation: `finagent-orchestration.readthedocs.io`
 
 ## License
 
