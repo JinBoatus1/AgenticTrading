@@ -210,7 +210,7 @@ FinAgents/agent_pools/*/*.db
 data/cache/*.csv
 data/cache/*.json
 data/temp/
-data/backtest.db
+data
 *.tmp
 
 # Log files

@@ -2,7 +2,7 @@
 
 **Live app:** [agentic-trading-lab.vercel.app](https://agentic-trading-lab.vercel.app/)
 
-Discord Community: [https://discord.gg/9HnQ6XDG98](https://discord.gg/9HnQ6XDG98)
+**Discord Community**: [https://discord.gg/9HnQ6XDG98](https://discord.gg/9HnQ6XDG98)
 
 Trading agents powered by LLMs: backtesting and paper trading with real Alpaca market data. Compare agent strategies against buy-and-hold and index baselines, with a web dashboard for equity curves and live quotes.
 
