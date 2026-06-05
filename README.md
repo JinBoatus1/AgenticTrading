@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./frontend/images/agentic_trading_lab.png" alt="Agentic Trading Lab" width="400">
+  <img src="./frontend/images/agentic_trading_lab_white.png" alt="Agentic Trading Lab" width="400">
 </div>
 
 # Agentic Trading Lab
