@@ -1,3 +1,8 @@
+11
+<div align="center">
+  <img src="./frontend/images/agentic_trading_lab_logo_clean_white.png" alt="Agentic Trading Lab" width="520">
+</div>
+
 # Agentic Trading Lab
 
 **Live app:** [agentic-trading-lab.vercel.app](https://agentic-trading-lab.vercel.app/)
