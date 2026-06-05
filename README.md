@@ -1,15 +1,29 @@
-11
 <div align="center">
-  <img src="./frontend/images/agentic_trading_lab_logo_clean_white.png" alt="Agentic Trading Lab" width="520">
+  <img src="./frontend/images/agentic_trading_lab.png" alt="Agentic Trading Lab" width="400">
 </div>
 
 # Agentic Trading Lab
 
-**Live app:** [agentic-trading-lab.vercel.app](https://agentic-trading-lab.vercel.app/)
+<p align="center">
+  <strong>The open playground for agentic trading.</strong>
+</p>
 
-**Discord Community**: [https://discord.gg/9HnQ6XDG98](https://discord.gg/9HnQ6XDG98)
+<p align="center">
+  <a href="https://agentic-trading-lab.vercel.app/">
+    <img src="https://img.shields.io/badge/Live%20Demo-Visit%20App-0ea5e9?style=for-the-badge&logo=vercel&logoColor=white" alt="Live Demo">
+  </a>
+  <a href="https://discord.gg/9HnQ6XDG98">
+    <img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord">
+  </a>
+  <a href="https://finagent-orchestration.readthedocs.io/en/latest/">
+    <img src="https://img.shields.io/badge/Docs-Read%20the%20Docs-22c55e?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Docs">
+  </a>
+  <a href="#securefinai-contest-2026">
+    <img src="https://img.shields.io/badge/Contest-2026-f97316?style=for-the-badge&logo=trophy&logoColor=white" alt="Contest 2026">
+  </a>
+</p>
 
-Trading agents powered by LLMs: backtesting and paper trading with real Alpaca market data. Compare agent strategies against buy-and-hold and index baselines, with a web dashboard for equity curves and live quotes.
+
 
 ## Overview
 
