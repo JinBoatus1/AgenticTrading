@@ -40,6 +40,8 @@ AgenticTrading/
 ├── data/                 # SQLite backtest results (backtest.db)
 ├── credentials/          # Local only — not in git (see alpaca.json.example)
 ├── backups/              # Database backups
+├── docs/                 # Sphinx docs (see docs/README.md for local preview)
+├── readthedocs.yml       # Read the Docs build config
 └── orchestration/        # FinAgent multi-agent framework (separate subsystem)
 ```
 
@@ -162,7 +164,7 @@ Plain-text citation:
 
 Jifeng Li, Arnav Grover, Abraham Alpuerto, Yupeng Cao, and Xiao-Yang Liu. *Orchestration Framework for Financial Agents: From Algorithmic Trading to Agentic Trading*. NeurIPS 2025 Workshop on Generative AI in Finance, 2025.
 
-Orchestration documentation: `finagent-orchestration.readthedocs.io`
+Documentation: [finagent-orchestration.readthedocs.io](https://finagent-orchestration.readthedocs.io) (Agentic Trading Lab + Orchestration Framework). Local preview: `docs/README.md`
 
 ## License
 
