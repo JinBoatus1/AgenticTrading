@@ -36,6 +36,10 @@ def is_paper_trading_route(path: str) -> bool:
     """Check if this is a paper trading route (allowed to skip session_id)."""
     return path.startswith('/paper/')
 
+def is_api_route(path: str) -> bool:
+    """REST API routes use their own auth; skip anonymous session middleware."""
+    return path.startswith('/api/')
+
 class SessionMiddleware(BaseHTTPMiddleware):
     """
     Middleware: require X-Session-Id for backtest routes, allow paper trading to be global.
@@ -47,7 +51,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
         # Skip exempted paths
         path = request.url.path
         
-        if is_exempt(path):
+        if is_exempt(path) or is_api_route(path):
             return await call_next(request)
         
         # Allow OPTIONS (CORS preflight)

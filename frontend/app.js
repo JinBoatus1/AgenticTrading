@@ -174,6 +174,249 @@ const API_BASE = window.location.hostname === 'localhost' || window.location.hos
     ? 'http://localhost:8000'
     : 'https://agentictrading.onrender.com';
 
+const AUTH_TOKEN_KEY = 'auth-token';
+const AUTH_USER_KEY = 'auth-user';
+
+const AuthAPI = {
+  async request(path, options = {}) {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+    });
+
+    const contentType = response.headers.get('content-type');
+    const data = contentType && contentType.includes('application/json')
+      ? await response.json()
+      : null;
+
+    if (!response.ok) {
+      const message = data?.detail || data?.error || `HTTP ${response.status}`;
+      throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    }
+
+    return data;
+  },
+
+  signup(email, displayName, password) {
+    return this.request('/api/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, display_name: displayName, password }),
+    });
+  },
+
+  login(email, password) {
+    return this.request('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
+  me() {
+    return this.request('/api/auth/me', { method: 'GET' });
+  },
+
+  logout() {
+    return this.request('/api/auth/logout', { method: 'POST' });
+  },
+};
+
+let authMode = 'login';
+
+function getStoredAuthUser() {
+  try {
+    const raw = localStorage.getItem(AUTH_USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    console.warn('Invalid stored auth user:', error);
+    return null;
+  }
+}
+
+function setAuthState(user, token) {
+  localStorage.setItem(AUTH_TOKEN_KEY, token);
+  localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  window.AUTH_USER = user;
+  updateAuthUI();
+}
+
+function clearAuthState() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem(AUTH_USER_KEY);
+  window.AUTH_USER = null;
+  updateAuthUI();
+}
+
+function updateAuthUI() {
+  const user = getStoredAuthUser();
+  const label = document.getElementById('authUserLabel');
+  const openBtn = document.getElementById('authOpenBtn');
+  const logoutBtn = document.getElementById('authLogoutBtn');
+  if (!label || !openBtn || !logoutBtn) {
+    return;
+  }
+
+  if (user) {
+    label.textContent = user.display_name || user.email;
+    label.hidden = false;
+    openBtn.hidden = true;
+    logoutBtn.hidden = false;
+  } else {
+    label.hidden = true;
+    openBtn.hidden = false;
+    logoutBtn.hidden = true;
+  }
+
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const title = document.getElementById('authModalTitle');
+  const subtitle = document.getElementById('authModalSubtitle');
+  const submitBtn = document.getElementById('authSubmitBtn');
+  const switchBtn = document.getElementById('authSwitchBtn');
+  const passwordInput = document.getElementById('authPassword');
+  const errorEl = document.getElementById('authError');
+  const displayNameField = document.getElementById('authDisplayNameField');
+  const displayNameInput = document.getElementById('authDisplayName');
+
+  if (title) title.textContent = mode === 'signup' ? 'Sign up' : 'Log in';
+  if (subtitle) {
+    subtitle.textContent = 'Optional — backtest and paper trading work without an account.';
+  }
+  if (submitBtn) submitBtn.textContent = mode === 'signup' ? 'Create account' : 'Log in';
+  if (switchBtn) {
+    switchBtn.textContent = mode === 'signup'
+      ? 'Already have an account? Log in'
+      : 'Need an account? Sign up';
+  }
+  if (passwordInput) {
+    passwordInput.autocomplete = mode === 'signup' ? 'new-password' : 'current-password';
+  }
+  if (displayNameField) {
+    displayNameField.hidden = mode !== 'signup';
+  }
+  if (displayNameInput) {
+    displayNameInput.required = mode === 'signup';
+    if (mode !== 'signup') {
+      displayNameInput.value = '';
+    }
+  }
+  if (errorEl) errorEl.hidden = true;
+  updateAuthUI();
+}
+
+function openAuthModal(mode = 'login') {
+  const modal = document.getElementById('authModal');
+  if (!modal) return;
+  setAuthMode(mode);
+  modal.hidden = false;
+}
+
+function closeAuthModal() {
+  const modal = document.getElementById('authModal');
+  const form = document.getElementById('authForm');
+  const errorEl = document.getElementById('authError');
+  if (modal) modal.hidden = true;
+  if (form) form.reset();
+  if (errorEl) errorEl.hidden = true;
+  setAuthMode('login');
+}
+
+async function refreshAuthUser() {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  if (!token) {
+    clearAuthState();
+    return;
+  }
+
+  try {
+    const data = await AuthAPI.me();
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
+    window.AUTH_USER = data.user;
+    updateAuthUI();
+  } catch (error) {
+    console.warn('Auth session expired:', error.message);
+    clearAuthState();
+  }
+}
+
+function initAuthUI() {
+  const openBtn = document.getElementById('authOpenBtn');
+  const logoutBtn = document.getElementById('authLogoutBtn');
+  const closeBtn = document.getElementById('authModalClose');
+  const backdrop = document.getElementById('authModalBackdrop');
+  const switchBtn = document.getElementById('authSwitchBtn');
+  const form = document.getElementById('authForm');
+
+  openBtn?.addEventListener('click', () => openAuthModal('login'));
+  logoutBtn?.addEventListener('click', async () => {
+    try {
+      await AuthAPI.logout();
+    } catch (error) {
+      console.warn('Logout request failed:', error.message);
+    } finally {
+      clearAuthState();
+    }
+  });
+  closeBtn?.addEventListener('click', closeAuthModal);
+  backdrop?.addEventListener('click', closeAuthModal);
+  switchBtn?.addEventListener('click', () => {
+    setAuthMode(authMode === 'signup' ? 'login' : 'signup');
+  });
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const email = document.getElementById('authEmail')?.value.trim();
+    const displayName = document.getElementById('authDisplayName')?.value.trim();
+    const password = document.getElementById('authPassword')?.value;
+    const errorEl = document.getElementById('authError');
+    const submitBtn = document.getElementById('authSubmitBtn');
+
+    if (!email || !password) {
+      return;
+    }
+
+    if (authMode === 'signup' && !displayName) {
+      if (errorEl) {
+        errorEl.textContent = 'Display name is required for sign up.';
+        errorEl.hidden = false;
+      }
+      return;
+    }
+
+    submitBtn.disabled = true;
+    if (errorEl) errorEl.hidden = true;
+
+    try {
+      const data = authMode === 'signup'
+        ? await AuthAPI.signup(email, displayName, password)
+        : await AuthAPI.login(email, password);
+      setAuthState(data.user, data.token);
+      closeAuthModal();
+    } catch (error) {
+      if (errorEl) {
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+      }
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  window.AUTH_USER = getStoredAuthUser();
+  updateAuthUI();
+  refreshAuthUser();
+}
+
 // Store default run IDs
 window.DEFAULT_RUNS = {};
 
@@ -187,6 +430,7 @@ let defaultConfig = null;
 document.addEventListener('DOMContentLoaded', async () => {
     // Initialize session FIRST (before any API calls)
     initSession();
+    initAuthUI();
     const config = loadConfigFromURL();
     window.CURRENT_CONFIG = config;
     console.log('⚙️ Experiment config:', config);

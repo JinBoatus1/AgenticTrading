@@ -14,6 +14,7 @@ import json
 from database import db
 from market_data import get_market_quotes
 from middleware import SessionMiddleware
+from api.router import api_router
 from paper_trading import AlpacaPaperTradingClient, create_paper_trading_session
 from paper_baselines import create_paper_baselines_if_not_exists
 from baselines_endpoint import get_baselines_from_db
@@ -91,6 +92,9 @@ app.add_middleware(
 
 # Add session middleware (selective: backtest routes only)
 app.add_middleware(SessionMiddleware)
+
+# Versioned REST API (auth, future teams/contest/config)
+app.include_router(api_router)
 
 # CSP Middleware: Permit Chart.js and inline scripts (for development)
 from starlette.middleware.base import BaseHTTPMiddleware

@@ -6,6 +6,7 @@ alpaca-trade-api==3.2.0
 aiohttp==3.13.5
 aiosignal==1.4.0
 attrs==25.3.0
+bcrypt==4.3.0
 certifi==2025.8.3
 charset-normalizer==3.4.7
 click==8.2.1

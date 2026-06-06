@@ -1,0 +1,233 @@
+"""
+User accounts and auth session storage (SQLite, same database file as backtests).
+"""
+
+import hashlib
+import secrets
+import sqlite3
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+import bcrypt
+
+from database import DB_PATH
+
+SESSION_TTL_DAYS = 7
+BCRYPT_ROUNDS = 12
+LEGACY_PBKDF2_ITERATIONS = 100_000
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _utcnow_iso() -> str:
+    return _utcnow().replace(microsecond=0).isoformat()
+
+
+def hash_password(password: str) -> str:
+    hashed = bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt(rounds=BCRYPT_ROUNDS),
+    )
+    return hashed.decode("utf-8")
+
+
+def _verify_legacy_pbkdf2(password: str, password_hash: str) -> bool:
+    """Verify passwords hashed before the bcrypt migration."""
+    try:
+        salt, expected = password_hash.split("$", 1)
+    except ValueError:
+        return False
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        LEGACY_PBKDF2_ITERATIONS,
+    )
+    return secrets.compare_digest(digest.hex(), expected)
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    if password_hash.startswith(("$2a$", "$2b$", "$2y$")):
+        try:
+            return bcrypt.checkpw(
+                password.encode("utf-8"),
+                password_hash.encode("utf-8"),
+            )
+        except ValueError:
+            return False
+    return _verify_legacy_pbkdf2(password, password_hash)
+
+
+def public_user(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
+    data = dict(row)
+    return {
+        "id": data["id"],
+        "email": data["email"],
+        "display_name": data["display_name"],
+        "role": data["role"],
+        "created_at": data["created_at"],
+    }
+
+
+class UserStore:
+    """Minimal user + auth session persistence."""
+
+    def __init__(self, db_path: Path | None = None):
+        self.db_path = Path(db_path or DB_PATH)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_schema()
+
+    def _get_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_schema(self) -> None:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                display_name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id
+            ON auth_sessions(user_id)
+            """
+        )
+        conn.commit()
+        conn.close()
+
+    def create_user(self, email: str, display_name: str, password: str) -> Dict[str, Any]:
+        normalized_email = email.strip().lower()
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO users (email, display_name, password_hash, role)
+                VALUES (?, ?, ?, 'user')
+                """,
+                (normalized_email, display_name.strip(), hash_password(password)),
+            )
+            conn.commit()
+            user_id = cursor.lastrowid
+        except sqlite3.IntegrityError as exc:
+            conn.close()
+            raise ValueError("email_already_registered") from exc
+
+        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return public_user(row)
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM users WHERE email = ? COLLATE NOCASE",
+            (email.strip().lower(),),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def authenticate(self, email: str, password: str) -> Optional[Dict[str, Any]]:
+        user = self.get_user_by_email(email)
+        if not user:
+            return None
+        if not verify_password(password, user["password_hash"]):
+            return None
+        return user
+
+    def create_session(self, user_id: int) -> str:
+        token = secrets.token_urlsafe(32)
+        expires_at = (_utcnow() + timedelta(days=SESSION_TTL_DAYS)).replace(microsecond=0).isoformat()
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO auth_sessions (token, user_id, expires_at)
+            VALUES (?, ?, ?)
+            """,
+            (token, user_id, expires_at),
+        )
+        conn.commit()
+        conn.close()
+        return token
+
+    def get_user_for_token(self, token: str) -> Optional[Dict[str, Any]]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT users.*
+            FROM auth_sessions
+            JOIN users ON users.id = auth_sessions.user_id
+            WHERE auth_sessions.token = ?
+            """,
+            (token,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+
+        cursor.execute(
+            "SELECT expires_at FROM auth_sessions WHERE token = ?",
+            (token,),
+        )
+        session_row = cursor.fetchone()
+        conn.close()
+
+        if not session_row:
+            return None
+
+        expires_at = datetime.fromisoformat(session_row["expires_at"])
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < _utcnow():
+            self.delete_session(token)
+            return None
+
+        return dict(row)
+
+    def delete_session(self, token: str) -> None:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM auth_sessions WHERE token = ?", (token,))
+        conn.commit()
+        conn.close()
+
+
+user_store = UserStore()
