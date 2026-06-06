@@ -12,9 +12,9 @@ sys.path.insert(0, os.path.abspath('..'))
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'FinAgent Orchestration Documentation'
-copyright = '2025, FinAgent Orchestration'
-author = 'FinAgent Orchestration'
+project = 'Agentic Trading Documentation'
+copyright = '2025, Agentic Trading Lab'
+author = 'Open Finance Lab'
 release = '1.0'
 
 # -- General configuration ---------------------------------------------------
@@ -47,6 +47,15 @@ language = 'en'
 
 html_theme = "sphinx_rtd_theme"
 
+# Keep the sidebar stable: show all sections and avoid collapsing unrelated branches.
+html_theme_options = {
+    "collapse_navigation": False,
+    "navigation_depth": 5,
+    "sticky_navigation": True,
+    "includehidden": True,
+    "titles_only": False,
+}
+
 html_static_path = ['_static']
 html_css_files = [
     'css/custom.css',
@@ -55,7 +64,7 @@ html_css_files = [
 html_context = {
     "display_github": True, # Integrate GitHub
     "github_user": "Open-Finance-Lab", # Username
-    "github_repo": "FinAgent-Orchestration", # Repo name
+    "github_repo": "AgenticTrading", # Repo name
     "github_version": "main", # Version
     "conf_py_path": "/docs/source/", # Path in the checkout to the docs root
 }

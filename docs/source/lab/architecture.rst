@@ -1,0 +1,57 @@
+Architecture
+============
+
+The lab stacks a backtest engine, REST API, and web dashboard. Data flows from Alpaca through backtests into SQLite, then through the API to the frontend.
+
+System diagram
+--------------
+
+.. code-block:: text
+
+   ┌─────────────────────────────────────────────────────────────┐
+   │ Backtest Engine (scripts/backtest_hourly_agent.py)          │
+   │ ├─ Fetch Alpaca hourly bars                                 │
+   │ ├─ Run agent + baseline logic                               │
+   │ ├─ Write 3 runs (agent, buy-and-hold, DJIA)                 │
+   │ └─ Store in data/backtest.db (SQLite)                       │
+   └────────────────┬────────────────────────────────────────────┘
+                    │
+   ┌────────────────▼────────────────────────────────────────────┐
+   │ REST API (backend/app.py)                                   │
+   │ ├─ GET  /health                                             │
+   │ ├─ GET  /runs, /runs/{id}/equity, /compare                  │
+   │ ├─ POST /backtest/run, GET /backtest/status                 │
+   │ ├─ GET  /ticker                                             │
+   │ ├─ GET  /paper/account, /paper/positions, …                 │
+   │ └─ GET  /config/defaults                                    │
+   └────────────────┬────────────────────────────────────────────┘
+                    │
+   ┌────────────────▼────────────────────────────────────────────┐
+   │ Web Dashboard (frontend/)                                   │
+   │ ├─ index.html, app.js, styles.css                           │
+   │ └─ images/                                                  │
+   └─────────────────────────────────────────────────────────────┘
+
+API surface (summary)
+---------------------
+
++---------------------------+------------------------------------------+
+| Endpoint                  | Purpose                                  |
++===========================+==========================================+
+| ``GET /health``           | Health check                             |
+| ``GET /runs``             | List backtest runs                       |
+| ``GET /runs/{id}/equity`` | Equity curve for a run                   |
+| ``GET /compare``          | Compare multiple runs                    |
+| ``POST /backtest/run``    | Start a backtest                         |
+| ``GET /backtest/status``  | Poll backtest job status                 |
+| ``GET /ticker``           | Market quote data                        |
+| ``GET /paper/*``          | Paper-trading account, positions, trades |
+| ``GET /config/defaults``  | Default UI / run configuration           |
++---------------------------+------------------------------------------+
+
+LLM integration example code lives in ``backend/llm_integration_example.py`` (reference only, not wired into the main app path).
+
+Related documentation
+---------------------
+
+Multi-agent orchestration, agent pools, and DAG workflows are documented under :doc:`../orchestration/index`.

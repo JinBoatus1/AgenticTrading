@@ -1,7 +1,7 @@
 # FinAgent Orchestration: From Algorithmic Trading to Agentic Trading
 
 <p align="center">
-  <img src="docs/source/intro/FinProtocol.png" width="800">
+  <img src="../docs/source/orchestration/FinProtocol.png" width="800">
 </p>
 
 <p align="center">
@@ -200,44 +200,16 @@ This framework moves beyond the "pipeline automation" paradigm of traditional qu
 ## 📁 Project Structure
 
 ```
-FinAgent-Orchestration/
-├── docs/                              # Documentation and Sphinx sources
-│   ├── source/
-│   │   └── intro/
-│   │       └── FinProtocol.png       # System architecture diagram
-│   └── build/                         # Generated documentation
-├── FinAgents/                         # Core framework modules
-│   ├── orchestrator/                  # DAG Controller, Orchestration engine, Bus, Protocols
-│   ├── agent_pools/                   # Modular agent pools
-│   │   ├── alpha_agent_pool/         # Alpha signal generation
-│   │   ├── data_agent_pool/          # Data acquisition and preprocessing
-│   │   ├── risk_agent_pool/          # Risk modeling and constraints
-│   │   ├── transaction_cost_agent_pool/  # Cost estimation
-│   │   ├── portfolio_construction_agent_pool/  # Portfolio optimization
-│   │   └── backtest_agent/           # Strategy evaluation
-│   ├── memory/                        # Memory Agent and DRL policy learner
-│   │   ├── mcp_server.py             # Memory MCP server
-│   │   └── database_initializer.py   # Neo4j initialization
-│   └── transaction_cost_memory_storage/  # Transaction cost logs
-├── examples/                          # Strategy simulation and demo DAG runs
-│   ├── autonomous_agent_example.py
-│   ├── alpha_agent_pool_memory_integration_examples.py
-│   └── test_web_interface_dynamic.py
-├── tests/                             # Unit and integration testing modules
-│   ├── comprehensive_integration_test.py
-│   └── test_alpha_memory_a2a_connection.py
-├── scripts/                           # Utility scripts
-│   ├── setup_neo4j.py                # Neo4j database setup
-│   └── setup_integration.sh          # Environment configuration
-├── data/                              # Market data cache and logs
-│   ├── cache/                        # Cached price data
-│   └── alpha_mining/                 # Alpha factor mining results
-├── logs/                              # Execution logs and test results
-├── Papers/                            # Whitepapers and research documentation
-├── README.md                          # Project overview (this file)
-├── requirements.txt                   # Python dependency list
-├── pyproject.toml                     # Python project metadata
-└── readthedocs.yml                    # ReadTheDocs build configuration
+AgenticTrading/
+├── docs/                              # Sphinx documentation (repo root)
+├── readthedocs.yml                    # Read the Docs build configuration
+├── orchestration/                     # FinAgent framework (this directory)
+│   ├── FinAgents/                     # Core framework modules
+│   ├── examples/                      # Strategy simulation and demo DAG runs
+│   ├── tests/                         # Unit and integration testing modules
+│   ├── scripts/                       # Utility scripts
+│   └── README.md                      # Framework overview (this file)
+└── backend/, frontend/, …             # Agentic Trading Lab app (repo root)
 ```
 
 
@@ -310,7 +282,7 @@ python tests/comprehensive_integration_test.py
 
 ## 📚 Documentation
 
-Complete documentation is available in the [`docs/`](docs/) directory and online at:
+Complete documentation is available in the [`docs/`](../docs/) directory and online at:
 
 📘 **https://finagent-orchestration.readthedocs.io**
 

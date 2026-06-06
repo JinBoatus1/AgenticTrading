@@ -707,4 +707,4 @@ This project is licensed under the OpenMDW License. See LICENSE file for details
 
 ---
 
-For more information, visit the [FinAgent Documentation](docs/) or contact the development team.
+For more information, visit the [FinAgent Documentation](../../../docs/) or contact the development team.

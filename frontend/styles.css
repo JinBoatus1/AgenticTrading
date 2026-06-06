@@ -167,6 +167,148 @@ body {
     flex: 0 0 auto;
 }
 
+.auth-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.auth-user-label {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.auth-btn {
+    padding: 5px 12px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.auth-btn:hover {
+    border-color: var(--info-color);
+    color: var(--info-color);
+}
+
+.auth-btn-secondary {
+    color: var(--text-secondary);
+}
+
+.auth-modal[hidden] {
+    display: none !important;
+}
+
+.auth-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.auth-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+}
+
+.auth-modal-panel {
+    position: relative;
+    width: min(420px, calc(100vw - 32px));
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.auth-modal-close {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 22px;
+    cursor: pointer;
+}
+
+.auth-modal-title {
+    margin: 0 0 6px;
+    font-size: 20px;
+}
+
+.auth-modal-subtitle {
+    margin: 0 0 18px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.auth-form {
+    display: grid;
+    gap: 12px;
+}
+
+.auth-field {
+    display: grid;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.auth-field[hidden] {
+    display: none !important;
+}
+
+.auth-field input {
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.auth-error {
+    margin: 0;
+    color: #ef4444;
+    font-size: 12px;
+}
+
+.auth-submit {
+    padding: 10px 12px;
+    border: none;
+    border-radius: 4px;
+    background: var(--info-color);
+    color: white;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.auth-switch {
+    margin: 14px 0 0;
+    text-align: center;
+    font-size: 12px;
+}
+
+.auth-link-btn {
+    border: none;
+    background: transparent;
+    color: var(--info-color);
+    cursor: pointer;
+    font-size: 12px;
+    text-decoration: underline;
+}
+
 .mode-toggle {
     display: flex;
     gap: 2px;
