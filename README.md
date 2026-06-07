@@ -4,10 +4,6 @@
 
 
 <p align="center">
-  <strong>The open playground for agentic trading.</strong>
-</p>
-
-<p align="center">
   <a href="https://agentic-trading-lab.vercel.app/">
     <img src="https://img.shields.io/badge/Live%20Demo-Visit%20App-0ea5e9?style=for-the-badge&logo=vercel&logoColor=white" alt="Live Demo">
   </a>
