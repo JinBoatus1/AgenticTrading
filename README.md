@@ -2,7 +2,6 @@
   <img src="./frontend/images/agentic_trading_lab_white.png" alt="Agentic Trading Lab" width="400">
 </div>
 
-# Agentic Trading Lab
 
 <p align="center">
   <strong>The open playground for agentic trading.</strong>
