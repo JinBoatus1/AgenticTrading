@@ -21,10 +21,10 @@
 **Agentic Trading Lab is an open-source experimental playground for LLM-powered trading agents.**  
 Turn trading ideas into traceable experiments: prototype agents, run backtests and paper-trading simulations, inspect reasoning and decision logs, benchmark against market baselines, and study how agents behave under realistic financial constraints.
 
-**Web Platform:** [Launch Agentic Trading Lab](https://agentic-trading-lab.vercel.app/)
+[**Link to Web Platform:**](https://agentic-trading-lab.vercel.app/)
 
 <div align="center">
-  <img src="./frontend/images/website-snapshot.png" alt="Website Snapshot" width="720">
+  <img src="./frontend/images/snapshot.png" alt="Website Snapshot" width="720">
 </div>
 
 ## Outline
