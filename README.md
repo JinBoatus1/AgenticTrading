@@ -178,7 +178,7 @@ Plain-text citation:
 
 Jifeng Li, Arnav Grover, Abraham Alpuerto, Yupeng Cao, and Xiao-Yang Liu. *Orchestration Framework for Financial Agents: From Algorithmic Trading to Agentic Trading*. NeurIPS 2025 Workshop on Generative AI in Finance, 2025.
 
-Documentation: [finagent-orchestration.readthedocs.io](https://finagent-orchestration.readthedocs.io) (Agentic Trading Lab + Orchestration Framework). Local preview: `docs/README.md`
+Documentation: [finagent-orchestration.readthedocs.io](https://finagent-orchestration.readthedocs.io). Local preview: `docs/README.md`
 
 ## License
 
