@@ -441,7 +441,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Setup mode toggle
     document.querySelectorAll('.mode-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            switchMode(e.target.dataset.mode);
+            switchMode(e.currentTarget.dataset.mode);
         });
     });
 
@@ -540,26 +540,30 @@ document.addEventListener('DOMContentLoaded', async () => {
  */
 async function loadPerformanceMetrics() {
     try {
-        // Add cache-busting timestamp to ensure fresh data
-        const cacheBustUrl = `${API_BASE}/runs/latest/metrics?t=${Date.now()}`;
-        const metrics = await API.get(cacheBustUrl);
-        
-        // Validate metrics data
+        let metrics = null;
+
+        try {
+            const sessionRuns = await API.get(`${API_BASE}/api/backtest/runs?t=${Date.now()}`);
+            const myAlgoRuns = sessionRuns.filter(r => r.run_id && r.run_id.startsWith('algo_'));
+            if (myAlgoRuns.length) {
+                metrics = myAlgoRuns.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
+            }
+        } catch (e) {
+            console.warn('Could not load session runs for my algo metrics');
+        }
+
+        if (!metrics) {
+            metrics = await API.get(`${API_BASE}/runs/latest/metrics?t=${Date.now()}`);
+        }
+
         if (!metrics || !metrics.initial_equity) {
             console.warn('Invalid metrics data:', metrics);
             displayNoMetrics();
             return;
         }
-        
+
         displayPerformanceMetrics(metrics);
         console.log('✅ Performance metrics loaded:', metrics);
-        
-        // Log summary for debugging
-        const finalValue = metrics.initial_equity * (1 + (metrics.total_return || 0) / 100);
-        console.log(`   Final Value: $${finalValue.toFixed(0)}`);
-        console.log(`   Return: ${(metrics.total_return || 0).toFixed(2)}%`);
-        console.log(`   Max Drawdown: ${(metrics.max_drawdown || 0).toFixed(2)}%`);
-        console.log(`   Sharpe: ${(metrics.sharpe_ratio || 0).toFixed(2)}`);
     } catch (error) {
         console.warn('Error fetching performance metrics:', error.message);
         displayNoMetrics();
@@ -584,8 +588,11 @@ function displayPerformanceMetrics(metrics) {
     
     // Calculate final value from initial equity and total return
     const initialCapital = metrics.initial_equity || 100000;
-    const totalReturnPercent = metrics.total_return || 0;
-    const finalValue = initialCapital * (1 + totalReturnPercent / 100);
+    let totalReturnPercent = metrics.total_return || 0;
+    if (Math.abs(totalReturnPercent) <= 1 && totalReturnPercent !== 0) {
+        totalReturnPercent = totalReturnPercent * 100;
+    }
+    const finalValue = metrics.final_equity || (initialCapital * (1 + totalReturnPercent / 100));
     
     // Update Final Value
     const finalValueEl = document.querySelector('[data-metric="final-value"]');
@@ -611,7 +618,10 @@ function displayPerformanceMetrics(metrics) {
     // Update Max Drawdown
     const drawdownEl = document.querySelector('[data-metric="max-drawdown"]');
     if (drawdownEl) {
-        const maxDrawdown = metrics.max_drawdown || 0;
+        let maxDrawdown = metrics.max_drawdown || 0;
+        if (Math.abs(maxDrawdown) <= 1 && maxDrawdown !== 0) {
+            maxDrawdown = maxDrawdown * 100;
+        }
         const drawdownText = maxDrawdown.toFixed(2) + '%';
         drawdownEl.textContent = drawdownText;
         drawdownEl.className = 'metric-value ' + (maxDrawdown >= 0 ? 'positive' : 'negative');
@@ -1191,29 +1201,48 @@ function switchMode(mode) {
     currentMode = mode;
     
     document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-    document.querySelector(`[data-mode="${mode}"]`).classList.add('active');
+    const activeBtn = document.querySelector(`[data-mode="${mode}"]`);
+    if (activeBtn) activeBtn.classList.add('active');
     
-    // Show/hide appropriate views
     const backtestView = document.querySelector('.main-container');
     const paperView = document.getElementById('paperTradingView');
+    const myAlgoView = document.getElementById('myTradingAlgoView');
     const leaderboardView = document.getElementById('leaderboardView');
     
-    if (mode === 'paper') {
-        if (backtestView) backtestView.style.display = 'none';
-        if (paperView) paperView.style.display = 'block';
-        if (leaderboardView) leaderboardView.style.display = 'none';
-        loadPaperTradingData();
-    } else if (mode === 'contest') {
+    const hideAll = () => {
         if (backtestView) backtestView.style.display = 'none';
         if (paperView) paperView.style.display = 'none';
+        if (myAlgoView) myAlgoView.style.display = 'none';
+        if (leaderboardView) leaderboardView.style.display = 'none';
+    };
+    
+    if (mode === 'paper') {
+        hideAll();
+        if (paperView) paperView.style.display = 'block';
+        loadPaperTradingData();
+    } else if (mode === 'my-algo') {
+        hideAll();
+        if (myAlgoView) myAlgoView.style.display = 'block';
+        loadMyTradingAlgoPage();
+    } else if (mode === 'contest') {
+        hideAll();
         if (leaderboardView) leaderboardView.style.display = 'flex';
         loadLeaderboardData();
     } else {
+        hideAll();
         if (backtestView) backtestView.style.display = 'grid';
-        if (paperView) paperView.style.display = 'none';
-        if (leaderboardView) leaderboardView.style.display = 'none';
         loadData();
     }
+}
+
+function isMyAlgoRun(run) {
+    return run && run.run_id && String(run.run_id).startsWith('algo_');
+}
+
+function findLatestRunByAgent(runs, agentName) {
+    const matched = runs.filter(r => r.agent_name === agentName);
+    if (!matched.length) return null;
+    return matched.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
 }
 
 /**
@@ -1224,30 +1253,53 @@ async function loadData() {
         console.log('Loading data for mode:', currentMode);
         
         if (currentMode === 'backtest') {
-            // Fetch all runs (with cache-busting)
-            const runsData = await API.get(`${API_BASE}/runs?t=${Date.now()}`);
-            
-            allRuns = runsData;
-            console.log('Loaded runs:', allRuns.length, allRuns);
-            
-            if (allRuns.length === 0) {
+            let sessionRuns = [];
+            try {
+                sessionRuns = await API.get(`${API_BASE}/api/backtest/runs?t=${Date.now()}`);
+            } catch (e) {
+                console.warn('Session runs unavailable:', e.message);
+            }
+
+            const myAlgoRuns = sessionRuns.filter(isMyAlgoRun);
+            const latestMyAlgo = myAlgoRuns.length
+                ? myAlgoRuns.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0]
+                : null;
+
+            if (latestMyAlgo) {
+                window.MY_ALGO_RUN_ID = latestMyAlgo.run_id;
+            } else {
+                window.MY_ALGO_RUN_ID = null;
+            }
+
+            allRuns = await API.get(`${API_BASE}/runs?t=${Date.now()}`);
+            console.log('Loaded runs:', allRuns.length);
+
+            if (allRuns.length === 0 && !latestMyAlgo) {
                 console.warn('No runs available');
                 return;
             }
-            
-            // Build run_ids parameter
-            const runIds = allRuns.map(r => r.run_id).join(',');
-            console.log('Comparing run IDs:', runIds);
-            
-            // Fetch comparison data with run IDs (with cache-busting)
+
+            let runIds;
+            if (latestMyAlgo) {
+                const buyhold = findLatestRunByAgent(allRuns, 'buy-and-hold');
+                const djia = findLatestRunByAgent(allRuns, 'DJIA');
+                runIds = [latestMyAlgo.run_id, djia?.run_id, buyhold?.run_id].filter(Boolean).join(',');
+                console.log('My Algo compare IDs:', runIds);
+            } else {
+                runIds = allRuns.map(r => r.run_id).join(',');
+            }
+
+            if (!runIds) {
+                console.warn('No run IDs to compare');
+                return;
+            }
+
             const compareUrl = `${API_BASE}/compare?run_ids=${encodeURIComponent(runIds)}&t=${Date.now()}`;
-            const compareData = await API.get(compareUrl);
-            
-            comparisonData = compareData;
+            comparisonData = await API.get(compareUrl);
             console.log('Loaded comparison data:', comparisonData);
-            
-            // Display charts with real data
+
             initializeCharts();
+            await loadPerformanceMetrics();
         }
         
     } catch (error) {
@@ -1285,24 +1337,30 @@ function initializeCharts() {
         const timeseriesMap = {};
         
         runs.forEach(run => {
-            const agentType = run.agent_name.toLowerCase();
+            let agentType;
+            if (isMyAlgoRun(run)) {
+                agentType = 'my-algo';
+            } else {
+                agentType = run.agent_name.toLowerCase();
+            }
             
-            // Store first occurrence of each agent type
             if (!agentMap[agentType]) {
                 agentMap[agentType] = run;
                 timeseriesMap[agentType] = run.data.map(point => point.equity);
             }
         });
         
-        // Build datasets in specific order: Agent, DJIA, buy-and-hold
         const datasets = [];
         const colorMap = {
-            'agent': '#4FC3F7',      // Light Blue (Primary focus)
-            'djia': '#F5C04A',       // Gold/Yellow (Market reference)
-            'buy-and-hold': '#9AA4B2'   // Gray/Silver (Secondary baseline)
+            'my-algo': '#fbbf24',
+            'agent': '#4FC3F7',
+            'djia': '#F5C04A',
+            'buy-and-hold': '#9AA4B2'
         };
         
-        const order = ['agent', 'djia', 'buy-and-hold'];
+        const order = agentMap['my-algo']
+            ? ['my-algo', 'djia', 'buy-and-hold']
+            : ['agent', 'djia', 'buy-and-hold'];
         const timestamps = runs[0].data.map(point => point.timestamp);
         
         order.forEach(agentType => {
@@ -1415,7 +1473,7 @@ function initializeCharts() {
             }
         });
         
-        console.log('✅ Chart initialized - showing 3 lines (Agent, buy-and-hold, DJIA)');
+        console.log('✅ Chart initialized -', order.filter(t => agentMap[t]).join(', '));
     }
 }
 
@@ -1973,36 +2031,38 @@ function generateMockEquityCurveData() {
         }
     };
     
-    // Generate curves using geometric Brownian motion
+    // Generate curves using seeded random walk (stable across page loads)
     const curves = {};
     for (const [teamName, config] of Object.entries(teamTrajectories)) {
         const curve = [];
         let value = config.initialValue;
-        
+        let seed = teamName.split('').reduce((s, c) => s + c.charCodeAt(0), 0);
+        const rng = () => {
+            seed = (seed * 9301 + 49297) % 233280;
+            return seed / 233280;
+        };
+
         for (let i = 0; i < days.length; i++) {
-            // On day 0 (Nov 15), all teams start at exactly $100k
             if (i === 0) {
                 curve.push(config.initialValue);
                 continue;
             }
-            
-            // Random walk with drift (starting from day 1)
-            const random = (Math.random() - 0.5) * 2;
+
+            const random = (rng() - 0.5) * 2;
             const drift = config.trend * config.initialValue;
             const volatilityComponent = random * config.volatility * value;
-            
-            // Apply drawdown periods
+
             let drawdownFactor = 1.0;
             for (const [start, end] of config.drawdownDays) {
                 if (i >= start && i <= end) {
                     drawdownFactor *= (1 - (i - start) / (end - start) * 0.008);
                 }
             }
-            
+
             value *= (1 + drift / value + volatilityComponent / value) * drawdownFactor;
-            curve.push(Math.max(value, config.initialValue * 0.9)); // Floor at 90% to prevent collapse
+            curve.push(Math.max(value, config.initialValue * 0.9));
         }
-        
+
         curves[teamName] = curve;
     }
     
@@ -2171,6 +2231,8 @@ let selectedTeam = null;
 let equityCurvesData = null;
 let equityCurvesChartInstance = null;
 let currentChartView = 'cumulative';
+let myAlgoInitialized = false;
+let leaderboardListenersInitialized = false;
 
 /**
  * Initialize leaderboard event listeners
@@ -2204,16 +2266,15 @@ function initLeaderboardListeners() {
  * Load leaderboard data and display
  */
 async function loadLeaderboardData() {
-    console.log('Loading leaderboard data...');
+    console.log('Loading leaderboard data (mock only)...');
     
     try {
-        // TODO: Replace with actual API call when backend is ready
-        // const data = await API.get(`${API_BASE}/api/leaderboard`);
-        
-        // For now, use mock data
         equityCurvesData = generateMockEquityCurveData();
         populateLeaderboardTable();
-        initLeaderboardListeners();
+        if (!leaderboardListenersInitialized) {
+            initLeaderboardListeners();
+            leaderboardListenersInitialized = true;
+        }
         await renderEquityCurvesChart();
         
     } catch (error) {
@@ -2232,9 +2293,8 @@ async function renderEquityCurvesChart() {
     if (!canvas) return;
     
     const ctx = canvas.getContext('2d');
-    const { dates, days, curves } = equityCurvesData;
+    const { days, curves } = equityCurvesData;
     
-    // Build datasets for all teams
     const datasets = Object.entries(curves).map(([teamName, curveValues]) => {
         const config = getTeamColorConfig(teamName);
         const data = transformChartData(curveValues, currentChartView);
@@ -2246,11 +2306,11 @@ async function renderEquityCurvesChart() {
             data: data,
             borderColor: config.color,
             backgroundColor: config.bgColor,
-            borderWidth: 2.5,  // Thicker lines for better visibility
-            borderDash: isBaseline ? [5, 5] : [],  // Dotted line for baselines
+            borderWidth: 2.5,
+            borderDash: isBaseline ? [5, 5] : [],
             pointRadius: 0,
             pointHoverRadius: 5,
-            tension: 0.3,  // Slightly less tension for crisper lines
+            tension: 0.3,
             fill: false,
             spanGaps: false,
             hoverBorderWidth: 4,
@@ -2258,12 +2318,10 @@ async function renderEquityCurvesChart() {
         };
     });
     
-    // Destroy existing chart if it exists
     if (equityCurvesChartInstance) {
         equityCurvesChartInstance.destroy();
     }
     
-    // Create new chart
     equityCurvesChartInstance = new Chart(ctx, {
         type: 'line',
         data: {
@@ -2340,15 +2398,12 @@ async function renderEquityCurvesChart() {
                 x: {
                     display: true,
                     grid: {
-                        color: 'rgba(31, 41, 55, 0.8)',  // Brighter grid lines
+                        color: 'rgba(31, 41, 55, 0.8)',
                         drawBorder: false,
                     },
                     ticks: {
-                        color: '#9ca3af',  // Brighter axis labels
-                        font: {
-                            size: 11,
-                            weight: '500',
-                        },
+                        color: '#9ca3af',
+                        font: { size: 11, weight: '500' },
                         maxRotation: 0,
                         autoSkip: true,
                         maxTicksLimit: 10,
@@ -2388,16 +2443,16 @@ async function renderEquityCurvesChart() {
  */
 function getTeamColorConfig(teamName) {
     const colors = {
-        'AlphaForge': { color: '#60a5fa', bgColor: 'rgba(96, 165, 250, 0.15)' },           // Bright Blue
-        'SignalWeaver': { color: '#fb923c', bgColor: 'rgba(251, 147, 60, 0.15)' },        // Bright Orange
-        'RiskPilot': { color: '#22d3ee', bgColor: 'rgba(34, 211, 238, 0.15)' },           // Bright Cyan
-        'MarketMinds': { color: '#a78bfa', bgColor: 'rgba(167, 139, 250, 0.15)' },       // Bright Purple
-        'QuantNebula': { color: '#f472b6', bgColor: 'rgba(244, 114, 182, 0.15)' },        // Bright Pink
-        'CashGuard': { color: '#bef264', bgColor: 'rgba(190, 242, 100, 0.15)' },          // Bright Lime
-        'DeltaVector': { color: '#ff6b7a', bgColor: 'rgba(255, 107, 122, 0.15)' },        // Bright Red
-        'OpenClaw Baseline': { color: '#a1a1a1', bgColor: 'rgba(161, 161, 161, 0.15)' },  // Medium Gray (Baseline)
-        'DJIA Buy-and-Hold': { color: '#9ca3af', bgColor: 'rgba(156, 163, 175, 0.15)' },  // Gray (Baseline)
-        'SPY Buy-and-Hold': { color: '#d1d5db', bgColor: 'rgba(209, 213, 219, 0.15)' },   // Light Gray (Baseline)
+        'AlphaForge': { color: '#60a5fa', bgColor: 'rgba(96, 165, 250, 0.15)' },
+        'SignalWeaver': { color: '#fb923c', bgColor: 'rgba(251, 147, 60, 0.15)' },
+        'RiskPilot': { color: '#22d3ee', bgColor: 'rgba(34, 211, 238, 0.15)' },
+        'MarketMinds': { color: '#a78bfa', bgColor: 'rgba(167, 139, 250, 0.15)' },
+        'QuantNebula': { color: '#f472b6', bgColor: 'rgba(244, 114, 182, 0.15)' },
+        'CashGuard': { color: '#bef264', bgColor: 'rgba(190, 242, 100, 0.15)' },
+        'DeltaVector': { color: '#ff6b7a', bgColor: 'rgba(255, 107, 122, 0.15)' },
+        'OpenClaw Baseline': { color: '#a1a1a1', bgColor: 'rgba(161, 161, 161, 0.15)' },
+        'DJIA Buy-and-Hold': { color: '#9ca3af', bgColor: 'rgba(156, 163, 175, 0.15)' },
+        'SPY Buy-and-Hold': { color: '#d1d5db', bgColor: 'rgba(209, 213, 219, 0.15)' },
     };
     return colors[teamName] || { color: '#818cf8', bgColor: 'rgba(129, 140, 248, 0.15)' };
 }
@@ -2459,13 +2514,11 @@ function populateLeaderboardTable() {
 
     let filtered = MOCK_LEADERBOARD_DATA;
 
-    // Apply filter
     if (currentLeaderboardFilter === 'top10') {
         filtered = filtered.slice(0, 10);
     } else if (currentLeaderboardFilter === 'top20') {
         filtered = filtered.slice(0, 20);
     } else if (currentLeaderboardFilter === 'my-team') {
-        // In real app, would filter for user's team
         filtered = filtered.filter(t => t.team_name === 'AlphaForge');
     } else if (currentLeaderboardFilter === 'baselines') {
         filtered = filtered.filter(t => t.status === 'Baseline');
@@ -2557,6 +2610,300 @@ function displayLeaderboardError(message) {
  */
 function formatNumber(num) {
     return num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+// ============================================================================
+// My Trading Algo
+// ============================================================================
+
+const ALGO_BLOCK_FIELDS = {
+    info_retrieval: 'blockInfoRetrieval',
+    signal_transfer: 'blockSignalTransfer',
+    trading_algorithm: 'blockTradingAlgorithm',
+    stop_loss_take_profit: 'blockStopLoss',
+};
+
+const DEFAULT_ALGO_BLOCKS = {
+    info_retrieval: "Monitor Trump's Twitter / X feed; capture tweets and sentiment signals",
+    signal_transfer: 'AI auto-selects target stocks (single name or basket); map tickers from tweet semantics',
+    trading_algorithm: 'No execution algo: buy whatever Trump mentions (immediate market follow)',
+    stop_loss_take_profit: 'Stop loss: exit if position down 5%; take profit: hold after +20%; daily stop: exit if down 5% intraday',
+};
+
+function getAlgoBlocksFromUI() {
+    return {
+        info_retrieval: document.getElementById('blockInfoRetrieval')?.value?.trim() || '',
+        signal_transfer: document.getElementById('blockSignalTransfer')?.value?.trim() || '',
+        trading_algorithm: document.getElementById('blockTradingAlgorithm')?.value?.trim() || '',
+        stop_loss_take_profit: document.getElementById('blockStopLoss')?.value?.trim() || '',
+    };
+}
+
+function setAlgoBlocksToUI(blocks) {
+    for (const [key, fieldId] of Object.entries(ALGO_BLOCK_FIELDS)) {
+        const el = document.getElementById(fieldId);
+        if (el && blocks[key] !== undefined) {
+            el.value = blocks[key];
+        }
+    }
+}
+
+function highlightAlgoBlocks(updatedKeys) {
+    document.querySelectorAll('.algo-block-card').forEach(card => card.classList.remove('highlight'));
+    if (!updatedKeys?.length) return;
+    for (const key of updatedKeys) {
+        const card = document.querySelector(`.algo-block-card[data-block="${key}"]`);
+        if (card) card.classList.add('highlight');
+    }
+    setTimeout(() => {
+        document.querySelectorAll('.algo-block-card').forEach(card => card.classList.remove('highlight'));
+    }, 2500);
+}
+
+function appendAlgoChatMessage(text, role = 'bot') {
+    const container = document.getElementById('algoChatMessages');
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = `algo-chat-msg ${role}`;
+    const bubble = document.createElement('div');
+    bubble.className = 'algo-chat-bubble';
+    bubble.innerHTML = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    row.appendChild(bubble);
+    container.appendChild(row);
+    container.scrollTop = container.scrollHeight;
+}
+
+async function loadMyTradingAlgoPage() {
+    if (!myAlgoInitialized) {
+        initMyTradingAlgoUI();
+        myAlgoInitialized = true;
+    }
+    try {
+        const res = await API.get(`${API_BASE}/api/algo/defaults`);
+        if (res.blocks) {
+            setAlgoBlocksToUI(res.blocks);
+        }
+        if (res.backtest_window) {
+            window.ALGO_BACKTEST_WINDOW = res.backtest_window;
+            const statusEl = document.getElementById('algoExecuteStatus');
+        if (statusEl) {
+            statusEl.hidden = false;
+            statusEl.className = 'algo-execute-status';
+                statusEl.textContent =
+                `Example strategy (edit before Execute). Backtest window: ${res.backtest_window.start_date} → ${res.backtest_window.end_date}`;
+        }
+
+        try {
+            const setup = await API.get(`${API_BASE}/api/algo/setup`);
+            renderAlgoSetupStatus(setup);
+        } catch (setupErr) {
+            renderAlgoSetupStatus(null, setupErr.message);
+        }
+        }
+    } catch {
+        setAlgoBlocksToUI(DEFAULT_ALGO_BLOCKS);
+    }
+}
+
+function initMyTradingAlgoUI() {
+    setAlgoBlocksToUI(DEFAULT_ALGO_BLOCKS);
+
+    const sendBtn = document.getElementById('algoChatSendBtn');
+    const input = document.getElementById('algoChatInput');
+    const executeBtn = document.getElementById('executeAlgoBtn');
+
+    const sendChat = async () => {
+        const message = input?.value?.trim();
+        if (!message) return;
+        appendAlgoChatMessage(message, 'user');
+        input.value = '';
+        sendBtn.disabled = true;
+        appendAlgoChatMessage('Thinking…', 'bot');
+
+        try {
+            const data = await API.post(`${API_BASE}/api/algo/chat`, {
+                message,
+                blocks: getAlgoBlocksFromUI(),
+            });
+            const msgs = document.getElementById('algoChatMessages');
+            if (msgs && msgs.lastElementChild?.textContent === 'Thinking…') {
+                msgs.removeChild(msgs.lastElementChild);
+            }
+            setAlgoBlocksToUI(data.blocks);
+            syncAlgoTeamNameFromBlocks(data.blocks);
+            highlightAlgoBlocks(data.updated_blocks);
+            appendAlgoChatMessage(data.reply, 'bot');
+        } catch (err) {
+            appendAlgoChatMessage(`Error: ${err.message}`, 'bot');
+        } finally {
+            sendBtn.disabled = false;
+            input.focus();
+        }
+    };
+
+    sendBtn?.addEventListener('click', sendChat);
+    input?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            sendChat();
+        }
+    });
+
+    executeBtn?.addEventListener('click', executeMyTradingAlgo);
+}
+
+function syncAlgoTeamNameFromBlocks(blocks) {
+    const nameInput = document.getElementById('algoTeamName');
+    if (!nameInput) return;
+    const info = (blocks.info_retrieval || '').toLowerCase();
+    if (info.includes('musk') || (blocks.info_retrieval || '').toLowerCase().includes('musk')) {
+        nameInput.value = 'Elon Musk Twitter Algo';
+    } else if (info.includes('trump')) {
+        nameInput.value = 'Trump Twitter Algo';
+    }
+}
+
+function renderAlgoSetupStatus(setup, errorMsg) {
+    let el = document.getElementById('algoSetupStatus');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'algoSetupStatus';
+        el.className = 'algo-setup-status';
+        const panel = document.querySelector('.algo-blocks-panel');
+        if (panel) panel.appendChild(el);
+    }
+    el.hidden = false;
+
+    if (errorMsg || !setup) {
+        el.className = 'algo-setup-status error';
+        el.innerHTML =
+            '⚠️ Cannot reach My Trading Algo API (HTTP 404). <strong>Restart the backend</strong>: ' +
+            '<code>python backend/app.py</code>, then open <code>http://localhost:8000</code>';
+        return;
+    }
+
+    if (setup.ready) {
+        el.className = 'algo-setup-status success';
+        el.textContent = '✅ API keys configured. Edit your strategy, then Execute for a real backtest.';
+        return;
+    }
+
+    const missing = [];
+    if (!setup.anthropic_configured) missing.push('ANTHROPIC_API_KEY');
+    if (!setup.alpaca_configured) missing.push('Alpaca (credentials/alpaca.json or env vars)');
+    el.className = 'algo-setup-status error';
+    el.textContent = `⚠️ Missing: ${missing.join(', ')}. Configure .env and restart the backend.`;
+}
+
+async function pollAlgoBacktestStatus() {
+    const maxAttempts = 360;
+    for (let i = 0; i < maxAttempts; i++) {
+        let status;
+        try {
+            status = await API.get(`${API_BASE}/api/algo/status`);
+        } catch (err) {
+            if (String(err.message).includes('404')) {
+                throw new Error(
+                    'Backend missing /api/algo/status (old version). Stop with Ctrl+C and run: python backend/app.py'
+                );
+            }
+            throw err;
+        }
+        const statusEl = document.getElementById('algoExecuteStatus');
+        const btn = document.getElementById('executeAlgoBtn');
+
+        if (status.running) {
+            if (statusEl) {
+                statusEl.textContent = status.progress || `Backtest running… (${i + 1}/${maxAttempts})`;
+            }
+            if (btn) btn.textContent = `⏳ Running… ${Math.floor(i * 5 / 60)}m`;
+            await new Promise(r => setTimeout(r, 5000));
+            continue;
+        }
+
+        if (status.error) {
+            throw new Error(status.error);
+        }
+
+        if (status.result) {
+            return status.result;
+        }
+
+        await new Promise(r => setTimeout(r, 3000));
+    }
+    throw new Error('Backtest timed out. Check the Backtest tab later.');
+}
+
+async function executeMyTradingAlgo() {
+    const btn = document.getElementById('executeAlgoBtn');
+    const statusEl = document.getElementById('algoExecuteStatus');
+    const teamName = document.getElementById('algoTeamName')?.value?.trim();
+    const blocks = getAlgoBlocksFromUI();
+
+    const isDefault = Object.keys(DEFAULT_ALGO_BLOCKS).every(
+        k => (blocks[k] || '').trim() === (DEFAULT_ALGO_BLOCKS[k] || '').trim()
+    );
+    if (isDefault) {
+        if (statusEl) {
+            statusEl.hidden = false;
+            statusEl.className = 'algo-execute-status error';
+            statusEl.textContent = 'Edit the strategy (chat or blocks) before Execute. The example config does not run a real backtest.';
+        }
+        appendAlgoChatMessage(
+            'Edit all four modules before Execute. Leaderboard teams are mock; only your customized strategy uses real data on Backtest.',
+            'bot'
+        );
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '⏳ Starting…';
+    if (statusEl) {
+        statusEl.hidden = false;
+        statusEl.className = 'algo-execute-status';
+        statusEl.textContent = 'Submitting real backtest (Alpaca + LLM)…';
+    }
+
+    try {
+        const job = await API.post(`${API_BASE}/api/algo/execute`, {
+            blocks,
+            team_name: teamName || undefined,
+        });
+
+        if (statusEl) {
+            statusEl.textContent = job.message || 'Backtest started. Please wait…';
+        }
+
+        const result = await pollAlgoBacktestStatus();
+        const m = result.metrics;
+
+        if (statusEl) {
+            statusEl.className = 'algo-execute-status success';
+            statusEl.textContent = `✅ ${result.message} Opening Backtest…`;
+        }
+
+        const retPct = (m.cumulative_return * 100).toFixed(2);
+        appendAlgoChatMessage(
+            `Backtest complete: "${result.team_name}" (${result.start_date} → ${result.end_date}).\n` +
+            `Return ${retPct}%, Sharpe ${m.sharpe_ratio}, ${result.num_trades} trades.\n` +
+            `Switched to Backtest to view your MY ALGO curve (vs DJIA / Buy-and-Hold).`,
+            'bot'
+        );
+
+        if (result.run_id) {
+            window.MY_ALGO_RUN_ID = result.run_id;
+        }
+        switchMode('backtest');
+    } catch (err) {
+        if (statusEl) {
+            statusEl.className = 'algo-execute-status error';
+            statusEl.textContent = `Execution failed: ${err.message}`;
+        }
+        appendAlgoChatMessage(`Backtest failed: ${err.message}`, 'bot');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '▶ Execute Algo';
+    }
 }
 
 console.log('Frontend loaded - connecting to API at ' + API_BASE);

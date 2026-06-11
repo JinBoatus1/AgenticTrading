@@ -5,7 +5,7 @@ Session Middleware: Selective session ID enforcement.
 - Static/health routes: EXEMPT
 """
 
-from fastapi import Request
+from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import uuid
@@ -39,6 +39,17 @@ def is_paper_trading_route(path: str) -> bool:
 def is_api_route(path: str) -> bool:
     """REST API routes use their own auth; skip anonymous session middleware."""
     return path.startswith('/api/')
+
+
+def get_session_id_from_request(request: Request) -> str:
+    """Read session id from header (API routes) or middleware state (backtest routes)."""
+    header_val = request.headers.get('x-session-id') or request.headers.get('X-Session-Id')
+    if header_val:
+        return header_val
+    state_val = getattr(request.state, 'session_id', None)
+    if state_val:
+        return state_val
+    raise HTTPException(status_code=400, detail="Missing X-Session-Id header")
 
 class SessionMiddleware(BaseHTTPMiddleware):
     """
