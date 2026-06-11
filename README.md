@@ -158,7 +158,7 @@ http://localhost:8000/
 - Monte Carlo simulation baselines
 - Production-ready Docker image (frontend + data included)
 
-## Acknowledgements
+## Citation
 
 This repository includes the FinAgent Orchestration Framework under `orchestration/`, developed by Jifeng Li et al. at Open Finance Lab. The orchestration framework provides multi-agent architecture, memory systems, and DAG-based planning components. See `orchestration/README.md` for details.
 
