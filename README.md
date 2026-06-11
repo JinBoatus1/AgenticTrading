@@ -24,7 +24,7 @@ Turn trading ideas into traceable experiments: prototype agents, run backtests a
 [**Link to Web Platform:**](https://agentic-trading-lab.vercel.app/)
 
 <div align="center">
-  <img src="./frontend/images/website-snapshot.png" alt="Website Snapshot" width="720">
+  <img src="./frontend/images/snapshot.png" alt="Website Snapshot" width="720">
 </div>
 
 ## Outline
