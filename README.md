@@ -182,7 +182,7 @@ Documentation: [finagent-orchestration.readthedocs.io](https://finagent-orchestr
 
 ## License
 
-OpenMDW-1.0 — See [LICENSE](LICENSE) (Copyright Jifeng Li @ SecureFinAI Lab)
+OpenMDW-1.0 — See [LICENSE](LICENSE) (Copyright @ SecureFinAI Lab)
 
 ## Contributing
 
