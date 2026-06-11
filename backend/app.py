@@ -11,15 +11,25 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 import json
+import os
 from database import db
 from market_data import get_market_quotes
-from middleware import SessionMiddleware
+from middleware import SessionMiddleware, get_session_id_from_request
 from api.router import api_router
 from paper_trading import AlpacaPaperTradingClient, create_paper_trading_session
 from paper_baselines import create_paper_baselines_if_not_exists
 from baselines_endpoint import get_baselines_from_db
 from cache import paper_trading_cache, CACHE_KEY_ACCOUNT, CACHE_KEY_POSITIONS, CACHE_KEY_TRADES, CACHE_KEY_PORTFOLIO_HISTORY, CACHE_KEY_BASELINES, TTL_ACCOUNT, TTL_POSITIONS, TTL_TRADES, TTL_PORTFOLIO_HISTORY, TTL_BASELINES
 import pytz
+
+# Load .env from project root (ANTHROPIC_API_KEY, ALPACA_*)
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_env_path)
+    except ImportError:
+        pass
 
 # ============================================================================
 # Helper: Filter to Market Hours Only
@@ -410,7 +420,7 @@ async def get_backtest_status(request: Request):
 @app.get("/api/backtest/runs", response_model=List[RunMetadata])
 async def get_backtest_runs(request: Request):
     """Get all backtest runs for this session."""
-    session_id = request.state.session_id
+    session_id = get_session_id_from_request(request)
     runs = db.get_runs_by_session(session_id)
     runs = [r for r in runs if r['mode'] == 'backtest']
     return [RunMetadata(**run) for run in runs]
@@ -421,7 +431,7 @@ async def get_backtest_runs(request: Request):
 @app.get("/api/backtest/compare/latest", response_model=ComparisonResponse)
 async def compare_latest_backtests(request: Request):
     """Compare the latest backtest runs + baselines for this session."""
-    session_id = request.state.session_id
+    session_id = get_session_id_from_request(request)
     
     # Get this session's runs
     all_runs = db.get_runs_by_session(session_id) or []
@@ -476,7 +486,7 @@ async def compare_latest_backtests(request: Request):
 @app.get("/api/backtest/{run_id}", response_model=EquityCurve)
 async def get_backtest_run(run_id: str, request: Request):
     """Get specific backtest run with equity curve."""
-    session_id = request.state.session_id
+    session_id = get_session_id_from_request(request)
     run = db.get_run_with_session(run_id, session_id)
     if not run:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found or not yours")
@@ -1092,4 +1102,4 @@ async def serve_image(file_name: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
