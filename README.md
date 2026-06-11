@@ -34,8 +34,8 @@ Agentic Trading Lab serves as both a research tool and an educational playground
 
 - **Trading Agents powered by LLMs**  
 It supports experimentation with language-model-driven decision-making (BUY / SELL / HOLD).
-- **Educational Playground**  
-Designed for students and beginners to explore trading without dealing with APIs or infrastructure.
+- **Playground**  
+Designed for beginners to explore trading without dealing with APIs or infrastructure.
 - **Interactive Backtesting Interface**  
 Users can select custom time ranges and simulate trading strategies on historical market data.
 - **Performance Evaluation**  
