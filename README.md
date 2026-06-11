@@ -160,7 +160,7 @@ http://localhost:8000/
 
 ## Acknowledgements
 
-This repository includes the FinAgent Orchestration Framework under `orchestration/`, originally developed by Jifeng Li et al. at Open Finance Lab as part of the work on financial agent orchestration. The orchestration framework provides multi-agent architecture, memory systems, and DAG-based planning components. See `orchestration/README.md` for details.
+This repository includes the FinAgent Orchestration Framework under `orchestration/`, developed by Jifeng Li et al. at Open Finance Lab. The orchestration framework provides multi-agent architecture, memory systems, and DAG-based planning components. See `orchestration/README.md` for details.
 
 If you use the orchestration framework in research, please cite:
 
