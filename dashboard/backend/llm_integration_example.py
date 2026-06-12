@@ -184,7 +184,7 @@ If you cannot make a valid decision, respond with: {"action": "hold"}""",
 # ============================================================================
 
 EXAMPLE_ENDPOINT = '''
-# Add this to backend/app.py
+# Add this to dashboard/backend/app.py
 
 from llm_integration_example import SafeTradingLLMIntegration
 import os
@@ -330,7 +330,7 @@ pip install anthropic
 export ANTHROPIC_API_KEY="sk-ant-..."
 
 # 3. Run tests
-pytest backend/tests/test_llm_validator.py -v
+pytest dashboard/backend/tests/test_llm_validator.py -v
 
 # 4. Check audit logs
 tail -f logs/trading_audit.log
@@ -423,4 +423,4 @@ if __name__ == "__main__":
     print("\nSetup:")
     print(SETUP_INSTRUCTIONS)
     print("\nRun test:")
-    print("  python backend/llm_integration_example.py")
+    print("  python dashboard/backend/llm_integration_example.py")

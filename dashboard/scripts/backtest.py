@@ -43,6 +43,7 @@ from backtest_engine import BacktestEngine, TradeType
 # Import database
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
+from paths import CREDENTIALS_DIR, DATA_DIR
 from database import db
 
 # ============================================================================
@@ -61,7 +62,6 @@ DJIA_SYMBOLS = [
 SCRIPT_DIR = Path(__file__).parent
 ALPACA_CLI = None  # Not used - we'll use yfinance instead
 
-DATA_DIR = Path(__file__).parent.parent / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_FILE = DATA_DIR / "backtest_results.json"
 
@@ -79,7 +79,7 @@ class PriceFetcher:
     
     def _load_credentials(self):
         """Load Alpaca credentials from credentials/alpaca.json"""
-        creds_path = Path(__file__).parent.parent / "credentials" / "alpaca.json"
+        creds_path = CREDENTIALS_DIR / "alpaca.json"
         try:
             with open(creds_path, 'r') as f:
                 creds = json.load(f)

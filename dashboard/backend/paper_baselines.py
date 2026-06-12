@@ -11,6 +11,8 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 import sys
 
+from paths import CREDENTIALS_DIR
+
 sys.path.insert(0, str(Path(__file__).parent))
 from database import db
 from paper_trading import AlpacaPaperTradingClient
@@ -61,7 +63,7 @@ class PaperTradingBaselineCalculator:
             return
         
         # Fall back to credentials file (for local development)
-        creds_path = Path(__file__).parent.parent / "credentials" / "alpaca.json"
+        creds_path = CREDENTIALS_DIR / "alpaca.json"
         if creds_path.exists():
             try:
                 with open(creds_path, 'r') as f:

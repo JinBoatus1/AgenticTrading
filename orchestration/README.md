@@ -209,7 +209,12 @@ AgenticTrading/
 │   ├── tests/                         # Unit and integration testing modules
 │   ├── scripts/                       # Utility scripts
 │   └── README.md                      # Framework overview (this file)
-└── backend/, frontend/, …             # Agentic Trading Lab app (repo root)
+└── dashboard/                         # Agentic Trading Lab web application
+    ├── backend/                       # FastAPI app
+    ├── frontend/                      # Web dashboard
+    ├── config/                        # Application configuration
+    ├── scripts/                       # Backtest and utility scripts
+    └── storage/                       # Runtime data and backups
 ```
 
 

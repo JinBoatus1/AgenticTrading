@@ -11,7 +11,8 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 import json
-from database import db
+from database import db, DB_PATH
+from paths import CONFIG_DIR, DASHBOARD_DIR, FRONTEND_DIR, REPO_ROOT, SCRIPTS_DIR
 from market_data import get_market_quotes
 from middleware import SessionMiddleware
 from api.router import api_router
@@ -122,15 +123,13 @@ async def startup_event():
     # DEBUG: Database location
     print("\n=== 📂 DATABASE DEBUG ===")
     print(f"CWD: {os.getcwd()}")
-    print(f"data/ exists: {Path('data').exists()}")
-    if Path('data').exists():
-        print(f"data/ contents: {os.listdir('data')}")
-    print(f"data/backtest.db exists: {Path('data/backtest.db').exists()}")
+    print(f"Database path: {DB_PATH}")
+    print(f"Database exists: {DB_PATH.exists()}")
     
     # Check database content
-    if Path('data/backtest.db').exists():
+    if DB_PATH.exists():
         try:
-            conn = sqlite3.connect('data/backtest.db')
+            conn = sqlite3.connect(str(DB_PATH))
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM agent_runs")
             count = cursor.fetchone()[0]
@@ -145,7 +144,7 @@ async def startup_event():
         except Exception as e:
             print(f"❌ Database error: {e}")
     else:
-        print("❌ data/backtest.db NOT FOUND")
+        print("❌ Database NOT FOUND")
     
     print("=== END DATABASE DEBUG ===")
     
@@ -153,7 +152,7 @@ async def startup_event():
     print("\nDirect database check at startup:")
     try:
         import sqlite3
-        conn = sqlite3.connect('data/backtest.db')
+        conn = sqlite3.connect(str(DB_PATH))
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM agent_runs")
         count = cursor.fetchone()[0]
@@ -167,7 +166,7 @@ async def startup_event():
         print(f"Error: {e}")
     print()
     
-    print("📊 Backtesting: LLM-powered agent via scripts/backtest_hourly_agent.py")
+    print("📊 Backtesting: LLM-powered agent via dashboard/scripts/backtest_hourly_agent.py")
     if os.getenv("ANTHROPIC_API_KEY"):
         print("✅ ANTHROPIC_API_KEY detected - LLM trading enabled")
     else:
@@ -264,10 +263,9 @@ def run_backtest_background(start_date: str, end_date: str, session_id: str):
         print(f"   Session: {session_id[:8]}...", flush=True)
         
         backend_dir = Path(__file__).parent.resolve()
-        project_dir = backend_dir.parent.resolve()
-        script_path = project_dir / "scripts" / "backtest_hourly_agent.py"
-        db_path = project_dir / "data" / "backtest.db"
-        venv_dir = project_dir / ".venv"
+        script_path = SCRIPTS_DIR / "backtest_hourly_agent.py"
+        db_path = DB_PATH
+        venv_dir = REPO_ROOT / ".venv"
         
         # Determine the Python executable to use (from venv if available)
         if venv_dir.exists():
@@ -297,7 +295,7 @@ def run_backtest_background(start_date: str, end_date: str, session_id: str):
              "--start", start_date, "--end", end_date,
              "--session-id", session_id,
              "--use-llm"],  # Enable LLM for real agent trading
-            cwd=str(project_dir),
+            cwd=str(DASHBOARD_DIR),
             capture_output=True,
             text=True,
             timeout=1800,  # 30 minutes for LLM backtest (longer than rule-based)
@@ -640,12 +638,12 @@ async def get_defaults():
     Returns:
         Default run IDs and settings for initial page load
     """
-    defaults_path = Path(__file__).parent.parent / "config" / "defaults.json"
+    defaults_path = CONFIG_DIR / "defaults.json"
     
     if not defaults_path.exists():
         return {
             "error": "No defaults configured",
-            "message": "Create config/defaults.json to set default runs and settings"
+            "message": "Create dashboard/config/defaults.json to set default runs and settings"
         }
     
     import json
@@ -1048,7 +1046,7 @@ async def admin_delete_run(run_id: str, request: Request):
 # Static Frontend Routes (must come AFTER API routes to not intercept them)
 # ============================================================================
 
-frontend_path = Path(__file__).parent.parent / "frontend"
+frontend_path = FRONTEND_DIR
 
 @app.get("/", include_in_schema=False)
 async def serve_root():

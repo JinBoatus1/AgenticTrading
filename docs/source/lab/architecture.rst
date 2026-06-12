@@ -9,15 +9,15 @@ System diagram
 .. code-block:: text
 
    ┌─────────────────────────────────────────────────────────────┐
-   │ Backtest Engine (scripts/backtest_hourly_agent.py)          │
+   │ Backtest Engine (dashboard/scripts/backtest_hourly_agent.py)│
    │ ├─ Fetch Alpaca hourly bars                                 │
    │ ├─ Run agent + baseline logic                               │
    │ ├─ Write 3 runs (agent, buy-and-hold, DJIA)                 │
-   │ └─ Store in data/backtest.db (SQLite)                       │
+   │ └─ Store in dashboard/storage/data/backtest.db (SQLite)     │
    └────────────────┬────────────────────────────────────────────┘
                     │
    ┌────────────────▼────────────────────────────────────────────┐
-   │ REST API (backend/app.py)                                   │
+   │ REST API (dashboard/backend/app.py)                         │
    │ ├─ GET  /health                                             │
    │ ├─ GET  /runs, /runs/{id}/equity, /compare                  │
    │ ├─ POST /backtest/run, GET /backtest/status                 │
@@ -27,7 +27,7 @@ System diagram
    └────────────────┬────────────────────────────────────────────┘
                     │
    ┌────────────────▼────────────────────────────────────────────┐
-   │ Web Dashboard (frontend/)                                   │
+   │ Web Dashboard (dashboard/frontend/)                         │
    │ ├─ index.html, app.js, styles.css                           │
    │ └─ images/                                                  │
    └─────────────────────────────────────────────────────────────┘
@@ -49,7 +49,7 @@ API surface (summary)
 | ``GET /config/defaults``  | Default UI / run configuration           |
 +---------------------------+------------------------------------------+
 
-LLM integration example code lives in ``backend/llm_integration_example.py`` (reference only, not wired into the main app path).
+LLM integration example code lives in ``dashboard/backend/llm_integration_example.py`` (reference only, not wired into the main app path).
 
 Related documentation
 ---------------------

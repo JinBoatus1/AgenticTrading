@@ -13,8 +13,10 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 
-# Use persistent disk path if set (Render), otherwise local path
-DB_PATH = Path(os.getenv("DATABASE_PATH", str(Path(__file__).parent.parent / "data" / "backtest.db")))
+from paths import DEFAULT_DB_PATH
+
+# Use persistent disk path if set (Render), otherwise local dashboard storage path
+DB_PATH = Path(os.getenv("DATABASE_PATH", str(DEFAULT_DB_PATH)))
 
 
 class BacktestDatabase:

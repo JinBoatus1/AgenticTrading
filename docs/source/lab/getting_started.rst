@@ -18,8 +18,8 @@ For headless or scripted runs:
 
 .. code-block:: bash
 
-   python3 scripts/backtest_hourly_agent.py --start 2026-03-01 --end 2026-03-31
-   python3 scripts/backtest_hourly_agent.py --mode buy_and_hold
+   python3 dashboard/scripts/backtest_hourly_agent.py --start 2026-03-01 --end 2026-03-31
+   python3 dashboard/scripts/backtest_hourly_agent.py --mode buy_and_hold
 
 Inspect results in the dashboard after a CLI run, or call ``POST /backtest/run`` with the same parameters the UI sends.
 
@@ -60,6 +60,6 @@ Start the API server
 
 .. code-block:: bash
 
-   python3 backend/app.py
+   python3 dashboard/backend/app.py
 
 Open the dashboard at `http://localhost:8000/ <http://localhost:8000/>`_.

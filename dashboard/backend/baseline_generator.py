@@ -20,6 +20,8 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 import sys
 
+from paths import CREDENTIALS_DIR
+
 # Try to import numpy
 try:
     import numpy as np
@@ -58,7 +60,7 @@ class BaselineGenerator:
             return
         
         # Fall back to credentials file (for local development)
-        creds_path = Path(__file__).parent.parent / "credentials" / "alpaca.json"
+        creds_path = CREDENTIALS_DIR / "alpaca.json"
         try:
             with open(creds_path, 'r') as f:
                 creds = json.load(f)

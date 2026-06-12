@@ -12,11 +12,15 @@ The committee discusses the proposed trade and votes on execution.
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from datetime import datetime, time
 
-LOG_FILE = Path(__file__).parent.parent / "data" / "trading_log.json"
-SENTIMENT_FILE = Path(__file__).parent.parent / "sentiment_scores.json"
+sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
+from paths import DATA_DIR, DASHBOARD_DIR
+
+LOG_FILE = DATA_DIR / "trading_log.json"
+SENTIMENT_FILE = DASHBOARD_DIR / "sentiment_scores.json"
 # Note: alpaca_cli.py is loaded dynamically, will be updated below
 COMMITTEE_SCRIPT = Path(__file__).parent / "trading_committee.py"
 

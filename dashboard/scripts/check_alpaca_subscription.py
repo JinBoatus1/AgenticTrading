@@ -7,7 +7,10 @@ import json
 from pathlib import Path
 import sys
 
-creds_path = Path(__file__).parent.parent / "credentials" / "alpaca.json"
+sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
+from paths import CREDENTIALS_DIR
+
+creds_path = CREDENTIALS_DIR / "alpaca.json"
 with open(creds_path) as f:
     creds = json.load(f)
 

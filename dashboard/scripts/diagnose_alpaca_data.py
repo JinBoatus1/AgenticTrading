@@ -11,8 +11,11 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import sys
 
+sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
+from paths import CREDENTIALS_DIR
+
 # Load credentials
-creds_path = Path(__file__).parent.parent / "credentials" / "alpaca.json"
+creds_path = CREDENTIALS_DIR / "alpaca.json"
 with open(creds_path) as f:
     creds = json.load(f)
 

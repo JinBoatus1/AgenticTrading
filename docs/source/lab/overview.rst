@@ -18,11 +18,14 @@ Repository layout
 .. code-block:: text
 
    AgenticTrading/
-   ├── backend/         FastAPI app, SQLite, paper trading, LLM validator
-   ├── frontend/        Dashboard (served at http://localhost:8000 when local)
-   ├── scripts/         CLI backtests (e.g. backtest_hourly_agent.py)
-   ├── config/          Default run IDs and date ranges
-   ├── data/            SQLite backtest results (backtest.db)
+   ├── dashboard/       Agentic Trading Lab web application
+   │   ├── backend/     FastAPI app, SQLite, paper trading, LLM validator
+   │   ├── frontend/    Dashboard (served at http://localhost:8000 when local)
+   │   ├── config/      Default run IDs and date ranges
+   │   ├── scripts/     CLI backtests (e.g. backtest_hourly_agent.py)
+   │   └── storage/
+   │       ├── data/    SQLite backtest results (backtest.db)
+   │       └── backups/ Database backups
    ├── credentials/     Local only — not in git
    ├── docs/            This documentation
    └── orchestration/   FinAgent multi-agent framework (separate subsystem)

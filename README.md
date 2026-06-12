@@ -1,6 +1,6 @@
 
 <div align="center">
-  <img src="./frontend/images/agentic_trading_lab_white.png" alt="Agentic Trading Lab" width="400">
+  <img src="./dashboard/frontend/images/agentic_trading_lab_white.png" alt="Agentic Trading Lab" width="400">
 </div>
 
 <p align="center">
@@ -24,7 +24,7 @@ Turn trading ideas into traceable experiments: prototype agents, run backtests a
 [**Link to Web Platform:**](https://agentic-trading-lab.vercel.app/)
 
 <div align="center">
-  <img src="./frontend/images/snapshot.png" alt="Website Snapshot" width="720">
+  <img src="./dashboard/frontend/images/snapshot.png" alt="Website Snapshot" width="720">
 </div>
 
 ## Outline
@@ -66,17 +66,19 @@ Join agentic trading competitions where teams and users compete against others i
 
 ## File Structure
 
-The main folders are **backend**, **frontend**, and **orchestration**. The lab uses a **backtest → API → dashboard** pipeline.
+The main application lives under **dashboard/**; **orchestration/** is a separate multi-agent framework. The lab uses a **backtest → API → dashboard** pipeline.
 
 ```
 AgenticTrading/
-├── backend/              # FastAPI app, SQLite layer, paper trading, LLM validator
-├── frontend/             # Dashboard (served by backend at http://localhost:8000)
-├── scripts/              # CLI backtest (backtest_hourly_agent.py, etc.)
-├── config/               # Default run IDs and date range (defaults.json)
-├── data/                 # SQLite backtest results (backtest.db)
+├── dashboard/            # Agentic Trading Lab web application
+│   ├── backend/          # FastAPI app, SQLite layer, paper trading, LLM validator
+│   ├── frontend/         # Dashboard (served by backend at http://localhost:8000)
+│   ├── config/           # Default run IDs and date range (defaults.json)
+│   ├── scripts/          # CLI backtest (backtest_hourly_agent.py, etc.)
+│   └── storage/
+│       ├── data/         # SQLite backtest results (backtest.db)
+│       └── backups/      # Database backups
 ├── credentials/          # Local only — not in git (see alpaca.json.example)
-├── backups/              # Database backups
 ├── docs/                 # Sphinx docs (see docs/README.md for local preview)
 ├── readthedocs.yml       # Read the Docs build config
 └── orchestration/        # FinAgent multi-agent framework (separate subsystem)
@@ -86,26 +88,26 @@ AgenticTrading/
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Backtest Engine (scripts/backtest_hourly_agent.py)          │
+│ Backtest Engine (dashboard/scripts/backtest_hourly_agent.py) │
 │ ├─ Fetch Alpaca hourly bars                                 │
 │ ├─ Run agent + baseline logic                               │
 │ ├─ Write 3 runs (agent, buy-and-hold, DJIA)                 │
-│ └─ Store in data/backtest.db (SQLite)                        │
+│ └─ Store in dashboard/storage/data/backtest.db (SQLite)     │
 └────────────────┬────────────────────────────────────────────┘
                  │
 ┌────────────────▼─────────────────────────────────────────────┐
-│ REST API (backend/app.py)                                    │
+│ REST API (dashboard/backend/app.py)                          │
 │ ├─ GET  /health                                              │
 │ ├─ GET  /runs, /runs/{id}/equity, /compare                   │
 │ ├─ POST /backtest/run, GET /backtest/status                  │
 │ ├─ GET  /ticker                                              │
 │ ├─ GET  /paper/account, /paper/positions, …                  │
 │ └─ GET  /config/defaults                                     │
-│     (LLM example: backend/llm_integration_example.py only)   │
+│     (LLM example: dashboard/backend/llm_integration_example.py only) │
 └────────────────┬────────────────────────────────────────────┘
                  │
 ┌────────────────▼─────────────────────────────────────────────┐
-│ Web Dashboard (frontend/)                                    │
+│ Web Dashboard (dashboard/frontend/)                          │
 │ ├─ index.html, app.js, styles.css                            │
 │ └─ images/                                                   │
 └──────────────────────────────────────────────────────────────┘
@@ -145,7 +147,7 @@ The `credentials/` folder is not tracked in git. See `credentials/README.md`.
 ### Step 3: Start the API server
 
 ```bash
-python3 backend/app.py
+python3 dashboard/backend/app.py
 ```
 
 ### Step 4: Run a backtest in the dashboard
@@ -160,8 +162,8 @@ You get interactive charts and comparison views (agent, buy-and-hold, DJIA) in t
 **CLI (optional)** — For headless or scripted runs only; there is little visualization in the terminal:
 
 ```bash
-python3 scripts/backtest_hourly_agent.py --start 2026-03-01 --end 2026-03-31
-python3 scripts/backtest_hourly_agent.py --mode buy_and_hold   # validation mode
+python3 dashboard/scripts/backtest_hourly_agent.py --start 2026-03-01 --end 2026-03-31
+python3 dashboard/scripts/backtest_hourly_agent.py --mode buy_and_hold   # validation mode
 ```
 
 Use the dashboard to inspect results after a CLI run, or call `POST /backtest/run` with the same parameters the UI sends.

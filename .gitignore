@@ -208,10 +208,10 @@ FinAgents/agent_pools/*/data_cache/
 FinAgents/agent_pools/*/*.db
 
 # Data cache and temporary files
-data/cache/*.csv
-data/cache/*.json
-data/temp/
-data
+dashboard/storage/data/cache/*.csv
+dashboard/storage/data/cache/*.json
+dashboard/storage/data/temp/
+dashboard/storage/data
 *.tmp
 
 # Log files

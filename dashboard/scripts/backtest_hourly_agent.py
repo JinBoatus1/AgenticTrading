@@ -32,6 +32,7 @@ import requests
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
+from paths import CREDENTIALS_DIR
 from database import db
 from baseline_generator import generate_baselines
 from llm_validator import create_safe_prompt, create_prompt, validate_llm_response, LLMTradingDecision, TOP_10_STOCKS
@@ -164,7 +165,7 @@ class AlpacaDataLoader:
             return {"api_key": api_key, "secret_key": secret_key}
         
         # Fall back to credentials file (for local development)
-        creds_path = Path(__file__).parent.parent / "credentials" / "alpaca.json"
+        creds_path = CREDENTIALS_DIR / "alpaca.json"
         if not creds_path.exists():
             print(f"❌ Credentials not found in environment variables or file: {creds_path}")
             print("   Set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables")
@@ -1311,7 +1312,7 @@ def main():
     print(f"  • Agent: {agent_id}")
     print(f"  • Buy & Hold: {bh_id}")
     print(f"  • DJIA Index: {djia_id}")
-    print(f"\n📊 Dashboard: python3 backend/app.py → http://localhost:8000")
+    print(f"\n📊 Dashboard: python3 dashboard/backend/app.py → http://localhost:8000")
 
 
 if __name__ == "__main__":

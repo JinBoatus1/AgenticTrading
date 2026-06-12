@@ -452,7 +452,7 @@ def main():
     print("💰 Initial Capital: $100,000 per run")
     print("⏰ Rebalance Frequency: ~2-3 trades per week")
     print("\n✅ Full results saved to SQLite database")
-    print("📁 Location: ~/.openclaw/workspace/AgenticTrading/data/backtest.db")
+    print("📁 Location: dashboard/storage/data/backtest.db")
 
 if __name__ == '__main__':
     main()

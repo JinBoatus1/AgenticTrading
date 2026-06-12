@@ -11,6 +11,8 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
+from paths import CREDENTIALS_DIR
+
 
 @dataclass
 class Position:
@@ -69,7 +71,7 @@ class AlpacaPaperTradingClient:
             return
         
         # Fall back to credentials file (for local development)
-        creds_path = Path(__file__).parent.parent / "credentials" / "alpaca.json"
+        creds_path = CREDENTIALS_DIR / "alpaca.json"
         
         if creds_path.exists():
             with open(creds_path, 'r') as f:
