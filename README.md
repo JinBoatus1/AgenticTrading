@@ -1,7 +1,7 @@
+
 <div align="center">
   <img src="./frontend/images/agentic_trading_lab_white.png" alt="Agentic Trading Lab" width="400">
 </div>
-
 
 <p align="center">
   <a href="https://agentic-trading-lab.vercel.app/">
@@ -18,7 +18,26 @@
   </a>
 </p>
 
+**Agentic Trading Lab is an open-source experimental playground for LLM-powered trading agents.**  
+Turn trading ideas into traceable experiments: prototype agents, run backtests and paper-trading simulations, inspect reasoning and decision logs, benchmark against market baselines, and study how agents behave under realistic financial constraints.
 
+[**Link to Web Platform:**](https://agentic-trading-lab.vercel.app/)
+
+<div align="center">
+  <img src="./frontend/images/snapshot.png" alt="Website Snapshot" width="720">
+</div>
+
+## Outline
+
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [File Structure](#file-structure)
+- [Architecture](#architecture)
+- [Quick Start](#quick-start)
+- [Future Roadmap](#future-roadmap)
+- [Citation](#citation)
+- [License](#license)
+- [Contributing](#contributing)
 
 ## Overview
 
@@ -30,20 +49,24 @@ The current system provides three main modes. The **Backtesting** mode evaluates
 
 Agentic Trading Lab serves as both a research tool and an educational playground for studying how LLM-based trading agents perform beyond static benchmarks and under practical market constraints.
 
-## **Key Features**
+## Key Features
 
-- **Trading Agents powered by LLMs**  
-It supports experimentation with language-model-driven decision-making (BUY / SELL / HOLD).
-- **Playground**  
-Designed for beginners to explore trading without dealing with APIs or infrastructure.
-- **Interactive Backtesting Interface**  
-Users can select custom time ranges and simulate trading strategies on historical market data.
-- **Performance Evaluation**  
-It reports important trading metrics such as final portfolio value, cumulative return, maximum drawdown, and Sharpe ratio. These metrics help users compare strategies beyond simply looking at the equity curve.
-- **Paper Trading**  
-It includes a paper-trading interface where users can view simulated real-market trading performance, account summary, open positions, recent trades, and portfolio value over time.
+- **Build and customize LLM-powered trading agents**   
+ Prototype trading agents with configurable models, prompts, asset universes, and decision logic.
+- **Interactive backtests**   
+Test performance on historical market data and compare results against baselines.
+- **Live-market paper trading**  
+Test agents beyond historical replay by deploying to paper trading accounts that interact with real-time market data.
+- **Inspect decision logs and reasoning traces**   
+Review each BUY, SELL, and HOLD decision with timestamps, prices, portfolio state, and reasoning.
+- **Evaluate risk and performance**   
+Analyze cumulative return, Sharpe ratio, volatility, maximum drawdown, win/loss behavior, and benchmark comparisons.
+- **Compete on agent leaderboards**  
+Join agentic trading competitions where teams and users compete against others in a live-market paper trading setting.
 
-## Project Structure
+## File Structure
+
+The main folders are **backend**, **frontend**, and **orchestration**. The lab uses a **backtest → API → dashboard** pipeline.
 
 ```
 AgenticTrading/
@@ -90,33 +113,13 @@ AgenticTrading/
 
 ## Quick Start
 
-Run a backtest in the dashboard:
-
-1. Open **[agentic-trading-lab.vercel.app](https://agentic-trading-lab.vercel.app/)** or **[http://localhost:8000/](http://localhost:8000/)** (if deployed locally) and stay on the **Backtest** tab.
-2. Set the date range, assets, and model in the left sidebar.
-3. Click **▶ Run Backtest**.
-4. Wait for the run to finish — the UI polls `/backtest/status` and reloads the equity charts when complete.
-
-You get interactive charts and comparison views (agent, buy-and-hold, DJIA) in the **Trading Performance** panel.
-
-**CLI (optional)** — For headless or scripted runs only; there is little visualization in the terminal:
-
-```bash
-python3 scripts/backtest_hourly_agent.py --start 2026-03-01 --end 2026-03-31
-python3 scripts/backtest_hourly_agent.py --mode buy_and_hold   # validation mode
-```
-
-Use the dashboard to inspect results after a CLI run, or call `POST /backtest/run` with the same parameters the UI sends.
-
-## Local Deployment
-
-### 1. Install dependencies
+### Step 1: Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure Alpaca credentials
+### Step 2: Configure Alpaca credentials
 
 Use **either** environment variables **or** a local credentials file.
 
@@ -139,17 +142,29 @@ cp credentials/alpaca.json.example credentials/alpaca.json
 
 The `credentials/` folder is not tracked in git. See `credentials/README.md`.
 
-### 3. Start API server
+### Step 3: Start the API server
 
 ```bash
 python3 backend/app.py
 ```
 
-### 4. Open dashboard
+### Step 4: Run a backtest in the dashboard
 
+1. Open **[agentic-trading-lab.vercel.app](https://agentic-trading-lab.vercel.app/)** or **[http://localhost:8000/](http://localhost:8000/)** and stay on the **Backtest** tab.
+2. Set the date range, assets, and model in the left sidebar.
+3. Click **▶ Run Backtest**.
+4. Wait for the run to finish — the UI polls `/backtest/status` and reloads the equity charts when complete.
+
+You get interactive charts and comparison views (agent, buy-and-hold, DJIA) in the **Trading Performance** panel.
+
+**CLI (optional)** — For headless or scripted runs only; there is little visualization in the terminal:
+
+```bash
+python3 scripts/backtest_hourly_agent.py --start 2026-03-01 --end 2026-03-31
+python3 scripts/backtest_hourly_agent.py --mode buy_and_hold   # validation mode
 ```
-http://localhost:8000/
-```
+
+Use the dashboard to inspect results after a CLI run, or call `POST /backtest/run` with the same parameters the UI sends.
 
 ## Future Roadmap
 
@@ -160,7 +175,7 @@ http://localhost:8000/
 
 ## Citation
 
-This repository includes the FinAgent Orchestration Framework under `orchestration/`, developed by Jifeng Li et al. at Open Finance Lab. The orchestration framework provides multi-agent architecture, memory systems, and DAG-based planning components. See `orchestration/README.md` for details.
+This repository includes the FinAgent Orchestration Framework under `orchestration/`, originally developed by Jifeng Li et al. at Open Finance Lab as part of the work on financial agent orchestration. The orchestration framework provides multi-agent architecture, memory systems, and DAG-based planning components. See `orchestration/README.md` for details.
 
 If you use the orchestration framework in research, please cite:
 
@@ -178,11 +193,11 @@ Plain-text citation:
 
 Jifeng Li, Arnav Grover, Abraham Alpuerto, Yupeng Cao, and Xiao-Yang Liu. *Orchestration Framework for Financial Agents: From Algorithmic Trading to Agentic Trading*. NeurIPS 2025 Workshop on Generative AI in Finance, 2025.
 
-Documentation: [finagent-orchestration.readthedocs.io](https://finagent-orchestration.readthedocs.io). Local preview: `docs/README.md`
+Documentation: [finagent-orchestration.readthedocs.io](https://finagent-orchestration.readthedocs.io) (Agentic Trading Lab + Orchestration Framework). Local preview: `docs/README.md`
 
 ## License
 
-OpenMDW-1.0 — See [LICENSE](LICENSE) (Copyright @ SecureFinAI Lab)
+OpenMDW-1.0 — See [LICENSE](LICENSE) (Copyright Jifeng Li @ SecureFinAI Lab)
 
 ## Contributing
 
