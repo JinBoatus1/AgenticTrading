@@ -68,9 +68,14 @@
         </div>
     </div>
 
-    <!-- Live Ticker (populated by JavaScript from Alpaca API) -->
-    <div class="ticker-bar" id="tickerBar">
-        <div class="ticker-placeholder">Loading market data...</div>
+    <!-- Live Ticker — Magnificent 7, auto-scrolls right to left -->
+    <div class="ticker-bar">
+        <span class="ticker-label">MAG 7</span>
+        <div class="ticker-marquee" id="tickerMarquee">
+            <div class="ticker-track" id="tickerTrack">
+                <div class="ticker-placeholder">Loading market data...</div>
+            </div>
+        </div>
     </div>
     <div class="ticker-info">
         <span class="ticker-source-label" title="All data from Alpaca: Stocks use IEX quote vs previous IEX close. Crypto use Alpaca quote vs previous daily close. Data may differ from consolidated feeds (Yahoo, etc).">Data: Alpaca IEX (stocks & crypto)</span>

@@ -661,13 +661,15 @@ function displayNoMetrics() {
     });
 }
 
+const MAG7_TICKER_SYMBOLS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META'];
+
 /**
- * Load live market data from Alpaca API
+ * Load live market data from Alpaca API (Magnificent 7)
  */
 async function loadMarketTicker() {
     try {
-        // Default symbols: SPY, QQQ, AAPL, MSFT, NVDA, BTC
-        const response = await fetch(`${API_BASE}/ticker?symbols=SPY,QQQ,AAPL,MSFT,NVDA,BTC`);
+        const symbols = MAG7_TICKER_SYMBOLS.join(',');
+        const response = await fetch(`${API_BASE}/ticker?symbols=${symbols}`);
         const data = await response.json();
         
         if (data.quotes && data.quotes.length > 0) {
@@ -680,53 +682,52 @@ async function loadMarketTicker() {
     }
 }
 
-/**
- * Update ticker bar with real market data
- */
-function updateTickerDisplay(quotes) {
-    const tickerBar = document.getElementById('tickerBar');
-    if (!tickerBar) return;
-    
-    // Build ticker items from quotes
-    let tickerHTML = '';
-    
-    quotes.forEach(quote => {
-        // Handle missing changePercent
-        let changeDisplay = '--';
-        let changeClass = '';
-        let tooltip = '';
-        
-        if (quote.changePercent !== null && quote.changePercent !== undefined) {
-            const changeSign = quote.changePercent >= 0 ? '+' : '';
-            changeDisplay = `${changeSign}${quote.changePercent.toFixed(2)}%`;
-            changeClass = quote.changePercent >= 0 ? 'positive' : 'negative';
-            
-            // Add tooltip
-            const isCrypto = quote.symbol === 'BTC' || quote.symbol === 'ETH';
-            tooltip = isCrypto ? 'title="24h change"' : 'title="Change vs previous close"';
-        } else {
-            tooltip = 'title="Data unavailable"';
-        }
-        
-        tickerHTML += `
-            <div class="ticker-item">
-                <span class="symbol">${quote.symbol}</span>
-                <span class="price">${quote.price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                <span class="change ${changeClass}" ${tooltip}>${changeDisplay}</span>
-                <svg class="ticker-chart" viewBox="0 0 30 12"><path d="M0,8 L5,6 L10,7 L15,4 L20,5 L25,3 L30,5" stroke="currentColor" fill="none" stroke-width="1"/></svg>
-            </div>
-        `;
-    });
-    
-    // Add spacer at end
-    tickerHTML += `
-        <div class="ticker-spacer">
-            <span class="ticker-dropdown">Market ▼</span>
-            <span class="ticker-filter">US Equities</span>
+function buildTickerItemHtml(quote) {
+    let changeDisplay = '--';
+    let changeClass = '';
+    let tooltip = 'title="Data unavailable"';
+    let sparkPath = 'M0,8 L5,6 L10,7 L15,4 L20,5 L25,3 L30,5';
+
+    if (quote.changePercent !== null && quote.changePercent !== undefined) {
+        const changeSign = quote.changePercent >= 0 ? '+' : '';
+        changeDisplay = `${changeSign}${quote.changePercent.toFixed(2)}%`;
+        changeClass = quote.changePercent >= 0 ? 'positive' : 'negative';
+        tooltip = 'title="Change vs previous close"';
+        sparkPath = quote.changePercent >= 0
+            ? 'M0,10 L5,8 L10,9 L15,6 L20,7 L25,4 L30,3'
+            : 'M0,3 L5,5 L10,4 L15,7 L20,6 L25,9 L30,10';
+    }
+
+    const price = quote.price != null
+        ? quote.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : '--';
+
+    return `
+        <div class="ticker-item">
+            <span class="symbol">${quote.symbol}</span>
+            <span class="price">${price}</span>
+            <span class="change ${changeClass}" ${tooltip}>${changeDisplay}</span>
+            <svg class="ticker-chart ${changeClass}" viewBox="0 0 30 12" aria-hidden="true">
+                <path d="${sparkPath}" stroke="currentColor" fill="none" stroke-width="1"/>
+            </svg>
         </div>
     `;
-    
-    tickerBar.innerHTML = tickerHTML;
+}
+
+/**
+ * Update ticker bar with real market data (duplicated for seamless scroll)
+ */
+function updateTickerDisplay(quotes) {
+    const tickerTrack = document.getElementById('tickerTrack');
+    if (!tickerTrack) return;
+
+    const order = new Map(MAG7_TICKER_SYMBOLS.map((symbol, index) => [symbol, index]));
+    const sortedQuotes = [...quotes].sort(
+        (a, b) => (order.get(a.symbol) ?? 99) - (order.get(b.symbol) ?? 99)
+    );
+
+    const rowHtml = sortedQuotes.map(buildTickerItemHtml).join('');
+    tickerTrack.innerHTML = `<div class="ticker-set">${rowHtml}</div><div class="ticker-set" aria-hidden="true">${rowHtml}</div>`;
 }
 
 /**
