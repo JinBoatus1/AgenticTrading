@@ -75,7 +75,6 @@ async function loadDefaults() {
       
       // Set asset universe
       if (settings.assetList && settings.assetList.length > 0) {
-        // Only auto-select if it's Magnificent 7
         if (settings.assetList.length === 7 && settings.assetList.includes('AAPL') && settings.assetList.includes('NVDA')) {
           selectPreset('mag7');
           console.log('✅ Selected Magnificent 7 preset');
@@ -437,6 +436,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('Session ID:', window.SESSION_ID);
     
     console.log('Dashboard initializing...');
+
+    initMarketEventFeed();
     
     // Setup mode toggle
     document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -911,15 +912,19 @@ function handleUniverseTabSwitch(tab) {
     }
     
     console.log(`Switched to ${tabName} universe tab`);
+    notifyAssetUniverseChanged();
 }
 
 function selectPreset(preset) {
+    if (!ASSET_UNIVERSES[preset]) {
+        preset = 'djia';
+    }
+
     selectedUniverse = preset;
-    
-    // Update card styles and button text
+
     document.getElementById('djiaCard').classList.remove('selected');
     document.getElementById('mag7Card').classList.remove('selected');
-    
+
     if (preset === 'djia') {
         document.getElementById('djiaCard').classList.add('selected');
         document.getElementById('djiaCard').querySelector('.preset-btn').textContent = 'Selected';
@@ -929,9 +934,10 @@ function selectPreset(preset) {
         document.getElementById('mag7Card').querySelector('.preset-btn').textContent = 'Selected';
         document.getElementById('djiaCard').querySelector('.preset-btn').textContent = 'Select';
     }
-    
+
     const universeData = ASSET_UNIVERSES[preset];
     console.log(`✅ Selected preset: ${universeData.name}`);
+    notifyAssetUniverseChanged();
 }
 
 function handleAddAsset() {
@@ -969,12 +975,36 @@ function handleAddAsset() {
     input.value = '';
     
     console.log(`✅ Added ${ticker} to custom universe`);
+    notifyAssetUniverseChanged();
 }
 
 function removeChip(chipEl) {
     const ticker = chipEl.dataset.ticker;
     chipEl.remove();
     console.log(`❌ Removed ${ticker} from custom universe`);
+    notifyAssetUniverseChanged();
+}
+
+function notifyAssetUniverseChanged() {
+    document.dispatchEvent(new CustomEvent('asset-universe-changed'));
+}
+
+function initMarketEventFeed() {
+    const container = document.getElementById('marketEventsFeed');
+    if (!container) {
+        console.warn('Market events container not found');
+        return null;
+    }
+    if (!window.MarketEventFeed) {
+        console.warn('MarketEventFeed module not loaded — check market-events/*.js script paths');
+        return null;
+    }
+
+    window.marketEventFeed = new window.MarketEventFeed({
+        container,
+        getSelectedAssets
+    });
+    return window.marketEventFeed;
 }
 
 /**

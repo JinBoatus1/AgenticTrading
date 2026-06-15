@@ -68,9 +68,8 @@
         </div>
     </div>
 
-    <!-- Live Ticker — Magnificent 7, auto-scrolls right to left -->
+    <!-- Live Ticker — auto-scrolls right to left -->
     <div class="ticker-bar">
-        <span class="ticker-label">MAG 7</span>
         <div class="ticker-marquee" id="tickerMarquee">
             <div class="ticker-track" id="tickerTrack">
                 <div class="ticker-placeholder">Loading market data...</div>
@@ -371,6 +370,9 @@
                 <button class="view-more-btn">View More Metrics →</button>
             </div>
 
+            <!-- Live Market Events -->
+            <div id="marketEventsFeed" class="section-card compact market-events-panel"></div>
+
             <!-- Performance Drivers -->
             <div class="section-card compact">
                 <h3 class="section-title">PERFORMANCE DRIVERS</h3>
@@ -633,6 +635,10 @@
     </div>
 
 
+    <script src="market-events/mockMarketEvents.js"></script>
+    <script src="market-events/marketEventRelativeTime.js"></script>
+    <script src="market-events/MarketEventCard.js"></script>
+    <script src="market-events/MarketEventFeed.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
