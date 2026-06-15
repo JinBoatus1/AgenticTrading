@@ -32,7 +32,6 @@ Turn trading ideas into traceable experiments: prototype agents, run backtests a
 - [Key Features](#key-features)
 - [File Structure](#file-structure)
 - [Architecture](#architecture)
-- [Quick Start](#quick-start)
 - [Future Roadmap](#future-roadmap)
 - [Citation](#citation)
 - [License](#license)
@@ -40,13 +39,7 @@ Turn trading ideas into traceable experiments: prototype agents, run backtests a
 
 ## Overview
 
-Agentic Trading Lab is an interactive research and educational platform for exploring trading systems powered by large language models. Built alongside a systematic survey of 130+ agentic trading papers, the project aims to make agentic trading research more accessible by allowing students, researchers, and developers to customize trading agents, evaluate their performance, and study how they behave in realistic market settings.
-
-The platform is designed to bridge the gap between alpha-seeking research and deployable trading systems. Instead of only measuring whether an agent can generate profitable signals, Agentic Trading Lab helps users understand the full trading workflow, including data processing, agent decision-making, backtesting, paper trading, execution constraints, risk control, and governance.
-
-The current system provides three main modes. The **Backtesting** mode evaluates trading agents on historical market data and compares their performance against market baselines. The **Paper Trading** mode connects agents to an Alpaca paper trading account for simulated real-time trading. The **Leaderboard** mode is designed for competition-style evaluation, where different agents or teams can be compared under standardized metrics.
-
-Agentic Trading Lab serves as both a research tool and an educational playground for studying how LLM-based trading agents perform beyond static benchmarks and under practical market constraints.
+Agentic Trading Lab is an interactive research and educational platform for exploring trading systems powered by large language models. Developed alongside a systematic survey of agentic trading research, it helps students, researchers, and developers explore how agents reason, trade, and perform in realistic market environments. Move beyond backtest returns by customizing agents, inspecting their decisions, evaluating risk, progressing from historical simulation to live-market paper trading, and comparing performance on standardized leaderboards.
 
 ## Key Features
 
@@ -109,61 +102,6 @@ AgenticTrading/
 │ └─ images/                                                   │
 └──────────────────────────────────────────────────────────────┘
 ```
-
-## Quick Start
-
-### Step 1: Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### Step 2: Configure Alpaca credentials
-
-Use **either** environment variables **or** a local credentials file.
-
-**Option A — `.env` (recommended for deploy):**
-
-```bash
-cp .env.example .env
-# Edit .env:
-# ALPACA_API_KEY=your_key
-# ALPACA_SECRET_KEY=your_secret
-# ALPACA_BASE_URL=https://paper-api.alpaca.markets
-```
-
-**Option B — local file (for backtest CLI and local API fallback):**
-
-```bash
-cp credentials/alpaca.json.example credentials/alpaca.json
-# Edit credentials/alpaca.json with your paper-trading keys
-```
-
-The `credentials/` folder is not tracked in git. See `credentials/README.md`.
-
-### Step 3: Start the API server
-
-```bash
-python3 backend/app.py
-```
-
-### Step 4: Run a backtest in the dashboard
-
-1. Open **[agentic-trading-lab.vercel.app](https://agentic-trading-lab.vercel.app/)** or **[http://localhost:8000/](http://localhost:8000/)** and stay on the **Backtest** tab.
-2. Set the date range, assets, and model in the left sidebar.
-3. Click **▶ Run Backtest**.
-4. Wait for the run to finish — the UI polls `/backtest/status` and reloads the equity charts when complete.
-
-You get interactive charts and comparison views (agent, buy-and-hold, DJIA) in the **Trading Performance** panel.
-
-**CLI (optional)** — For headless or scripted runs only; there is little visualization in the terminal:
-
-```bash
-python3 scripts/backtest_hourly_agent.py --start 2026-03-01 --end 2026-03-31
-python3 scripts/backtest_hourly_agent.py --mode buy_and_hold   # validation mode
-```
-
-Use the dashboard to inspect results after a CLI run, or call `POST /backtest/run` with the same parameters the UI sends.
 
 ## Future Roadmap
 
