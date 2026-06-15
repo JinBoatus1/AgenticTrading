@@ -409,7 +409,25 @@ body {
 .ticker-track {
     display: flex;
     width: max-content;
+    will-change: transform;
     animation: ticker-scroll 45s linear infinite;
+}
+
+.ticker-set {
+    display: flex;
+    flex: 0 0 auto;
+    flex-shrink: 0;
+}
+
+.ticker-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 12px;
+    border-right: 1px solid var(--border-color);
+    white-space: nowrap;
+    flex: 0 0 auto;
+    flex-shrink: 0;
 }
 
 @keyframes ticker-scroll {
@@ -429,21 +447,6 @@ body {
     .ticker-marquee {
         overflow-x: auto;
     }
-}
-
-.ticker-set {
-    display: flex;
-    flex: 0 0 auto;
-}
-
-.ticker-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 10px 12px;
-    border-right: 1px solid var(--border-color);
-    white-space: nowrap;
-    flex: 0 0 auto;
 }
 
 .ticker-item:last-child {

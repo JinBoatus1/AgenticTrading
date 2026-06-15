@@ -1,11 +1,30 @@
 
+<div align="center">
+  <img src="./dashboard/frontend/images/agentic_trading_lab_white.png" alt="Agentic Trading Lab" width="400">
+</div>
 
+<p align="center">
+  <a href="https://agentic-trading-lab.vercel.app/">
+    <img src="https://img.shields.io/badge/Live%20Demo-Visit%20App-0ea5e9?style=for-the-badge&logo=vercel&logoColor=white" alt="Live Demo">
+  </a>
+  <a href="https://discord.gg/9HnQ6XDG98">
+    <img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord">
+  </a>
+  <a href="https://finagent-orchestration.readthedocs.io/en/latest/">
+    <img src="https://img.shields.io/badge/Docs-Read%20the%20Docs-22c55e?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Docs">
+  </a>
+  <a href="#securefinai-contest-2026">
+    <img src="https://img.shields.io/badge/Contest-2026-f97316?style=for-the-badge&logo=trophy&logoColor=white" alt="Contest 2026">
+  </a>
+</p>
 
 
 **[Agentic Trading Lab](https://agentic-trading-lab.vercel.app/) is an open-source experimental playground for LLM-powered trading agents.**  
 Turn trading ideas into traceable experiments: prototype agents, run backtests and paper-trading simulations, inspect reasoning and decision logs, benchmark against market baselines, and study how agents behave under realistic financial constraints.
 
-
+<div align="center">
+  <img src="./dashboard/frontend/images/snapshot.png" alt="Website Snapshot" width="720">
+</div>
 
 ## Outline
 

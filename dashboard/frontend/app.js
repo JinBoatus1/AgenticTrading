@@ -437,6 +437,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     console.log('Dashboard initializing...');
 
+    showTickerPlaceholder();
+    setupTickerResizeHandler();
     initMarketEventFeed();
     
     // Setup mode toggle
@@ -522,10 +524,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Load initial data
+    const tickerPromise = loadMarketTicker();
     await loadData();
-    
-    // Load market ticker data
-    await loadMarketTicker();
+    await tickerPromise;
     
     // Load performance metrics
     await loadPerformanceMetrics();
@@ -663,6 +664,199 @@ function displayNoMetrics() {
 }
 
 const MAG7_TICKER_SYMBOLS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'META'];
+const TICKER_SCROLL_PX_PER_SEC = 55;
+const TICKER_ESTIMATED_ITEM_WIDTH = 140;
+let tickerResizeTimer = null;
+
+function sortTickerQuotes(quotes) {
+    const order = new Map(MAG7_TICKER_SYMBOLS.map((symbol, index) => [symbol, index]));
+    return [...quotes].sort(
+        (a, b) => (order.get(a.symbol) ?? 99) - (order.get(b.symbol) ?? 99)
+    );
+}
+
+function getTickerMarqueeWidth() {
+    const marquee = document.getElementById('tickerMarquee');
+    return marquee?.clientWidth || window.innerWidth;
+}
+
+function getTickerQuoteFields(quote) {
+    let changeDisplay = '--';
+    let changeClass = '';
+    let tooltip = 'Data unavailable';
+    let sparkPath = 'M0,8 L5,6 L10,7 L15,4 L20,5 L25,3 L30,5';
+
+    if (quote.changePercent !== null && quote.changePercent !== undefined) {
+        const changeSign = quote.changePercent >= 0 ? '+' : '';
+        changeDisplay = `${changeSign}${quote.changePercent.toFixed(2)}%`;
+        changeClass = quote.changePercent >= 0 ? 'positive' : 'negative';
+        tooltip = 'Change vs previous close';
+        sparkPath = quote.changePercent >= 0
+            ? 'M0,10 L5,8 L10,9 L15,6 L20,7 L25,4 L30,3'
+            : 'M0,3 L5,5 L10,4 L15,7 L20,6 L25,9 L30,10';
+    }
+
+    const price = quote.price != null
+        ? quote.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : '--';
+
+    return { price, changeDisplay, changeClass, tooltip, sparkPath };
+}
+
+function buildTickerItemHtml(quote) {
+    const fields = getTickerQuoteFields(quote);
+
+    return `
+        <div class="ticker-item" data-symbol="${quote.symbol}">
+            <span class="symbol">${quote.symbol}</span>
+            <span class="price">${fields.price}</span>
+            <span class="change ${fields.changeClass}" title="${fields.tooltip}">${fields.changeDisplay}</span>
+            <svg class="ticker-chart ${fields.changeClass}" viewBox="0 0 30 12" aria-hidden="true">
+                <path d="${fields.sparkPath}" stroke="currentColor" fill="none" stroke-width="1"/>
+            </svg>
+        </div>
+    `;
+}
+
+function buildTickerSetHtml(quotes, repeats) {
+    const sortedQuotes = sortTickerQuotes(quotes);
+    const itemHtml = sortedQuotes.map(buildTickerItemHtml).join('');
+    return Array(Math.max(1, repeats)).fill(itemHtml).join('');
+}
+
+function updateTickerAnimationDuration(tickerTrack) {
+    const setWidth = tickerTrack.querySelector('.ticker-set')?.offsetWidth || 0;
+    if (!setWidth) {
+        return;
+    }
+
+    const duration = Math.max(20, setWidth / TICKER_SCROLL_PX_PER_SEC);
+    tickerTrack.style.animationDuration = `${duration}s`;
+}
+
+function patchTickerItemElement(item, quote) {
+    const fields = getTickerQuoteFields(quote);
+    const priceEl = item.querySelector('.price');
+    const changeEl = item.querySelector('.change');
+    const chartEl = item.querySelector('.ticker-chart');
+    const pathEl = item.querySelector('.ticker-chart path');
+
+    if (priceEl) {
+        priceEl.textContent = fields.price;
+    }
+    if (changeEl) {
+        changeEl.textContent = fields.changeDisplay;
+        changeEl.className = `change ${fields.changeClass}`.trim();
+        changeEl.title = fields.tooltip;
+    }
+    if (chartEl) {
+        chartEl.className = `ticker-chart ${fields.changeClass}`.trim();
+    }
+    if (pathEl) {
+        pathEl.setAttribute('d', fields.sparkPath);
+    }
+}
+
+function patchTickerQuotes(quotes) {
+    const tickerTrack = document.getElementById('tickerTrack');
+    if (!tickerTrack || tickerTrack.dataset.tickerReady !== '1') {
+        return false;
+    }
+
+    const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
+    tickerTrack.querySelectorAll('.ticker-item[data-symbol]').forEach((item) => {
+        const quote = quoteBySymbol.get(item.dataset.symbol);
+        if (quote) {
+            patchTickerItemElement(item, quote);
+        }
+    });
+    return true;
+}
+
+function estimateTickerRepeats(quotes, marqueeWidth) {
+    const minSetWidth = marqueeWidth + 80;
+    const singlePassWidth = Math.max(quotes.length, 1) * TICKER_ESTIMATED_ITEM_WIDTH;
+    return Math.max(3, Math.ceil(minSetWidth / singlePassWidth));
+}
+
+function renderTickerTrack(quotes) {
+    const tickerTrack = document.getElementById('tickerTrack');
+    const marqueeWidth = getTickerMarqueeWidth();
+    if (!tickerTrack) {
+        return;
+    }
+
+    let repeats = estimateTickerRepeats(quotes, marqueeWidth);
+    let setHtml = buildTickerSetHtml(quotes, repeats);
+
+    tickerTrack.innerHTML =
+        `<div class="ticker-set">${setHtml}</div>` +
+        `<div class="ticker-set" aria-hidden="true">${setHtml}</div>`;
+
+    const firstSet = tickerTrack.querySelector('.ticker-set');
+    while (firstSet && firstSet.offsetWidth < marqueeWidth + 40 && repeats < 24) {
+        repeats += 1;
+        setHtml = buildTickerSetHtml(quotes, repeats);
+        tickerTrack.innerHTML =
+            `<div class="ticker-set">${setHtml}</div>` +
+            `<div class="ticker-set" aria-hidden="true">${setHtml}</div>`;
+    }
+
+    tickerTrack.dataset.tickerReady = '1';
+    updateTickerAnimationDuration(tickerTrack);
+}
+
+function showTickerPlaceholder() {
+    const placeholderQuotes = MAG7_TICKER_SYMBOLS.map((symbol) => ({
+        symbol,
+        price: null,
+        changePercent: null
+    }));
+    renderTickerTrack(placeholderQuotes);
+}
+
+/**
+ * Update ticker bar with real market data (tiled for seamless scroll)
+ */
+function updateTickerDisplay(quotes) {
+    if (patchTickerQuotes(quotes)) {
+        return;
+    }
+    renderTickerTrack(quotes);
+}
+
+function setupTickerResizeHandler() {
+    window.addEventListener('resize', () => {
+        if (tickerResizeTimer) {
+            clearTimeout(tickerResizeTimer);
+        }
+
+        tickerResizeTimer = setTimeout(() => {
+            const tickerTrack = document.getElementById('tickerTrack');
+            if (!tickerTrack || tickerTrack.dataset.tickerReady !== '1') {
+                return;
+            }
+
+            const firstSet = tickerTrack.querySelector('.ticker-set');
+            const marqueeWidth = getTickerMarqueeWidth();
+            if (!firstSet || firstSet.offsetWidth < marqueeWidth + 40) {
+                const symbols = [...tickerTrack.querySelectorAll('.ticker-item[data-symbol]')]
+                    .slice(0, MAG7_TICKER_SYMBOLS.length)
+                    .map((item) => ({
+                        symbol: item.dataset.symbol,
+                        price: item.querySelector('.price')?.textContent === '--'
+                            ? null
+                            : parseFloat(item.querySelector('.price')?.textContent?.replace(/,/g, '') || '0'),
+                        changePercent: null
+                    }));
+                tickerTrack.dataset.tickerReady = '0';
+                renderTickerTrack(symbols.length ? symbols : MAG7_TICKER_SYMBOLS.map((symbol) => ({ symbol, price: null, changePercent: null })));
+            } else {
+                updateTickerAnimationDuration(tickerTrack);
+            }
+        }, 200);
+    });
+}
 
 /**
  * Load live market data from Alpaca API (Magnificent 7)
@@ -681,54 +875,6 @@ async function loadMarketTicker() {
         console.warn('Could not fetch market ticker:', error.message);
         // Silently fail - ticker is non-critical
     }
-}
-
-function buildTickerItemHtml(quote) {
-    let changeDisplay = '--';
-    let changeClass = '';
-    let tooltip = 'title="Data unavailable"';
-    let sparkPath = 'M0,8 L5,6 L10,7 L15,4 L20,5 L25,3 L30,5';
-
-    if (quote.changePercent !== null && quote.changePercent !== undefined) {
-        const changeSign = quote.changePercent >= 0 ? '+' : '';
-        changeDisplay = `${changeSign}${quote.changePercent.toFixed(2)}%`;
-        changeClass = quote.changePercent >= 0 ? 'positive' : 'negative';
-        tooltip = 'title="Change vs previous close"';
-        sparkPath = quote.changePercent >= 0
-            ? 'M0,10 L5,8 L10,9 L15,6 L20,7 L25,4 L30,3'
-            : 'M0,3 L5,5 L10,4 L15,7 L20,6 L25,9 L30,10';
-    }
-
-    const price = quote.price != null
-        ? quote.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-        : '--';
-
-    return `
-        <div class="ticker-item">
-            <span class="symbol">${quote.symbol}</span>
-            <span class="price">${price}</span>
-            <span class="change ${changeClass}" ${tooltip}>${changeDisplay}</span>
-            <svg class="ticker-chart ${changeClass}" viewBox="0 0 30 12" aria-hidden="true">
-                <path d="${sparkPath}" stroke="currentColor" fill="none" stroke-width="1"/>
-            </svg>
-        </div>
-    `;
-}
-
-/**
- * Update ticker bar with real market data (duplicated for seamless scroll)
- */
-function updateTickerDisplay(quotes) {
-    const tickerTrack = document.getElementById('tickerTrack');
-    if (!tickerTrack) return;
-
-    const order = new Map(MAG7_TICKER_SYMBOLS.map((symbol, index) => [symbol, index]));
-    const sortedQuotes = [...quotes].sort(
-        (a, b) => (order.get(a.symbol) ?? 99) - (order.get(b.symbol) ?? 99)
-    );
-
-    const rowHtml = sortedQuotes.map(buildTickerItemHtml).join('');
-    tickerTrack.innerHTML = `<div class="ticker-set">${rowHtml}</div><div class="ticker-set" aria-hidden="true">${rowHtml}</div>`;
 }
 
 /**
