@@ -437,7 +437,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     console.log('Dashboard initializing...');
 
-    showTickerPlaceholder();
     setupTickerResizeHandler();
     initMarketEventFeed();
     
@@ -804,15 +803,6 @@ function renderTickerTrack(quotes) {
 
     tickerTrack.dataset.tickerReady = '1';
     updateTickerAnimationDuration(tickerTrack);
-}
-
-function showTickerPlaceholder() {
-    const placeholderQuotes = MAG7_TICKER_SYMBOLS.map((symbol) => ({
-        symbol,
-        price: null,
-        changePercent: null
-    }));
-    renderTickerTrack(placeholderQuotes);
 }
 
 /**

@@ -413,6 +413,11 @@ body {
     animation: ticker-scroll 45s linear infinite;
 }
 
+.ticker-track:has(.ticker-placeholder) {
+    animation: none;
+    width: 100%;
+}
+
 .ticker-set {
     display: flex;
     flex: 0 0 auto;
@@ -500,6 +505,7 @@ body {
     padding: 10px 12px;
     color: var(--text-secondary);
     font-size: 11px;
+    width: 100%;
 }
 
 .ticker-spacer {
