@@ -521,11 +521,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     initNavigation();
 
-    // Load initial data
-    const tickerPromise = loadMarketTicker();
-    await tickerPromise;
-    
-    // Refresh ticker every 30 seconds
+    // Load ticker without blocking the rest of the page
+    loadMarketTicker();
     setInterval(loadMarketTicker, 30000);
     
     console.log('🎯 Dashboard ready. Default runs:', window.DEFAULT_RUNS || 'None configured');
@@ -661,6 +658,7 @@ const MAG7_TICKER_SYMBOLS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'M
 const TICKER_SCROLL_PX_PER_SEC = 55;
 const TICKER_ESTIMATED_ITEM_WIDTH = 140;
 let tickerResizeTimer = null;
+let latestTickerQuotes = [];
 
 function sortTickerQuotes(quotes) {
     const order = new Map(MAG7_TICKER_SYMBOLS.map((symbol, index) => [symbol, index]));
@@ -804,6 +802,7 @@ function renderTickerTrack(quotes) {
  * Update ticker bar with real market data (tiled for seamless scroll)
  */
 function updateTickerDisplay(quotes) {
+    latestTickerQuotes = quotes;
     if (patchTickerQuotes(quotes)) {
         return;
     }
@@ -825,17 +824,11 @@ function setupTickerResizeHandler() {
             const firstSet = tickerTrack.querySelector('.ticker-set');
             const marqueeWidth = getTickerMarqueeWidth();
             if (!firstSet || firstSet.offsetWidth < marqueeWidth + 40) {
-                const symbols = [...tickerTrack.querySelectorAll('.ticker-item[data-symbol]')]
-                    .slice(0, MAG7_TICKER_SYMBOLS.length)
-                    .map((item) => ({
-                        symbol: item.dataset.symbol,
-                        price: item.querySelector('.price')?.textContent === '--'
-                            ? null
-                            : parseFloat(item.querySelector('.price')?.textContent?.replace(/,/g, '') || '0'),
-                        changePercent: null
-                    }));
+                const sourceQuotes = latestTickerQuotes.length
+                    ? latestTickerQuotes
+                    : MAG7_TICKER_SYMBOLS.map((symbol) => ({ symbol, price: null, changePercent: null }));
                 tickerTrack.dataset.tickerReady = '0';
-                renderTickerTrack(symbols.length ? symbols : MAG7_TICKER_SYMBOLS.map((symbol) => ({ symbol, price: null, changePercent: null })));
+                renderTickerTrack(sourceQuotes);
             } else {
                 updateTickerAnimationDuration(tickerTrack);
             }
@@ -847,19 +840,43 @@ function setupTickerResizeHandler() {
  * Load live market data from Alpaca API (Magnificent 7)
  */
 async function loadMarketTicker() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
+
     try {
         const symbols = MAG7_TICKER_SYMBOLS.join(',');
-        const response = await fetch(`${API_BASE}/ticker?symbols=${symbols}`);
-        const data = await response.json();
-        
+        const response = await fetch(`${API_BASE}/ticker?symbols=${symbols}`, {
+            signal: controller.signal,
+        });
+        const data = await response.json().catch(() => ({}));
+
         if (data.quotes && data.quotes.length > 0) {
             updateTickerDisplay(data.quotes);
             console.log('✅ Market ticker updated:', data.quotes.length, 'symbols');
+            return;
         }
+
+        const message = data.error
+            || (response.ok ? 'Market data temporarily unavailable' : `Market data unavailable (HTTP ${response.status})`);
+        showTickerStatus(message);
+        console.warn('Market ticker returned no quotes:', message);
     } catch (error) {
+        const message = error.name === 'AbortError'
+            ? 'Market data is taking longer than expected — retrying…'
+            : 'Could not load market data';
+        showTickerStatus(message);
         console.warn('Could not fetch market ticker:', error.message);
-        // Silently fail - ticker is non-critical
+    } finally {
+        clearTimeout(timeoutId);
     }
+}
+
+function showTickerStatus(message) {
+    const tickerTrack = document.getElementById('tickerTrack');
+    if (!tickerTrack || tickerTrack.dataset.tickerReady === '1') {
+        return;
+    }
+    tickerTrack.innerHTML = `<div class="ticker-placeholder">${message}</div>`;
 }
 
 /**

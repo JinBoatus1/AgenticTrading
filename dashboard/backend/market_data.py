@@ -4,12 +4,58 @@ Market data fetcher - connects to Alpaca API for live quotes.
 
 import json
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+
 import requests
-from datetime import datetime
 
 from paths import CREDENTIALS_DIR
+
+TICKER_CACHE_TTL_SECONDS = 30
+_ticker_cache: Dict[str, Tuple[float, List[Dict]]] = {}
+
+
+def _extract_price_from_quote(quote: dict) -> Optional[float]:
+    """Derive a display price from an Alpaca quote payload."""
+    try:
+        ap = float(quote.get("ap")) if quote.get("ap") else None
+    except (ValueError, TypeError):
+        ap = None
+    try:
+        bp = float(quote.get("bp")) if quote.get("bp") else None
+    except (ValueError, TypeError):
+        bp = None
+    try:
+        last_trade = float(quote.get("p")) if quote.get("p") else None
+    except (ValueError, TypeError):
+        last_trade = None
+
+    if ap is not None and ap > 0 and bp is not None and bp > 0:
+        return (ap + bp) / 2
+    if ap is not None and ap > 0:
+        return ap
+    if bp is not None and bp > 0:
+        return bp
+    if last_trade is not None and last_trade > 0:
+        return last_trade
+    return None
+
+
+def _extract_prev_close_from_bars(bars: List[dict]) -> Optional[float]:
+    """Pick the most recent completed daily close from sorted bars."""
+    if not bars:
+        return None
+
+    bars_sorted = sorted(bars, key=lambda bar: bar.get("t", ""), reverse=True)
+    target_bar = bars_sorted[1] if len(bars_sorted) > 1 else bars_sorted[0]
+    try:
+        prev_close = float(target_bar.get("c", 0))
+    except (ValueError, TypeError):
+        return None
+    return prev_close if prev_close > 0 else None
 
 class AlpacaMarketData:
     """Fetch live market quotes from Alpaca API."""
@@ -262,22 +308,111 @@ class AlpacaMarketData:
         
         return None
     
+    def get_latest_quotes_batch(self, symbols: List[str]) -> Dict[str, float]:
+        """Fetch latest prices for many symbols in one Alpaca request."""
+        if not symbols:
+            return {}
+
+        symbols_param = ",".join(symbols)
+        url = (
+            f"{self.data_api_url}/v2/stocks/quotes/latest"
+            f"?symbols={symbols_param}&feed=iex"
+        )
+        print(f"  Batch latest quotes: {symbols_param}")
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code != 200:
+                print(f"❌ Batch quotes failed: {response.status_code} - {response.text[:200]}")
+                return {}
+
+            data = response.json()
+            prices: Dict[str, float] = {}
+            for symbol, quote in (data.get("quotes") or {}).items():
+                price = _extract_price_from_quote(quote)
+                if price:
+                    prices[symbol.upper()] = price
+                    print(f"✅ {symbol}: current_price={price} source=batch_iex")
+            return prices
+        except Exception as exc:
+            print(f"❌ Batch quotes exception: {exc}")
+            return {}
+
+    def get_previous_closes_batch(self, symbols: List[str]) -> Dict[str, float]:
+        """Fetch previous closes for many symbols in one Alpaca request."""
+        if not symbols:
+            return {}
+
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        symbols_param = ",".join(symbols)
+        url = (
+            f"{self.data_api_url}/v2/stocks/bars"
+            f"?symbols={symbols_param}&timeframe=1Day&start={start_date}"
+            f"&end={end_date}&limit=5&feed=iex"
+        )
+        print(f"  Batch previous closes: {symbols_param}")
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code != 200:
+                print(f"❌ Batch bars failed: {response.status_code} - {response.text[:200]}")
+                return {}
+
+            data = response.json()
+            closes: Dict[str, float] = {}
+            for symbol, bars in (data.get("bars") or {}).items():
+                prev_close = _extract_prev_close_from_bars(bars)
+                if prev_close:
+                    closes[symbol.upper()] = prev_close
+                    print(f"✅ {symbol}: previous_close={prev_close} source=batch_iex")
+            return closes
+        except Exception as exc:
+            print(f"❌ Batch bars exception: {exc}")
+            return {}
+
+    def _build_quote(self, symbol: str, price: float, prev_close: Optional[float]) -> Dict:
+        change_percent = None
+        if prev_close and prev_close > 0:
+            change_percent = ((price - prev_close) / prev_close) * 100
+        return {
+            "symbol": symbol,
+            "price": round(price, 2),
+            "changePercent": round(change_percent, 2) if change_percent is not None else None,
+            "timestamp": datetime.now().isoformat(),
+        }
+
     def get_quotes_batch(self, symbols: List[str]) -> List[Dict]:
         """
-        Get quotes for multiple symbols.
-        
-        Args:
-            symbols: List of ticker symbols
-        
-        Returns:
-            List of quote dicts
+        Get quotes for multiple symbols using batched Alpaca requests.
+        Falls back to per-symbol fetching if batch endpoints fail.
         """
-        quotes = []
+        if not symbols:
+            return []
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            latest_future = executor.submit(self.get_latest_quotes_batch, symbols)
+            prev_close_future = executor.submit(self.get_previous_closes_batch, symbols)
+            latest_prices = latest_future.result()
+            prev_closes = prev_close_future.result()
+
+        quotes: List[Dict] = []
+        missing_symbols = []
+
         for symbol in symbols:
-            quote = self.get_quote(symbol)
-            if quote:
-                quotes.append(quote)
-        
+            price = latest_prices.get(symbol)
+            if price is None:
+                missing_symbols.append(symbol)
+                continue
+            quotes.append(self._build_quote(symbol, price, prev_closes.get(symbol)))
+
+        if missing_symbols:
+            print(f"⚠️ Batch fetch missed {missing_symbols}; falling back to per-symbol quotes")
+            for symbol in missing_symbols:
+                quote = self.get_quote(symbol)
+                if quote:
+                    quotes.append(quote)
+
         return quotes
     
     def get_crypto_quote(self, symbol: str) -> Optional[Dict]:
@@ -371,6 +506,127 @@ class AlpacaMarketData:
         return None
 
 
+def _yahoo_symbol(symbol: str) -> str:
+    return symbol.strip().upper().replace(".", "-")
+
+
+def _pick_first_number(*values) -> Optional[float]:
+    for value in values:
+        if value is None:
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            return number
+    return None
+
+
+def get_yahoo_quotes_batch(symbols: List[str]) -> List[Dict]:
+    """Fetch stock quotes from Yahoo Finance (no API key required)."""
+    if not symbols:
+        return []
+
+    try:
+        import yfinance as yf
+    except ImportError as exc:
+        print(f"❌ yfinance not installed: {exc}")
+        return []
+
+    yahoo_symbols = [_yahoo_symbol(symbol) for symbol in symbols]
+    symbol_map = dict(zip(yahoo_symbols, symbols))
+    quotes: List[Dict] = []
+    missing: List[str] = []
+
+    try:
+        tickers = yf.Tickers(" ".join(yahoo_symbols))
+        for yahoo_symbol, original_symbol in symbol_map.items():
+            ticker = tickers.tickers.get(yahoo_symbol)
+            if ticker is None:
+                missing.append(original_symbol)
+                continue
+
+            try:
+                fast = ticker.fast_info
+                price = _pick_first_number(
+                    getattr(fast, "last_price", None),
+                    getattr(fast, "regular_market_price", None),
+                    fast.get("last_price") if isinstance(fast, dict) else None,
+                    fast.get("regular_market_price") if isinstance(fast, dict) else None,
+                )
+                prev_close = _pick_first_number(
+                    getattr(fast, "previous_close", None),
+                    getattr(fast, "regular_market_previous_close", None),
+                    fast.get("previous_close") if isinstance(fast, dict) else None,
+                    fast.get("regular_market_previous_close") if isinstance(fast, dict) else None,
+                )
+            except Exception as exc:
+                print(f"⚠️ {original_symbol}: fast_info failed ({exc})")
+                missing.append(original_symbol)
+                continue
+
+            if price is None:
+                missing.append(original_symbol)
+                continue
+
+            change_percent = None
+            if prev_close:
+                change_percent = ((price - prev_close) / prev_close) * 100
+
+            quotes.append({
+                "symbol": original_symbol,
+                "price": round(price, 2),
+                "changePercent": round(change_percent, 2) if change_percent is not None else None,
+                "timestamp": datetime.now().isoformat(),
+            })
+            print(f"✅ {original_symbol}: price={price:.2f} change={change_percent} source=yahoo")
+    except Exception as exc:
+        print(f"❌ Yahoo batch fetch failed: {exc}")
+        missing = list(symbols)
+
+    if missing:
+        try:
+            history = yf.download(
+                [_yahoo_symbol(symbol) for symbol in missing],
+                period="5d",
+                interval="1d",
+                group_by="ticker",
+                auto_adjust=True,
+                progress=False,
+                threads=True,
+            )
+        except Exception as exc:
+            print(f"❌ Yahoo history fallback failed: {exc}")
+            return quotes
+
+        for original_symbol in missing:
+            yahoo_symbol = _yahoo_symbol(original_symbol)
+            try:
+                if len(missing) == 1:
+                    closes = history["Close"].dropna()
+                else:
+                    closes = history[yahoo_symbol]["Close"].dropna()
+                if closes.empty:
+                    continue
+                price = float(closes.iloc[-1])
+                prev_close = float(closes.iloc[-2]) if len(closes) >= 2 else None
+                change_percent = ((price - prev_close) / prev_close * 100) if prev_close else None
+                quotes.append({
+                    "symbol": original_symbol,
+                    "price": round(price, 2),
+                    "changePercent": round(change_percent, 2) if change_percent is not None else None,
+                    "timestamp": datetime.now().isoformat(),
+                })
+                print(f"✅ {original_symbol}: price={price:.2f} change={change_percent} source=yahoo_history")
+            except Exception as exc:
+                print(f"⚠️ {original_symbol}: Yahoo history parse failed ({exc})")
+
+    order = {symbol: index for index, symbol in enumerate(symbols)}
+    quotes.sort(key=lambda quote: order.get(quote["symbol"], 999))
+    return quotes
+
+
 def get_market_quotes(symbols: List[str]) -> List[Dict]:
     """
     Convenience function to fetch quotes for stocks and crypto.
@@ -378,19 +634,30 @@ def get_market_quotes(symbols: List[str]) -> List[Dict]:
     Usage:
         quotes = get_market_quotes(["AAPL", "NVDA", "MSFT", "BTC"])
     """
+    cache_key = ",".join(sorted(symbol.strip().upper() for symbol in symbols if symbol.strip()))
+    now = time.time()
+    cached = _ticker_cache.get(cache_key)
+    if cached and now - cached[0] < TICKER_CACHE_TTL_SECONDS:
+        return cached[1]
+
     # Separate stocks and crypto
     stocks = [s for s in symbols if s not in ["BTC", "ETH", "XRP", "SOL"]]
     crypto = [s for s in symbols if s in ["BTC", "ETH", "XRP", "SOL"]]
     
     quotes = []
     
-    # Fetch stocks
+    # Fetch stocks from Yahoo Finance (fast, no Alpaca credentials needed)
     if stocks:
-        try:
-            market_data = AlpacaMarketData()
-            quotes.extend(market_data.get_quotes_batch(stocks))
-        except Exception as e:
-            print(f"Error initializing Alpaca: {e}")
+        quotes.extend(get_yahoo_quotes_batch(stocks))
+        if len(quotes) < len(stocks):
+            fetched = {quote["symbol"] for quote in quotes}
+            missing_stocks = [symbol for symbol in stocks if symbol not in fetched]
+            if missing_stocks:
+                try:
+                    market_data = AlpacaMarketData()
+                    quotes.extend(market_data.get_quotes_batch(missing_stocks))
+                except Exception as e:
+                    print(f"Error initializing Alpaca fallback: {e}")
     
     # Fetch crypto
     if crypto:
@@ -402,5 +669,8 @@ def get_market_quotes(symbols: List[str]) -> List[Dict]:
                     quotes.append(quote)
         except Exception as e:
             print(f"Error fetching crypto: {e}")
+
+    if cache_key:
+        _ticker_cache[cache_key] = (now, quotes)
     
     return quotes
