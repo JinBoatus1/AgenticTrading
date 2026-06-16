@@ -1586,15 +1586,19 @@ function navigateToPage(page, options = {}) {
     if (page === 'home') {
         currentMode = 'home';
         if (homeView) homeView.style.display = 'block';
-    } else if (page === 'agents') {
-        currentMode = 'agents';
-        if (agentsView) agentsView.style.display = 'block';
-    } else if (page === 'playground') {
-        if (playgroundView) playgroundView.style.display = 'block';
-        showPlaygroundPanel(playgroundTab);
-    } else if (page === 'competition') {
-        if (competitionView) competitionView.style.display = 'block';
-        showCompetitionPanel(competitionTab);
+        if (typeof onHomePageShow === 'function') onHomePageShow();
+    } else {
+        if (typeof onHomePageHide === 'function') onHomePageHide();
+        if (page === 'agents') {
+            currentMode = 'agents';
+            if (agentsView) agentsView.style.display = 'block';
+        } else if (page === 'playground') {
+            if (playgroundView) playgroundView.style.display = 'block';
+            showPlaygroundPanel(playgroundTab);
+        } else if (page === 'competition') {
+            if (competitionView) competitionView.style.display = 'block';
+            showCompetitionPanel(competitionTab);
+        }
     }
 
     const nav = document.getElementById('primaryNav');
@@ -1693,6 +1697,10 @@ function initNavigation() {
         navigateToPage('competition', { competitionTab: 'leaderboard' });
     });
 
+    document.getElementById('homeViewMarketPulseBtn')?.addEventListener('click', () => {
+        navigateToPage('playground', { playgroundTab: 'overview' });
+    });
+
     document.querySelectorAll('[data-home-nav]').forEach(btn => {
         btn.addEventListener('click', () => {
             const target = btn.dataset.homeNav;
@@ -1738,6 +1746,9 @@ function initNavigation() {
     });
 
     const initial = resolveInitialNavigation();
+    if (typeof initHomePage === 'function') {
+        initHomePage();
+    }
     navigateToPage(initial.page, {
         playgroundTab: initial.playgroundTab || 'overview',
         competitionTab: initial.competitionTab || 'leaderboard',
