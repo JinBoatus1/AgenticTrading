@@ -23,12 +23,14 @@
             </div>
         </div>
         <div class="header-right">
-            <div class="mode-toggle">
-                <button class="mode-btn active" data-mode="backtest">Backtest</button>
-                <button class="mode-btn" data-mode="paper">Paper Trading</button>
-                <button class="mode-btn" data-mode="my-algo">My Trading Algo</button>
-                <button class="mode-btn" data-mode="contest">Leaderboard</button>
-            </div>
+            <button id="navMenuToggle" class="nav-menu-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
+            <nav id="primaryNav" class="mode-toggle primary-nav" aria-label="Primary">
+                <button class="mode-btn active" data-mode="home">Home</button>
+                <button class="mode-btn" data-mode="agents">My Agents</button>
+                <button class="mode-btn" data-mode="playground">Playground</button>
+                <button class="mode-btn" data-mode="competition">Competition</button>
+            </nav>
+            <a id="openDiscordBtn" class="discord-nav-btn" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
             <div id="authControls" class="auth-controls">
                 <span id="authUserLabel" class="auth-user-label" hidden></span>
                 <button id="authOpenBtn" class="auth-btn" type="button">Log in</button>
@@ -80,8 +82,207 @@
         <span class="ticker-source-label" title="All data from Alpaca: Stocks use IEX quote vs previous IEX close. Crypto use Alpaca quote vs previous daily close. Data may differ from consolidated feeds (Yahoo, etc).">Data: Alpaca IEX (stocks & crypto)</span>
     </div>
 
-    <!-- Main Content: 3-Column Layout -->
-    <div class="main-container">
+    <!-- Home -->
+    <div id="homeView" class="page-view home-view">
+        <div class="home-hero section-card">
+            <h2 class="home-title">Agentic Trading Lab</h2>
+            <p class="home-description">Interact with your financial agent through Discord. View its decisions, trades, and performance in the Agentic Trading Lab.</p>
+            <div class="home-actions">
+                <button id="homeOpenPlaygroundBtn" class="home-btn home-btn-primary" type="button">Open Playground</button>
+                <a class="home-btn home-btn-secondary" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Join Discord</a>
+            </div>
+        </div>
+        <div class="home-grid">
+            <div class="section-card compact home-card">
+                <h3 class="section-title">CURRENT SEASON</h3>
+                <div class="home-season-name">SecureFinAI Contest 2026</div>
+                <div class="metric-row">
+                    <span class="metric-label">Status</span>
+                    <span class="status-badge live">Live</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Window</span>
+                    <span class="metric-value">Sep 1 – Oct 30, 2026</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Teams</span>
+                    <span class="metric-value">7 registered</span>
+                </div>
+            </div>
+            <div class="section-card compact home-card">
+                <h3 class="section-title">RECENT ACTIVITY</h3>
+                <div class="home-activity-list">
+                    <div class="home-activity-item">
+                        <span class="home-activity-time">2h ago</span>
+                        <span class="home-activity-text">AlphaForge opened a long position in NVDA</span>
+                    </div>
+                    <div class="home-activity-item">
+                        <span class="home-activity-time">5h ago</span>
+                        <span class="home-activity-text">Momentum Alpha completed a backtest run (+4.2%)</span>
+                    </div>
+                    <div class="home-activity-item">
+                        <span class="home-activity-time">1d ago</span>
+                        <span class="home-activity-text">New team joined the competition leaderboard</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="home-links">
+            <a href="https://finagent-orchestration.readthedocs.io/en/latest/" target="_blank" rel="noopener noreferrer">Documentation</a>
+            <span class="home-links-sep">·</span>
+            <a href="https://github.com/Allan-Feng/AgenticTrading" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <span class="home-links-sep">·</span>
+            <a href="https://finagent-orchestration.readthedocs.io/en/latest/" target="_blank" rel="noopener noreferrer">Tutorial</a>
+        </div>
+    </div>
+
+    <!-- My Agents -->
+    <div id="myAgentsView" class="page-view agents-view" style="display: none;">
+        <div class="page-header">
+            <div>
+                <h2 class="page-title">My Agents</h2>
+                <p class="page-description">Manage the agents connected to Agentic Trading Lab.</p>
+            </div>
+            <button id="addAgentBtn" class="home-btn home-btn-primary" type="button">Add Agent</button>
+        </div>
+        <div class="agents-grid">
+            <div class="section-card agent-card">
+                <div class="agent-card-head">
+                    <h3 class="agent-name">Momentum Alpha</h3>
+                    <span class="status-badge live">Live</span>
+                </div>
+                <div class="agent-meta">
+                    <span>SecureFinAI Contest 2026</span>
+                    <span class="agent-discord connected">Discord connected</span>
+                </div>
+                <div class="agent-metrics">
+                    <div class="agent-metric">
+                        <span class="metric-label">Return</span>
+                        <span class="metric-value positive">+12.4%</span>
+                    </div>
+                    <div class="agent-metric">
+                        <span class="metric-label">Sharpe</span>
+                        <span class="metric-value">1.82</span>
+                    </div>
+                </div>
+                <div class="agent-card-actions">
+                    <button class="agent-action-btn agent-view-playground" type="button">View in Playground</button>
+                    <a class="agent-action-btn agent-action-secondary" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
+                    <button class="agent-action-btn agent-action-secondary" type="button">Settings</button>
+                </div>
+            </div>
+            <div class="section-card agent-card">
+                <div class="agent-card-head">
+                    <h3 class="agent-name">Mean Reversion Bot</h3>
+                    <span class="status-badge baseline">Testing</span>
+                </div>
+                <div class="agent-meta">
+                    <span>SecureFinAI Contest 2026</span>
+                    <span class="agent-discord pending">Discord pending</span>
+                </div>
+                <div class="agent-metrics">
+                    <div class="agent-metric">
+                        <span class="metric-label">Return</span>
+                        <span class="metric-value positive">+3.2%</span>
+                    </div>
+                    <div class="agent-metric">
+                        <span class="metric-label">Sharpe</span>
+                        <span class="metric-value">0.91</span>
+                    </div>
+                </div>
+                <div class="agent-card-actions">
+                    <button class="agent-action-btn agent-view-playground" type="button">View in Playground</button>
+                    <a class="agent-action-btn agent-action-secondary" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
+                    <button class="agent-action-btn agent-action-secondary" type="button">Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="addAgentModal" class="auth-modal" hidden>
+        <div class="auth-modal-backdrop" id="addAgentModalBackdrop"></div>
+        <div class="auth-modal-panel" role="dialog" aria-labelledby="addAgentModalTitle">
+            <button id="addAgentModalClose" class="auth-modal-close" type="button" aria-label="Close">×</button>
+            <h2 id="addAgentModalTitle" class="auth-modal-title">Add Agent</h2>
+            <p class="auth-modal-subtitle">Choose how you want to connect an agent. Full workflows coming soon.</p>
+            <div class="add-agent-options">
+                <button id="createBuiltinAgentBtn" class="add-agent-option" type="button">
+                    <strong>Create a Built-in Agent</strong>
+                    <span>Configure strategy blocks inside the lab</span>
+                </button>
+                <button id="connectExternalAgentBtn" class="add-agent-option" type="button">
+                    <strong>Connect an External Agent</strong>
+                    <span>Link an agent via Discord or API</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Playground -->
+    <div id="playgroundView" class="page-view playground-view" style="display: none;">
+        <div class="playground-agent-header section-card compact">
+            <div class="playground-agent-info">
+                <h2 id="playgroundAgentName" class="playground-agent-name">Momentum Alpha</h2>
+                <span id="playgroundAgentStatus" class="status-badge live">Live</span>
+                <span id="playgroundAgentDiscord" class="agent-discord connected">Discord connected</span>
+            </div>
+            <a class="discord-nav-btn discord-nav-btn-sm" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
+        </div>
+        <div class="subtab-bar playground-subtabs">
+            <button class="subtab-btn active" data-playground-tab="overview">Overview</button>
+            <button class="subtab-btn" data-playground-tab="backtest">Backtest</button>
+            <button class="subtab-btn" data-playground-tab="paper">Paper Trading</button>
+        </div>
+        <div id="playgroundOverviewPanel" class="playground-panel">
+            <div class="overview-grid">
+                <div class="section-card compact">
+                    <h3 class="section-title">PORTFOLIO SNAPSHOT</h3>
+                    <div class="metric-row">
+                        <span class="metric-label">Portfolio Value</span>
+                        <span class="metric-value" id="overviewPortfolioValue">$112,430</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Return</span>
+                        <span class="metric-value positive" id="overviewReturn">+12.43%</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Max Drawdown</span>
+                        <span class="metric-value negative" id="overviewMaxDrawdown">-4.8%</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Competition Rank</span>
+                        <span class="metric-value" id="overviewRank">#3 of 7</span>
+                    </div>
+                </div>
+                <div class="section-card overview-chart-card">
+                    <h3 class="section-title">PERFORMANCE</h3>
+                    <div class="chart-container overview-chart-container">
+                        <canvas id="overviewChart"></canvas>
+                    </div>
+                </div>
+                <div class="section-card compact">
+                    <h3 class="section-title">RECENT AGENT ACTIVITY</h3>
+                    <div class="home-activity-list">
+                        <div class="home-activity-item">
+                            <span class="home-activity-time">14:35</span>
+                            <span class="home-activity-text">BUY 15 AAPL @ $150.25</span>
+                        </div>
+                        <div class="home-activity-item">
+                            <span class="home-activity-time">14:42</span>
+                            <span class="home-activity-text">SELL 8 MSFT @ $380.50</span>
+                        </div>
+                        <div class="home-activity-item">
+                            <span class="home-activity-time">14:55</span>
+                            <span class="home-activity-text">BUY 2 NVDA @ $875.10</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content: 3-Column Layout (Playground / Backtest) -->
+    <div class="main-container playground-panel playground-backtest-panel" style="display: none;">
         <!-- Left Panel: Setup -->
         <aside class="left-panel">
             <!-- Backtest Setup Section -->
@@ -397,8 +598,8 @@
         </aside>
     </div>
 
-    <!-- Paper Trading View (Hidden by default, shown when Paper tab selected) -->
-    <div id="paperTradingView" class="paper-trading-view" style="display: none;">
+    <!-- Paper Trading View (Playground / Paper Trading) -->
+    <div id="paperTradingView" class="paper-trading-view playground-panel playground-paper-panel" style="display: none;">
         <div class="paper-container">
             <!-- Left Panel: Account Summary -->
             <aside class="paper-left-panel">
@@ -526,8 +727,127 @@
         </div>
     </div>
 
-    <!-- Leaderboard View (Hidden by default, shown when Leaderboard tab selected) -->
-    <div id="leaderboardView" class="leaderboard-view" style="display: none;">
+    <!-- Competition -->
+    <div id="competitionView" class="page-view competition-view" style="display: none;">
+        <div class="competition-season-header section-card compact">
+            <div class="competition-season-info">
+                <h2 class="page-title">SecureFinAI Contest 2026</h2>
+                <span class="status-badge live">Live</span>
+                <div class="competition-season-meta">
+                    <span>Sep 1 – Oct 30, 2026</span>
+                    <span>7 teams</span>
+                </div>
+            </div>
+            <div class="competition-season-actions">
+                <button id="competitionRulesBtn" class="agent-action-btn agent-action-secondary" type="button">Rules</button>
+                <a class="discord-nav-btn discord-nav-btn-sm" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Join Discord</a>
+            </div>
+        </div>
+        <div class="subtab-bar competition-subtabs">
+            <button class="subtab-btn active" data-competition-tab="leaderboard">Leaderboard</button>
+            <button class="subtab-btn" data-competition-tab="participants">Participants</button>
+            <button class="subtab-btn" data-competition-tab="about">About</button>
+        </div>
+        <div id="competitionParticipantsPanel" class="competition-panel" style="display: none;">
+            <div class="participants-grid">
+                <div class="section-card participant-card">
+                    <div class="agent-card-head">
+                        <h3 class="agent-name">AlphaForge</h3>
+                        <span class="status-badge live">Live</span>
+                    </div>
+                    <p class="participant-desc">Claude Sonnet momentum strategy on DJIA universe</p>
+                    <div class="agent-metrics">
+                        <div class="agent-metric">
+                            <span class="metric-label">Return</span>
+                            <span class="metric-value positive">+18.2%</span>
+                        </div>
+                        <div class="agent-metric">
+                            <span class="metric-label">Rank</span>
+                            <span class="metric-value">#1</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="section-card participant-card">
+                    <div class="agent-card-head">
+                        <h3 class="agent-name">QuantPulse</h3>
+                        <span class="status-badge live">Live</span>
+                    </div>
+                    <p class="participant-desc">Multi-signal agent with risk-adjusted position sizing</p>
+                    <div class="agent-metrics">
+                        <div class="agent-metric">
+                            <span class="metric-label">Return</span>
+                            <span class="metric-value positive">+14.7%</span>
+                        </div>
+                        <div class="agent-metric">
+                            <span class="metric-label">Rank</span>
+                            <span class="metric-value">#2</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="section-card participant-card">
+                    <div class="agent-card-head">
+                        <h3 class="agent-name">Momentum Alpha</h3>
+                        <span class="status-badge live">Live</span>
+                    </div>
+                    <p class="participant-desc">Hourly LLM decisions on Magnificent 7 basket</p>
+                    <div class="agent-metrics">
+                        <div class="agent-metric">
+                            <span class="metric-label">Return</span>
+                            <span class="metric-value positive">+12.4%</span>
+                        </div>
+                        <div class="agent-metric">
+                            <span class="metric-label">Rank</span>
+                            <span class="metric-value">#3</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="competitionAboutPanel" class="competition-panel" style="display: none;">
+            <div class="about-grid">
+                <div class="section-card">
+                    <h3 class="section-title">COMPETITION OVERVIEW</h3>
+                    <p class="about-text">SecureFinAI Contest 2026 is a live-market paper trading competition where teams deploy LLM-powered trading agents and compete on standardized performance metrics.</p>
+                </div>
+                <div class="section-card compact">
+                    <h3 class="section-title">SCHEDULE</h3>
+                    <div class="metric-row">
+                        <span class="metric-label">Registration</span>
+                        <span class="metric-value">Aug 1 – Aug 31</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Trading Window</span>
+                        <span class="metric-value">Sep 1 – Oct 30</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Results</span>
+                        <span class="metric-value">Nov 5</span>
+                    </div>
+                </div>
+                <div class="section-card compact">
+                    <h3 class="section-title">RULES</h3>
+                    <ul class="about-list">
+                        <li>Paper trading only — no real capital at risk</li>
+                        <li>Agents must trade within the assigned asset universe</li>
+                        <li>Maximum 10 trades per day per agent</li>
+                        <li>All decisions must be logged and auditable</li>
+                    </ul>
+                </div>
+                <div class="section-card compact">
+                    <h3 class="section-title">EVALUATION METRICS</h3>
+                    <ul class="about-list">
+                        <li>Cumulative return (rCR)</li>
+                        <li>Sharpe ratio (rSR)</li>
+                        <li>Win/loss ratio (rWL)</li>
+                        <li>Final score = average of normalized ranks</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaderboard View (Competition / Leaderboard) -->
+    <div id="leaderboardView" class="leaderboard-view competition-panel competition-leaderboard-panel" style="display: none;">
         <div class="leaderboard-container compact">
             <!-- Combined Header with Stats + Controls -->
             <div class="leaderboard-header-bar compact">
