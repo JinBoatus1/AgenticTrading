@@ -1689,6 +1689,26 @@ function initNavigation() {
         navigateToPage('playground', { playgroundTab: 'overview' });
     });
 
+    document.getElementById('homeViewCompetitionBtn')?.addEventListener('click', () => {
+        navigateToPage('competition', { competitionTab: 'leaderboard' });
+    });
+
+    document.querySelectorAll('[data-home-nav]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const target = btn.dataset.homeNav;
+            if (target === 'agents') {
+                navigateToPage('agents');
+            } else if (target === 'playground') {
+                navigateToPage('playground', { playgroundTab: 'overview' });
+            } else if (target === 'discord') {
+                const discordUrl = document.getElementById('homeConnectDiscordBtn')?.href
+                    || document.getElementById('openDiscordBtn')?.href
+                    || 'https://discord.gg/9HnQ6XDG98';
+                window.open(discordUrl, '_blank', 'noopener,noreferrer');
+            }
+        });
+    });
+
     document.querySelectorAll('.agent-view-playground').forEach(btn => {
         btn.addEventListener('click', () => {
             navigateToPage('playground', { playgroundTab: 'overview' });

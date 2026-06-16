@@ -80,60 +80,181 @@
     </div>
     <div class="ticker-info">
         <span class="ticker-source-label" title="Stock prices and daily % change from Yahoo Finance. Crypto uses CoinGecko when included.">Data: Yahoo Finance</span>
+        <span class="ticker-markets-open"><span class="ticker-markets-dot" aria-hidden="true"></span>Markets open</span>
     </div>
 
     <!-- Home -->
     <div id="homeView" class="page-view home-view">
-        <div class="home-hero section-card">
-            <h2 class="home-title">Agentic Trading Lab</h2>
-            <p class="home-description">Interact with your financial agent through Discord. View its decisions, trades, and performance in the Agentic Trading Lab.</p>
-            <div class="home-actions">
-                <button id="homeOpenPlaygroundBtn" class="home-btn home-btn-primary" type="button">Open Playground</button>
-                <a class="home-btn home-btn-secondary" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Join Discord</a>
+        <section class="home-hero">
+            <div class="home-hero-bg" aria-hidden="true"></div>
+            <div class="home-hero-grid">
+                <div class="home-hero-copy">
+                    <p class="home-eyebrow">Agentic Trading Playground</p>
+                    <h2 class="home-headline">Talk to agents. Earn Money.</h2>
+                    <p class="home-description">Connect your financial agent, interact through Discord, and review its decisions, trades, and performance in one playground.</p>
+                    <div class="home-actions">
+                        <button id="homeOpenPlaygroundBtn" class="home-btn home-btn-primary" type="button">▶ Open Playground</button>
+                        <a id="homeConnectDiscordBtn" class="home-btn home-btn-secondary" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Connect Discord</a>
+                    </div>
+                </div>
+                <aside class="home-snapshot section-card">
+                    <div class="home-snapshot-header">
+                        <span class="home-snapshot-dot" aria-hidden="true"></span>
+                        <h3 class="home-snapshot-title">Live Agent Snapshot</h3>
+                    </div>
+                    <div class="home-snapshot-agent">
+                        <span class="home-snapshot-avatar" aria-hidden="true">🤖</span>
+                        <div class="home-snapshot-agent-meta">
+                            <div class="home-snapshot-agent-name">Agent: FinAgent Alpha</div>
+                            <div class="home-snapshot-badges">
+                                <span class="status-badge live">Live</span>
+                                <span class="agent-discord connected">Discord connected</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="home-snapshot-metrics">
+                        <div class="home-snapshot-metric">
+                            <span class="home-snapshot-metric-label">Portfolio</span>
+                            <span class="home-snapshot-metric-value">$103,240</span>
+                        </div>
+                        <div class="home-snapshot-metric">
+                            <span class="home-snapshot-metric-label">Return</span>
+                            <span class="home-snapshot-metric-value positive">+3.24%</span>
+                        </div>
+                        <div class="home-snapshot-metric">
+                            <span class="home-snapshot-metric-label">Season Rank</span>
+                            <span class="home-snapshot-metric-value">#6</span>
+                        </div>
+                    </div>
+                    <div class="home-snapshot-footer">
+                        <div class="home-snapshot-action">
+                            <span class="home-snapshot-footer-label">Latest Action</span>
+                            <span class="home-snapshot-action-value"><span class="home-highlight-positive">BUY</span> NVDA</span>
+                        </div>
+                        <div class="home-snapshot-active">
+                            <span class="home-snapshot-footer-label">Last Active</span>
+                            <span class="home-snapshot-active-value">2 min ago</span>
+                        </div>
+                    </div>
+                </aside>
             </div>
-        </div>
-        <div class="home-grid">
-            <div class="section-card compact home-card">
-                <h3 class="section-title">CURRENT SEASON</h3>
-                <div class="home-season-name">SecureFinAI Contest 2026</div>
-                <div class="metric-row">
-                    <span class="metric-label">Status</span>
+        </section>
+
+        <section class="home-workflow" aria-label="How it works">
+            <button class="home-workflow-card" type="button" data-home-nav="agents">
+                <span class="home-workflow-icon" aria-hidden="true">🔗</span>
+                <div class="home-workflow-copy">
+                    <h3 class="home-workflow-title">1. Connect Your Agent</h3>
+                    <p class="home-workflow-desc">Create or connect your financial agent and configure its strategy.</p>
+                </div>
+                <span class="home-workflow-chevron" aria-hidden="true">›</span>
+            </button>
+            <button class="home-workflow-card" type="button" data-home-nav="discord">
+                <span class="home-workflow-icon" aria-hidden="true">💬</span>
+                <div class="home-workflow-copy">
+                    <h3 class="home-workflow-title">2. Talk on Discord</h3>
+                    <p class="home-workflow-desc">Interact with your agent in a private team channel.</p>
+                </div>
+                <span class="home-workflow-chevron" aria-hidden="true">›</span>
+            </button>
+            <button class="home-workflow-card" type="button" data-home-nav="playground">
+                <span class="home-workflow-icon" aria-hidden="true">📊</span>
+                <div class="home-workflow-copy">
+                    <h3 class="home-workflow-title">3. View the Results</h3>
+                    <p class="home-workflow-desc">Review trades, backtests, and paper-trading performance.</p>
+                </div>
+                <span class="home-workflow-chevron" aria-hidden="true">›</span>
+            </button>
+        </section>
+
+        <section class="home-grid">
+            <div class="section-card compact home-card home-season-card">
+                <h3 class="section-title">Current Season</h3>
+                <div class="home-season-head">
+                    <div class="home-season-name">SecureFinAI Contest 2026</div>
                     <span class="status-badge live">Live</span>
                 </div>
-                <div class="metric-row">
-                    <span class="metric-label">Window</span>
-                    <span class="metric-value">Sep 1 – Oct 30, 2026</span>
+                <div class="home-season-meta">
+                    <div class="home-season-meta-row">
+                        <span class="home-meta-icon" aria-hidden="true">📅</span>
+                        <span class="metric-label">Window</span>
+                        <span class="metric-value">Sep 1 – Oct 30, 2026</span>
+                    </div>
+                    <div class="home-season-meta-row">
+                        <span class="home-meta-icon" aria-hidden="true">👥</span>
+                        <span class="metric-label">Teams</span>
+                        <span class="metric-value">7 registered</span>
+                    </div>
+                    <div class="home-season-meta-row">
+                        <span class="home-meta-icon" aria-hidden="true">🤖</span>
+                        <span class="metric-label">Agents</span>
+                        <span class="metric-value">9 connected</span>
+                    </div>
                 </div>
-                <div class="metric-row">
-                    <span class="metric-label">Teams</span>
-                    <span class="metric-value">7 registered</span>
+                <div class="home-progress">
+                    <div class="home-progress-labels">
+                        <span class="metric-label">Progress</span>
+                        <span class="home-progress-value">46%</span>
+                    </div>
+                    <div class="home-progress-track">
+                        <div class="home-progress-fill" style="width: 46%"></div>
+                    </div>
                 </div>
+                <button id="homeViewCompetitionBtn" class="home-btn home-btn-outline" type="button">View Competition</button>
             </div>
-            <div class="section-card compact home-card">
-                <h3 class="section-title">RECENT ACTIVITY</h3>
+
+            <div class="section-card compact home-card home-activity-card">
+                <h3 class="section-title">Recent Activity</h3>
                 <div class="home-activity-list">
                     <div class="home-activity-item">
-                        <span class="home-activity-time">2h ago</span>
-                        <span class="home-activity-text">AlphaForge opened a long position in NVDA</span>
+                        <span class="home-activity-icon home-activity-icon-trade" aria-hidden="true">📈</span>
+                        <div class="home-activity-body">
+                            <span class="home-activity-time">2h ago</span>
+                            <p class="home-activity-text"><strong>AlphaForge</strong> opened a long position in <span class="home-highlight">NVDA</span></p>
+                        </div>
                     </div>
                     <div class="home-activity-item">
-                        <span class="home-activity-time">5h ago</span>
-                        <span class="home-activity-text">Momentum Alpha completed a backtest run (+4.2%)</span>
+                        <span class="home-activity-icon home-activity-icon-backtest" aria-hidden="true">🧪</span>
+                        <div class="home-activity-body">
+                            <span class="home-activity-time">5h ago</span>
+                            <p class="home-activity-text"><strong>Momentum Alpha</strong> completed a backtest run <span class="home-highlight-positive">(+4.2%)</span></p>
+                        </div>
                     </div>
                     <div class="home-activity-item">
-                        <span class="home-activity-time">1d ago</span>
-                        <span class="home-activity-text">New team joined the competition leaderboard</span>
+                        <span class="home-activity-icon home-activity-icon-team" aria-hidden="true">👥</span>
+                        <div class="home-activity-body">
+                            <span class="home-activity-time">1d ago</span>
+                            <p class="home-activity-text">New team joined the competition leaderboard</p>
+                        </div>
+                    </div>
+                    <div class="home-activity-item">
+                        <span class="home-activity-icon home-activity-icon-risk" aria-hidden="true">🛡️</span>
+                        <div class="home-activity-body">
+                            <span class="home-activity-time">1d ago</span>
+                            <p class="home-activity-text"><strong>FinAgent Alpha</strong> passed its latest risk check</p>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-        <div class="home-links">
-            <a href="https://finagent-orchestration.readthedocs.io/en/latest/" target="_blank" rel="noopener noreferrer">Documentation</a>
-            <span class="home-links-sep">·</span>
-            <a href="https://github.com/Allan-Feng/AgenticTrading" target="_blank" rel="noopener noreferrer">GitHub</a>
-            <span class="home-links-sep">·</span>
-            <a href="https://finagent-orchestration.readthedocs.io/en/latest/" target="_blank" rel="noopener noreferrer">Tutorial</a>
-        </div>
+        </section>
+
+        <section class="home-resources section-card compact">
+            <h3 class="section-title">Resources</h3>
+            <div class="home-resources-grid">
+                <a class="home-resource-btn" href="https://finagent-orchestration.readthedocs.io/en/latest/" target="_blank" rel="noopener noreferrer">
+                    <span class="home-resource-icon" aria-hidden="true">📖</span>
+                    <span>Documentation</span>
+                </a>
+                <a class="home-resource-btn" href="https://github.com/Allan-Feng/AgenticTrading" target="_blank" rel="noopener noreferrer">
+                    <span class="home-resource-icon" aria-hidden="true">⌘</span>
+                    <span>GitHub</span>
+                </a>
+                <a class="home-resource-btn" href="https://finagent-orchestration.readthedocs.io/en/latest/" target="_blank" rel="noopener noreferrer">
+                    <span class="home-resource-icon" aria-hidden="true">🎓</span>
+                    <span>Tutorial</span>
+                </a>
+            </div>
+        </section>
     </div>
 
     <!-- My Agents -->
