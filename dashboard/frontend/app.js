@@ -442,6 +442,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('Dashboard initializing...');
 
     setupTickerResizeHandler();
+    setupTickerScrollControls();
     initMarketEventFeed();
 
     // Setup slider value displays
@@ -659,6 +660,12 @@ const TICKER_SCROLL_PX_PER_SEC = 55;
 const TICKER_ESTIMATED_ITEM_WIDTH = 140;
 let tickerResizeTimer = null;
 let latestTickerQuotes = [];
+let tickerScrollRaf = null;
+let tickerScrollOffset = 0;
+let tickerScrollSetWidth = 0;
+let tickerScrollLastTime = 0;
+let tickerScrollPaused = false;
+let tickerScrollControlsBound = false;
 
 function sortTickerQuotes(quotes) {
     const order = new Map(MAG7_TICKER_SYMBOLS.map((symbol, index) => [symbol, index]));
@@ -716,14 +723,97 @@ function buildTickerSetHtml(quotes, repeats) {
     return Array(Math.max(1, repeats)).fill(itemHtml).join('');
 }
 
-function updateTickerAnimationDuration(tickerTrack) {
-    const setWidth = tickerTrack.querySelector('.ticker-set')?.offsetWidth || 0;
-    if (!setWidth) {
+function stopTickerScroll() {
+    if (tickerScrollRaf !== null) {
+        cancelAnimationFrame(tickerScrollRaf);
+        tickerScrollRaf = null;
+    }
+}
+
+function getTickerSetWidth(tickerTrack) {
+    return tickerTrack.querySelector('.ticker-set')?.offsetWidth || 0;
+}
+
+function tickerScrollFrame(now) {
+    const tickerTrack = document.getElementById('tickerTrack');
+    if (!tickerTrack || tickerTrack.dataset.tickerReady !== '1') {
+        stopTickerScroll();
         return;
     }
 
-    const duration = Math.max(20, setWidth / TICKER_SCROLL_PX_PER_SEC);
-    tickerTrack.style.animationDuration = `${duration}s`;
+    if (!tickerScrollSetWidth) {
+        tickerScrollSetWidth = getTickerSetWidth(tickerTrack);
+        if (!tickerScrollSetWidth) {
+            tickerScrollRaf = requestAnimationFrame(tickerScrollFrame);
+            return;
+        }
+    }
+
+    if (!tickerScrollLastTime) {
+        tickerScrollLastTime = now;
+    }
+
+    if (!tickerScrollPaused) {
+        const dt = Math.min(0.05, (now - tickerScrollLastTime) / 1000);
+        tickerScrollOffset -= TICKER_SCROLL_PX_PER_SEC * dt;
+        if (tickerScrollOffset <= -tickerScrollSetWidth) {
+            tickerScrollOffset += tickerScrollSetWidth;
+        }
+        tickerTrack.style.transform = `translate3d(${tickerScrollOffset}px, 0, 0)`;
+    }
+
+    tickerScrollLastTime = now;
+    tickerScrollRaf = requestAnimationFrame(tickerScrollFrame);
+}
+
+function startTickerScroll() {
+    stopTickerScroll();
+
+    const tickerTrack = document.getElementById('tickerTrack');
+    if (!tickerTrack || tickerTrack.dataset.tickerReady !== '1') {
+        return;
+    }
+
+    tickerScrollOffset = 0;
+    tickerScrollSetWidth = 0;
+    tickerScrollLastTime = 0;
+    tickerTrack.style.transform = 'translate3d(0, 0, 0)';
+    tickerScrollRaf = requestAnimationFrame(tickerScrollFrame);
+}
+
+function scheduleTickerScrollStart() {
+    stopTickerScroll();
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            startTickerScroll();
+        });
+    });
+}
+
+function setupTickerScrollControls() {
+    if (tickerScrollControlsBound) {
+        return;
+    }
+    tickerScrollControlsBound = true;
+
+    const marquee = document.getElementById('tickerMarquee');
+    marquee?.addEventListener('mouseenter', () => {
+        tickerScrollPaused = true;
+    });
+    marquee?.addEventListener('mouseleave', () => {
+        tickerScrollPaused = false;
+        tickerScrollLastTime = 0;
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopTickerScroll();
+            return;
+        }
+        if (document.getElementById('tickerTrack')?.dataset.tickerReady === '1') {
+            scheduleTickerScrollStart();
+        }
+    });
 }
 
 function patchTickerItemElement(item, quote) {
@@ -778,6 +868,7 @@ function renderTickerTrack(quotes) {
         return;
     }
 
+    stopTickerScroll();
     let repeats = estimateTickerRepeats(quotes, marqueeWidth);
     let setHtml = buildTickerSetHtml(quotes, repeats);
 
@@ -795,7 +886,7 @@ function renderTickerTrack(quotes) {
     }
 
     tickerTrack.dataset.tickerReady = '1';
-    updateTickerAnimationDuration(tickerTrack);
+    scheduleTickerScrollStart();
 }
 
 /**
@@ -828,9 +919,10 @@ function setupTickerResizeHandler() {
                     ? latestTickerQuotes
                     : MAG7_TICKER_SYMBOLS.map((symbol) => ({ symbol, price: null, changePercent: null }));
                 tickerTrack.dataset.tickerReady = '0';
+                stopTickerScroll();
                 renderTickerTrack(sourceQuotes);
             } else {
-                updateTickerAnimationDuration(tickerTrack);
+                tickerScrollSetWidth = getTickerSetWidth(tickerTrack);
             }
         }, 200);
     });
@@ -876,6 +968,9 @@ function showTickerStatus(message) {
     if (!tickerTrack || tickerTrack.dataset.tickerReady === '1') {
         return;
     }
+    stopTickerScroll();
+    tickerTrack.dataset.tickerReady = '0';
+    tickerTrack.style.transform = 'none';
     tickerTrack.innerHTML = `<div class="ticker-placeholder">${message}</div>`;
 }
 

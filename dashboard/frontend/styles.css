@@ -410,12 +410,12 @@ body {
     display: flex;
     width: max-content;
     will-change: transform;
-    animation: ticker-scroll 45s linear infinite;
+    transform: translate3d(0, 0, 0);
 }
 
 .ticker-track:has(.ticker-placeholder) {
-    animation: none;
     width: 100%;
+    transform: none;
 }
 
 .ticker-set {
@@ -433,25 +433,6 @@ body {
     white-space: nowrap;
     flex: 0 0 auto;
     flex-shrink: 0;
-}
-
-@keyframes ticker-scroll {
-    0% {
-        transform: translateX(0);
-    }
-    100% {
-        transform: translateX(-50%);
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .ticker-track {
-        animation: none;
-    }
-
-    .ticker-marquee {
-        overflow-x: auto;
-    }
 }
 
 .ticker-item:last-child {
