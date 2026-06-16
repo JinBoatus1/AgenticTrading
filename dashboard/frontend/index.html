@@ -37,6 +37,8 @@
       <symbol id="icon-rocket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></symbol>
       <symbol id="icon-badge-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></symbol>
       <symbol id="icon-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></symbol>
+      <symbol id="icon-trophy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></symbol>
+      <symbol id="icon-external-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
     </svg>
     <!-- Header -->
     <header class="header">
@@ -436,27 +438,66 @@
                         </article>
                     </div>
                 </section>
-            </div>
-        </div>
 
-        <div id="homeLiveToast" class="home-live-toast" hidden role="status" aria-live="polite">
-            <button id="homeLiveToastClose" class="home-live-toast-close" type="button" aria-label="Dismiss">
-                <svg class="ui-icon"><use href="#icon-x"/></svg>
-            </button>
-            <div class="home-live-toast-head">
-                <span class="home-live-dot" aria-hidden="true"></span>
-                <span class="home-live-toast-label">NEW DECISION · 2m ago</span>
-            </div>
-            <div class="home-live-toast-body">
-                <span class="icon-shell icon-shell--sm home-live-toast-icon"><svg class="ui-icon"><use href="#icon-bot"/></svg></span>
-                <div>
-                    <p class="home-live-toast-agent">FinAgent Alpha</p>
-                    <p class="home-live-toast-action tabular-nums">BUY NVDA at $921.43</p>
-                    <p class="home-live-toast-rationale">"Momentum strengthened with above-average volume."</p>
-                </div>
+                <section class="home-resources">
+                    <h3 class="home-section-title home-resources-heading">Resources</h3>
+                    <div class="home-resources-grid">
+                        <a class="home-resource-card" href="https://finagent-orchestration.readthedocs.io/en/latest/" target="_blank" rel="noopener noreferrer">
+                            <span class="icon-shell icon-shell--sm"><svg class="ui-icon"><use href="#icon-book"/></svg></span>
+                            <span class="home-resource-copy">
+                                <span class="home-resource-title">Documentation</span>
+                                <span class="home-resource-subtitle">Guides and API reference</span>
+                            </span>
+                            <svg class="ui-icon home-resource-arrow" aria-hidden="true"><use href="#icon-external-link"/></svg>
+                        </a>
+                        <a class="home-resource-card" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">
+                            <span class="icon-shell icon-shell--sm icon-shell--discord"><svg class="ui-icon"><use href="#icon-discord"/></svg></span>
+                            <span class="home-resource-copy">
+                                <span class="home-resource-title">Discord Community</span>
+                                <span class="home-resource-subtitle">Chat with other builders</span>
+                            </span>
+                            <svg class="ui-icon home-resource-arrow" aria-hidden="true"><use href="#icon-external-link"/></svg>
+                        </a>
+                        <button id="homeResourceLeaderboardBtn" class="home-resource-card home-resource-card--button" type="button">
+                            <span class="icon-shell icon-shell--sm"><svg class="ui-icon"><use href="#icon-trophy"/></svg></span>
+                            <span class="home-resource-copy">
+                                <span class="home-resource-title">Leaderboard</span>
+                                <span class="home-resource-subtitle">See top agents and teams</span>
+                            </span>
+                            <svg class="ui-icon home-resource-arrow" aria-hidden="true"><use href="#icon-arrow-right"/></svg>
+                        </button>
+                        <a class="home-resource-card" href="https://github.com/Allan-Feng/AgenticTrading" target="_blank" rel="noopener noreferrer">
+                            <span class="icon-shell icon-shell--sm icon-shell--muted"><svg class="ui-icon"><use href="#icon-github"/></svg></span>
+                            <span class="home-resource-copy">
+                                <span class="home-resource-title">GitHub</span>
+                                <span class="home-resource-subtitle">Open source and examples</span>
+                            </span>
+                            <svg class="ui-icon home-resource-arrow" aria-hidden="true"><use href="#icon-external-link"/></svg>
+                        </a>
+                    </div>
+                </section>
             </div>
         </div>
     </div>
+
+    <div id="homeLiveToast" class="home-live-toast" hidden role="status" aria-live="polite">
+        <button id="homeLiveToastClose" class="home-live-toast-close" type="button" aria-label="Dismiss">
+            <svg class="ui-icon"><use href="#icon-x"/></svg>
+        </button>
+        <div class="home-live-toast-head">
+            <span class="home-live-dot" aria-hidden="true"></span>
+            <span class="home-live-toast-label">NEW DECISION · 2m ago</span>
+        </div>
+        <div class="home-live-toast-body">
+            <span class="home-live-toast-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-bot"/></svg></span>
+            <div class="home-live-toast-content">
+                <p class="home-live-toast-agent">FinAgent Alpha</p>
+                <p class="home-live-toast-action tabular-nums">BUY NVDA at $921.43</p>
+                <p class="home-live-toast-rationale">"Momentum strengthened with above-average volume."</p>
+            </div>
+        </div>
+    </div>
+
     <!-- My Agents -->
     <div id="myAgentsView" class="page-view agents-view" style="display: none;">
         <div class="page-header">

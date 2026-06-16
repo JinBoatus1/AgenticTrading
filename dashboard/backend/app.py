@@ -1073,6 +1073,11 @@ async def serve_app_js():
     """Serve app.js."""
     return FileResponse(frontend_path / "app.js", media_type="text/javascript")
 
+@app.get("/home-page.js", include_in_schema=False)
+async def serve_home_page_js():
+    """Serve home-page.js for the Home tab mock live UI."""
+    return FileResponse(frontend_path / "home-page.js", media_type="text/javascript")
+
 @app.get("/market-events/{file_name}", include_in_schema=False)
 async def serve_market_events_js(file_name: str):
     """Serve market-events/*.js modules for the Live Market Events panel."""
