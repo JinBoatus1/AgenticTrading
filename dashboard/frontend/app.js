@@ -2195,6 +2195,46 @@ function populateBacktestRunSelector(externalRuns) {
     localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, selectedId);
 }
 
+function resolveBaselineRunIds(extRun, sessionRuns) {
+    if (!extRun) return { djia: null, buyhold: null };
+
+    let djia = extRun.baseline_djia_run_id || null;
+    let buyhold = extRun.baseline_buyhold_run_id || null;
+    if (djia && buyhold) {
+        return { djia, buyhold };
+    }
+
+    const extCreated = extRun.created_at || '';
+    const { start_date: startDate, end_date: endDate } = extRun;
+    const extRuns = sessionRuns
+        .filter(isExternalAgentRun)
+        .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+    const extIdx = extRuns.findIndex((r) => r.run_id === extRun.run_id);
+    const nextExtCreated =
+        extIdx >= 0 && extIdx < extRuns.length - 1
+            ? extRuns[extIdx + 1].created_at
+            : null;
+
+    function pick(agentName) {
+        const candidates = sessionRuns
+            .filter(
+                (r) =>
+                    r.agent_name === agentName &&
+                    r.start_date === startDate &&
+                    r.end_date === endDate &&
+                    (r.created_at || '') >= extCreated &&
+                    (!nextExtCreated || (r.created_at || '') < nextExtCreated),
+            )
+            .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+        return candidates[0]?.run_id || null;
+    }
+
+    return {
+        djia: djia || pick('DJIA'),
+        buyhold: buyhold || pick('buy-and-hold'),
+    };
+}
+
 function findLatestRunByAgent(runs, agentName) {
     const matched = runs.filter(r => r.agent_name === agentName);
     if (!matched.length) return null;
@@ -2240,13 +2280,16 @@ async function loadData() {
 
             let runIds;
             if (selectedExternal) {
-                const buyhold = latestRun(sessionRuns.filter(r => r.agent_name === 'buy-and-hold'))
-                    || findLatestRunByAgent(allRuns, 'buy-and-hold');
-                const djia = latestRun(sessionRuns.filter(r => r.agent_name === 'DJIA'))
-                    || findLatestRunByAgent(allRuns, 'DJIA');
-                runIds = [selectedExternal.run_id, djia?.run_id, buyhold?.run_id].filter(Boolean).join(',');
+                const baselines = resolveBaselineRunIds(selectedExternal, sessionRuns);
+                runIds = [
+                    selectedExternal.run_id,
+                    baselines.djia,
+                    baselines.buyhold,
+                ]
+                    .filter(Boolean)
+                    .join(',');
                 window.EXTERNAL_AGENT_RUN_ID = selectedExternal.run_id;
-                console.log('External agent compare IDs:', runIds);
+                console.log('External agent compare IDs:', runIds, baselines);
             } else if (latestMyAlgo) {
                 const buyhold = findLatestRunByAgent(allRuns, 'buy-and-hold');
                 const djia = findLatestRunByAgent(allRuns, 'DJIA');

@@ -463,6 +463,11 @@ class ExternalBacktestSession:
                 self.baseline_run_ids["buy_and_hold"] = buyhold_id
             if djia_id:
                 self.baseline_run_ids["djia"] = djia_id
+            db.update_run_baselines(
+                self.run_id,
+                djia_run_id=djia_id,
+                buyhold_run_id=buyhold_id,
+            )
         except Exception as exc:
             print(f"⚠️ Baseline generation failed (run saved): {exc}")
 

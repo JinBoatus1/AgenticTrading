@@ -181,6 +181,27 @@ class BacktestDatabase:
                 cursor.execute("UPDATE agent_runs SET llm_model = 'rule-based' WHERE llm_model IS NULL")
                 conn.commit()
                 print("✅ Added llm_model to agent_runs")
+
+            cursor.execute("PRAGMA table_info(agent_runs)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'baseline_djia_run_id' not in columns:
+                print("🔄 Migrating: Adding baseline_djia_run_id to agent_runs...")
+                cursor.execute("""
+                    ALTER TABLE agent_runs
+                    ADD COLUMN baseline_djia_run_id TEXT
+                """)
+                conn.commit()
+                print("✅ Added baseline_djia_run_id to agent_runs")
+
+            if 'baseline_buyhold_run_id' not in columns:
+                print("🔄 Migrating: Adding baseline_buyhold_run_id to agent_runs...")
+                cursor.execute("""
+                    ALTER TABLE agent_runs
+                    ADD COLUMN baseline_buyhold_run_id TEXT
+                """)
+                conn.commit()
+                print("✅ Added baseline_buyhold_run_id to agent_runs")
             
             if 'session_id' in columns and 'llm_model' in columns:
                 print("✅ Schema up-to-date (session_id, llm_model exist)")
@@ -282,6 +303,29 @@ class BacktestDatabase:
               initial_equity, final_equity, total_return, sharpe_ratio,
               max_drawdown, num_trades, llm_model))
         
+        conn.commit()
+        conn.close()
+
+    def update_run_baselines(
+        self,
+        run_id: str,
+        *,
+        djia_run_id: Optional[str] = None,
+        buyhold_run_id: Optional[str] = None,
+    ) -> None:
+        """Link an external backtest run to its paired baseline runs."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE agent_runs
+            SET baseline_djia_run_id = COALESCE(?, baseline_djia_run_id),
+                baseline_buyhold_run_id = COALESCE(?, baseline_buyhold_run_id),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE run_id = ?
+            """,
+            (djia_run_id, buyhold_run_id, run_id),
+        )
         conn.commit()
         conn.close()
     

@@ -226,6 +226,9 @@ class RunMetadata(BaseModel):
     max_drawdown: Optional[float] = None
     num_trades: int = 0
     created_at: str
+    baseline_djia_run_id: Optional[str] = None
+    baseline_buyhold_run_id: Optional[str] = None
+    llm_model: Optional[str] = None
 
 
 class EquityCurve(BaseModel):
