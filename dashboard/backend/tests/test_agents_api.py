@@ -144,3 +144,27 @@ def test_claim_account_links_browser_agents(client):
     assert listed.status_code == 200
     assert len(listed.json()["agents"]) == 1
     assert listed.json()["agents"][0]["agent_id"] == agent_id
+
+
+def test_rotate_api_key(client):
+    browser_session = str(uuid.uuid4())
+    headers = {"X-Session-Id": browser_session, "X-Browser-Id": browser_session}
+
+    created = client.post(
+        "/api/v1/agents",
+        json={"name": "rotate-me"},
+        headers=headers,
+    ).json()
+    agent_id = created["agent"]["agent_id"]
+    old_key = created["api_key"]
+
+    rotated = client.post(f"/api/v1/agents/{agent_id}/rotate-api-key", headers=headers)
+    assert rotated.status_code == 200
+    new_key = rotated.json()["api_key"]
+    assert new_key.startswith("ag_")
+    assert new_key != old_key
+
+    assert client.get("/api/v1/agents/resolve", headers={"X-API-Key": old_key}).status_code == 401
+    resolved = client.get("/api/v1/agents/resolve", headers={"X-API-Key": new_key})
+    assert resolved.status_code == 200
+    assert resolved.json()["agent_id"] == agent_id

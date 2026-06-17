@@ -153,6 +153,7 @@ function renderAgentsGrid(agents) {
       ${renderAgentRunList(agent)}
       <div class="agent-card-actions">
         <button class="agent-action-btn agent-select-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">View in Playground</button>
+        <button class="agent-action-btn agent-action-secondary agent-rotate-key-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">New API key</button>
         <button class="agent-action-btn agent-action-secondary agent-delete-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">Remove</button>
       </div>
     `;
@@ -180,6 +181,24 @@ function renderAgentsGrid(agents) {
       navigateToPage('playground', { playgroundTab: 'backtest' });
       currentMode = 'backtest';
       await loadData();
+    });
+  });
+
+  grid.querySelectorAll('.agent-rotate-key-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const agent = agents.find((a) => a.agent_id === btn.dataset.agentId);
+      if (!agent) return;
+      if (!confirm(`Create a new API key for "${agent.name}"? The current key will stop working immediately.`)) {
+        return;
+      }
+      btn.disabled = true;
+      try {
+        await rotateAgentApiKey(agent);
+      } catch (error) {
+        alert(error.message || 'Failed to create new API key');
+      } finally {
+        btn.disabled = false;
+      }
     });
   });
 
@@ -278,12 +297,22 @@ function closeCreateExternalAgentModal() {
   if (modal) modal.hidden = true;
 }
 
-function showAgentCredentials(agent, apiKey) {
+function showAgentCredentials(apiKey, options = {}) {
   const modal = document.getElementById('agentCredentialsModal');
+  const titleEl = document.getElementById('agentCredentialsModalTitle');
+  const subtitleEl = document.getElementById('agentCredentialsModalSubtitle');
   const apiInput = document.getElementById('agentCredentialApiKey');
   const copyBtn = document.getElementById('agentCredentialCopyBtn');
   const doneBtn = document.getElementById('agentCredentialDoneBtn');
 
+  if (titleEl) {
+    titleEl.textContent = options.title || 'Agent created';
+  }
+  if (subtitleEl) {
+    subtitleEl.textContent =
+      options.subtitle ||
+      'Your agent is ready. Use the API key below to connect your trading client to Agentic Trading Lab.';
+  }
   if (apiInput) apiInput.value = apiKey;
   if (copyBtn) {
     copyBtn.onclick = async () => {
@@ -305,6 +334,19 @@ function showAgentCredentials(agent, apiKey) {
     doneBtn.onclick = () => closeAgentCredentialsModal();
   }
   if (modal) modal.hidden = false;
+}
+
+async function rotateAgentApiKey(agent) {
+  const data = await API.post(
+    `${API_BASE}/api/v1/agents/${agent.agent_id}/rotate-api-key`,
+    {},
+  );
+  await loadAgents();
+  showAgentCredentials(data.api_key, {
+    title: 'New API key created',
+    subtitle: `A new key was issued for "${agent.name}". Update your client — the old key no longer works.`,
+  });
+  return data;
 }
 
 function closeAgentCredentialsModal() {
@@ -331,7 +373,7 @@ async function submitCreateExternalAgent(event) {
     closeCreateExternalAgentModal();
     applyActiveAgent(data.agent);
     await loadAgents();
-    showAgentCredentials(data.agent, data.api_key);
+    showAgentCredentials(data.api_key);
   } catch (error) {
     if (errorEl) {
       errorEl.textContent = error.message;

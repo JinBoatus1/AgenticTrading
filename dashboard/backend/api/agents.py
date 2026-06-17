@@ -246,6 +246,25 @@ async def delete_agent(
     return {"status": "deleted", "agent_id": agent_id}
 
 
+@router.post("/{agent_id}/rotate-api-key")
+async def rotate_agent_api_key(
+    agent_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+):
+    """Generate a new API key for an agent. The previous key stops working immediately."""
+    ctx = _require_owner_context(request, authorization)
+    _require_agent_access(agent_id, ctx)
+    api_key = agent_store.rotate_api_key(agent_id)
+    if not api_key:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    agent = agent_store.get_agent(agent_id)
+    return {
+        "agent": _agent_with_stats(agent),
+        "api_key": api_key,
+    }
+
+
 @router.post("/{agent_id}/activate")
 async def activate_agent(
     agent_id: str,

@@ -312,6 +312,30 @@ class AgentStore:
         conn.commit()
         conn.close()
 
+    def rotate_api_key(self, agent_id: str) -> Optional[str]:
+        """Issue a new API key for an agent. Returns the raw key once."""
+        api_key = _new_api_key()
+        api_key_hash = _hash_api_key(api_key)
+        api_key_prefix = api_key[:12]
+        now = _utcnow_iso()
+
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE external_agents
+            SET api_key_hash = ?,
+                api_key_prefix = ?,
+                last_used_at = ?
+            WHERE agent_id = ?
+            """,
+            (api_key_hash, api_key_prefix, now, agent_id),
+        )
+        updated = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return api_key if updated else None
+
     def delete_agent(self, agent_id: str) -> bool:
         conn = self._get_connection()
         cursor = conn.cursor()
