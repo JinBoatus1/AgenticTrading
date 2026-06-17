@@ -94,9 +94,10 @@ class AgentStore:
         model_name: str = "local-model",
         owner_user_id: Optional[int] = None,
         owner_browser_session: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         agent_id = f"agent_{uuid.uuid4().hex[:12]}"
-        session_id = str(uuid.uuid4())
+        session_id = session_id or str(uuid.uuid4())
         api_key = _new_api_key()
         api_key_hash = _hash_api_key(api_key)
         api_key_prefix = api_key[:12]
@@ -133,18 +134,70 @@ class AgentStore:
         agent["api_key"] = api_key
         return agent
 
+    def register_or_get_agent(
+        self,
+        *,
+        session_id: str,
+        name: str,
+        model_name: str = "local-model",
+        owner_user_id: Optional[int] = None,
+        owner_browser_session: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Link an existing trading session to an agent (idempotent)."""
+        existing = self.get_agent_by_session(session_id)
+        if existing:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE external_agents
+                SET name = ?, model_name = ?, last_used_at = ?,
+                    owner_user_id = COALESCE(?, owner_user_id),
+                    owner_browser_session = COALESCE(?, owner_browser_session)
+                WHERE session_id = ?
+                """,
+                (
+                    name.strip(),
+                    model_name.strip() or "local-model",
+                    _utcnow_iso(),
+                    owner_user_id,
+                    owner_browser_session,
+                    session_id,
+                ),
+            )
+            conn.commit()
+            conn.close()
+            return self.get_agent_by_session(session_id) or existing
+
+        return self.create_agent(
+            name=name,
+            model_name=model_name,
+            owner_user_id=owner_user_id,
+            owner_browser_session=owner_browser_session,
+            session_id=session_id,
+        )
+
     def list_agents(
         self,
         *,
         owner_user_id: Optional[int] = None,
         owner_browser_session: Optional[str] = None,
+        trading_session_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         conn = self._get_connection()
         cursor = conn.cursor()
         rows: List[sqlite3.Row] = []
+        seen: set = set()
+
+        def _add_rows(query: str, params: tuple) -> None:
+            cursor.execute(query, params)
+            for row in cursor.fetchall():
+                if row["agent_id"] not in seen:
+                    seen.add(row["agent_id"])
+                    rows.append(row)
 
         if owner_user_id is not None:
-            cursor.execute(
+            _add_rows(
                 """
                 SELECT * FROM external_agents
                 WHERE owner_user_id = ?
@@ -152,10 +205,9 @@ class AgentStore:
                 """,
                 (owner_user_id,),
             )
-            rows.extend(cursor.fetchall())
 
         if owner_browser_session:
-            cursor.execute(
+            _add_rows(
                 """
                 SELECT * FROM external_agents
                 WHERE owner_browser_session = ?
@@ -163,9 +215,16 @@ class AgentStore:
                 """,
                 (owner_browser_session,),
             )
-            for row in cursor.fetchall():
-                if not any(r["agent_id"] == row["agent_id"] for r in rows):
-                    rows.append(row)
+
+        if trading_session_id:
+            _add_rows(
+                """
+                SELECT * FROM external_agents
+                WHERE session_id = ?
+                ORDER BY created_at DESC
+                """,
+                (trading_session_id,),
+            )
 
         conn.close()
         return [_public_agent(row) for row in rows]
@@ -206,6 +265,28 @@ class AgentStore:
         conn.close()
         return _public_agent(row) if row else None
 
+    def claim_agent(
+        self,
+        agent_id: str,
+        *,
+        owner_user_id: Optional[int] = None,
+        owner_browser_session: Optional[str] = None,
+    ) -> None:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE external_agents
+            SET owner_user_id = COALESCE(?, owner_user_id),
+                owner_browser_session = COALESCE(?, owner_browser_session),
+                last_used_at = ?
+            WHERE agent_id = ?
+            """,
+            (owner_user_id, owner_browser_session, _utcnow_iso(), agent_id),
+        )
+        conn.commit()
+        conn.close()
+
     def delete_agent(self, agent_id: str) -> bool:
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -226,12 +307,16 @@ class AgentStore:
             return True
         if owner_browser_session and agent.get("owner_browser_session") == owner_browser_session:
             return True
+        if owner_browser_session and agent.get("session_id") == owner_browser_session:
+            return True
         stored = self.get_agent(agent["agent_id"])
         if not stored:
             return False
         if owner_user_id is not None and stored.get("owner_user_id") == owner_user_id:
             return True
         if owner_browser_session and stored.get("owner_browser_session") == owner_browser_session:
+            return True
+        if owner_browser_session and stored.get("session_id") == owner_browser_session:
             return True
         return False
 

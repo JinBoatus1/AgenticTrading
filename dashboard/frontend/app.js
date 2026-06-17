@@ -10,15 +10,30 @@
 // Initialize anonymous session on first load
 const ACTIVE_AGENT_KEY = 'active-agent-id';
 const ACTIVE_AGENT_NAME_KEY = 'active-agent-name';
+const BROWSER_OWNER_KEY = 'browser-owner-id';
 
 function initSession() {
+  // Stable browser identity — never changes when switching agents
+  let browserOwnerId = localStorage.getItem(BROWSER_OWNER_KEY);
+  if (!browserOwnerId) {
+    const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
+    if (!activeId) {
+      browserOwnerId = localStorage.getItem('trading-session-id') || crypto.randomUUID();
+    } else {
+      browserOwnerId = crypto.randomUUID();
+    }
+    localStorage.setItem(BROWSER_OWNER_KEY, browserOwnerId);
+  }
+  window.BROWSER_OWNER_ID = browserOwnerId;
+
+  // Trading session — switches per active agent (backtest data scope)
   let sessionId = localStorage.getItem('trading-session-id');
   if (!sessionId) {
-    sessionId = crypto.randomUUID();
+    sessionId = browserOwnerId;
     localStorage.setItem('trading-session-id', sessionId);
-    console.log('New anonymous session:', sessionId);
+    console.log('New trading session:', sessionId);
   } else {
-    console.log('Restored session:', sessionId);
+    console.log('Restored trading session:', sessionId);
   }
   window.SESSION_ID = sessionId;
 }
@@ -31,20 +46,30 @@ async function restoreActiveAgentSession() {
     const data = await API.get(`${API_BASE}/api/v1/agents/${agentId}`);
     const agent = data.agent;
     if (!agent?.session_id) return;
-    applyActiveAgent(agent);
+    applyActiveAgent(agent, { persistActiveId: false });
+    try {
+      await API.post(`${API_BASE}/api/v1/agents/${agent.agent_id}/activate`, {});
+    } catch (claimError) {
+      console.warn('Agent claim on restore failed:', claimError.message);
+    }
     console.log('Restored active agent:', agent.name, agent.session_id);
   } catch (error) {
     console.warn('Could not restore active agent:', error.message);
-    localStorage.removeItem(ACTIVE_AGENT_KEY);
-    localStorage.removeItem(ACTIVE_AGENT_NAME_KEY);
+    // Only drop saved agent if it was deleted server-side
+    if (String(error.message || '').includes('404') || String(error.message || '').includes('not found')) {
+      localStorage.removeItem(ACTIVE_AGENT_KEY);
+      localStorage.removeItem(ACTIVE_AGENT_NAME_KEY);
+    }
   }
 }
 
-function applyActiveAgent(agent) {
+function applyActiveAgent(agent, options = {}) {
   if (!agent?.session_id) return;
   localStorage.setItem('trading-session-id', agent.session_id);
-  localStorage.setItem(ACTIVE_AGENT_KEY, agent.agent_id);
-  localStorage.setItem(ACTIVE_AGENT_NAME_KEY, agent.name || '');
+  if (options.persistActiveId !== false) {
+    localStorage.setItem(ACTIVE_AGENT_KEY, agent.agent_id);
+    localStorage.setItem(ACTIVE_AGENT_NAME_KEY, agent.name || '');
+  }
   window.SESSION_ID = agent.session_id;
   window.ACTIVE_AGENT = agent;
 
@@ -170,8 +195,39 @@ function escapeHtml(value) {
 
 async function loadAgents() {
   try {
-    const data = await API.get(`${API_BASE}/api/v1/agents`);
-    renderAgentsGrid(data.agents || []);
+    let data = await API.get(`${API_BASE}/api/v1/agents`);
+    let agents = data.agents || [];
+
+    // Fallback: fetch saved active agent directly (survives owner/session mismatch)
+    const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
+    if (activeId && !agents.some((a) => a.agent_id === activeId)) {
+      try {
+        const one = await API.get(`${API_BASE}/api/v1/agents/${activeId}`);
+        if (one?.agent) {
+          agents = [one.agent, ...agents];
+        }
+      } catch (fallbackError) {
+        console.warn('Active agent fallback failed:', fallbackError.message);
+      }
+    }
+
+    if (!agents.length) {
+      try {
+        const runs = await API.get(`${API_BASE}/api/backtest/runs?t=${Date.now()}`);
+        const hasExt = (runs || []).some((r) => r.run_id && String(r.run_id).startsWith('ext_'));
+        if (hasExt) {
+          const imported = await API.post(`${API_BASE}/api/v1/agents/import-session`, {});
+          if (imported?.agent) {
+            agents = [imported.agent];
+            applyActiveAgent(imported.agent);
+          }
+        }
+      } catch (importError) {
+        console.warn('Session import skipped:', importError.message);
+      }
+    }
+
+    renderAgentsGrid(agents);
   } catch (error) {
     console.warn('Failed to load agents:', error.message);
     renderAgentsGrid([]);
@@ -245,6 +301,7 @@ async function submitCreateExternalAgent(event) {
   try {
     const data = await API.post(`${API_BASE}/api/v1/agents`, { name, model_name });
     closeCreateExternalAgentModal();
+    applyActiveAgent(data.agent);
     await loadAgents();
     showAgentCredentials(data.agent, data.api_key);
   } catch (error) {
@@ -356,7 +413,8 @@ const API = {
   async request(endpoint, options = {}) {
     const headers = {
       'Content-Type': 'application/json',
-      'x-session-id': window.SESSION_ID,  // Lowercase to match CORS allow_headers
+      'x-session-id': window.SESSION_ID,
+      'x-browser-id': window.BROWSER_OWNER_ID,
       ...options.headers,
     };
     const token = localStorage.getItem(AUTH_TOKEN_KEY);

@@ -28,11 +28,15 @@ def _optional_user(authorization: Optional[str]) -> Optional[dict]:
 
 
 def _owner_context(request: Request, authorization: Optional[str]) -> Dict[str, Any]:
-    browser_session = request.headers.get("x-session-id") or request.headers.get("X-Session-Id")
+    trading_session = request.headers.get("x-session-id") or request.headers.get("X-Session-Id")
+    browser_owner = request.headers.get("x-browser-id") or request.headers.get("X-Browser-Id")
+    if not browser_owner:
+        browser_owner = trading_session
     user = _optional_user(authorization)
     return {
         "user_id": user["id"] if user else None,
-        "browser_session": browser_session.strip() if browser_session else None,
+        "browser_session": browser_owner.strip() if browser_owner else None,
+        "trading_session": trading_session.strip() if trading_session else None,
     }
 
 
@@ -50,13 +54,16 @@ def _require_agent_access(agent_id: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
     agent = agent_store.get_agent(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    if not agent_store.owns_agent(
+    if agent_store.owns_agent(
         agent,
         owner_user_id=ctx.get("user_id"),
         owner_browser_session=ctx.get("browser_session"),
     ):
-        raise HTTPException(status_code=403, detail="Not your agent")
-    return agent
+        return agent
+    trading = ctx.get("trading_session")
+    if trading and agent.get("session_id") == trading:
+        return agent
+    raise HTTPException(status_code=403, detail="Not your agent")
 
 
 def _agent_with_stats(agent: Dict[str, Any]) -> Dict[str, Any]:
@@ -109,8 +116,56 @@ async def list_agents(
     agents = agent_store.list_agents(
         owner_user_id=ctx["user_id"],
         owner_browser_session=ctx["browser_session"],
+        trading_session_id=ctx.get("trading_session"),
     )
     return {"agents": [_agent_with_stats(a) for a in agents]}
+
+
+class ImportSessionBody(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=100)
+    model_name: Optional[str] = Field(default=None, max_length=100)
+
+
+@router.post("/import-session")
+async def import_session_agent(
+    body: ImportSessionBody,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+):
+    """Register the current trading session as an agent (for CLI runs without prior signup)."""
+    ctx = _require_owner_context(request, authorization)
+    session_id = ctx["browser_session"]
+    runs = db.get_runs_by_session(session_id) or []
+    ext_runs = [r for r in runs if str(r.get("run_id", "")).startswith("ext_")]
+    if not ext_runs:
+        raise HTTPException(status_code=404, detail="No external backtest runs for this session")
+
+    latest = sorted(ext_runs, key=lambda r: r.get("created_at") or "", reverse=True)[0]
+    name = (body.name or latest.get("agent_name") or "external-agent").strip()
+    model_name = (body.model_name or latest.get("llm_model") or "local-model").strip()
+
+    existing = agent_store.get_agent_by_session(session_id)
+    if existing:
+        agent = agent_store.register_or_get_agent(
+            session_id=session_id,
+            name=name,
+            model_name=model_name,
+            owner_user_id=ctx["user_id"],
+            owner_browser_session=session_id,
+        )
+        return {"agent": _agent_with_stats(agent), "imported": False}
+
+    agent = agent_store.register_or_get_agent(
+        session_id=session_id,
+        name=name,
+        model_name=model_name,
+        owner_user_id=ctx["user_id"],
+        owner_browser_session=session_id,
+    )
+    result = {"agent": _agent_with_stats(agent), "imported": True}
+    if agent.get("api_key"):
+        result["api_key"] = agent["api_key"]
+    return result
 
 
 @router.get("/resolve")
@@ -159,6 +214,11 @@ async def activate_agent(
     """Return session info for switching the dashboard to this agent."""
     ctx = _require_owner_context(request, authorization)
     agent = _require_agent_access(agent_id, ctx)
+    agent_store.claim_agent(
+        agent_id,
+        owner_user_id=ctx.get("user_id"),
+        owner_browser_session=ctx.get("browser_session"),
+    )
     return {
         "agent_id": agent["agent_id"],
         "name": agent["name"],

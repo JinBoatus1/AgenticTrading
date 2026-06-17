@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 import pytz
 
+from agent_store import agent_store
 from database import db
 from llm_validator import (
     DJIA_30,
@@ -464,6 +465,15 @@ class ExternalBacktestSession:
                 self.baseline_run_ids["djia"] = djia_id
         except Exception as exc:
             print(f"⚠️ Baseline generation failed (run saved): {exc}")
+
+        try:
+            agent_store.register_or_get_agent(
+                session_id=self.session_id,
+                name=self.agent_name,
+                model_name=self.model_name,
+            )
+        except Exception as exc:
+            print(f"⚠️ Agent auto-register failed (run saved): {exc}")
 
         self.status = "completed"
 

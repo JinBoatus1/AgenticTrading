@@ -73,3 +73,35 @@ def test_resolve_api_key(client):
 def test_resolve_invalid_api_key(client):
     resp = client.get("/api/v1/agents/resolve", headers={"X-API-Key": "ag_invalid"})
     assert resp.status_code == 401
+
+
+def test_import_session_from_backtest_runs(client):
+    browser_session = str(uuid.uuid4())
+    headers = {"X-Session-Id": browser_session}
+
+    import database as db_module
+
+    db_module.db.insert_run(
+        run_id="ext_test_import",
+        session_id=browser_session,
+        agent_name="my-strategy",
+        mode="backtest",
+        start_date="2026-04-15",
+        end_date="2026-04-16",
+        initial_equity=100000,
+        final_equity=101000,
+        total_return=0.01,
+        sharpe_ratio=0.5,
+        max_drawdown=-0.02,
+        num_trades=3,
+        llm_model="rsi-demo",
+    )
+
+    imported = client.post("/api/v1/agents/import-session", json={}, headers=headers)
+    assert imported.status_code == 200
+    body = imported.json()
+    assert body["agent"]["name"] == "my-strategy"
+    assert body["agent"]["session_id"] == browser_session
+
+    listed = client.get("/api/v1/agents", headers=headers)
+    assert len(listed.json()["agents"]) == 1
