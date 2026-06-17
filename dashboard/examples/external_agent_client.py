@@ -118,9 +118,14 @@ def main() -> int:
     base = args.api.rstrip("/")
 
     print(f"Session: {args.session_id}")
-    print(f"To view on website, run in browser console:")
-    print(f"  localStorage.setItem('trading-session-id', '{args.session_id}'); location.reload();")
+    print("Dashboard: localStorage.setItem('trading-session-id', '<SESSION>'); location.reload();")
     print()
+
+    try:
+        schema = api_request("GET", f"{base}/api/v1/backtest/schema", args.session_id)
+        print(f"Decision timeout: {schema.get('decision_timeout_seconds')}s")
+    except RuntimeError as exc:
+        print(f"Warning: could not fetch schema ({exc})")
 
     started = api_request(
         "POST",
@@ -149,16 +154,23 @@ def main() -> int:
 
         if status == "completed":
             print("\nDone!")
-            print(json.dumps(ctx, indent=2))
             run_id = ctx.get("run_id")
-            baselines = ctx.get("baseline_run_ids") or {}
+            compare_path = ctx.get("compare_url")
+            print(json.dumps(ctx, indent=2))
+            if compare_path:
+                print(f"\nEquity chart: {base}{compare_path}")
             if run_id:
-                compare_ids = [run_id]
-                if baselines.get("djia"):
-                    compare_ids.append(baselines["djia"])
-                if baselines.get("buy_and_hold"):
-                    compare_ids.append(baselines["buy_and_hold"])
-                print(f"\nEquity chart: {base}/compare?run_ids={','.join(compare_ids)}")
+                try:
+                    summary = api_request(
+                        "GET",
+                        f"{base}/api/v1/backtest/runs/{run_id}/result",
+                        args.session_id,
+                    )
+                    print(f"\nTrades: {len(summary.get('trades', []))}")
+                    print(f"Decisions: {len(summary.get('decisions', []))}")
+                except RuntimeError as exc:
+                    print(f"Result fetch: {exc}")
+            print(f"\nWebsite session:\n  localStorage.setItem('trading-session-id', '{args.session_id}'); location.reload();")
             return 0
 
         if status == "failed":
@@ -186,7 +198,13 @@ def main() -> int:
         if not result.get("accepted"):
             print("  Decision rejected:", result)
         else:
+            executed = result.get("executed") or []
             print(f"  Executed {result.get('executed_count', 0)} action(s)")
+            for item in executed:
+                print(f"    {item.get('action', '').upper()} {item.get('symbol')} x{item.get('shares')}")
+            if result.get("status") == "completed" and result.get("compare_url"):
+                print(f"\nCompleted early. Chart: {base}{result['compare_url']}")
+                return 0
 
     return 0
 

@@ -1,4 +1,4 @@
-"""External agent backtest API — hourly step loop with 10s decision timeout."""
+"""External agent backtest API — hourly step loop with configurable decision timeout."""
 
 from typing import Any, Dict, List, Optional
 
@@ -6,11 +6,20 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from external_backtest_service import (
+    DECISION_TIMEOUT_SECONDS,
+    get_backtest_decisions,
     get_current_step,
+    get_decision_format,
+    get_run_decisions,
+    get_run_result,
+    get_run_trades,
+    get_session,
     get_status,
     start_backtest,
     submit_decisions,
+    verify_session,
 )
+from llm_validator import DJIA_30
 
 router = APIRouter(prefix="/v1/backtest", tags=["external-backtest"])
 
@@ -24,11 +33,11 @@ class StartBacktestRequest(BaseModel):
 
 
 class TradingActionItem(BaseModel):
-    action: str
+    action: str = Field(description="buy, sell, or hold")
     symbol: str
-    confidence: float
-    reasoning: str
-    position_size: int
+    confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: str = Field(min_length=5, max_length=500)
+    position_size: int = Field(ge=0)
     stop_loss_price: Optional[float] = None
     take_profit_price: Optional[float] = None
 
@@ -38,9 +47,38 @@ class SubmitDecisionsRequest(BaseModel):
 
 
 def _require_session(session_id: Optional[str]) -> str:
-    if not session_id:
+    if not session_id or not session_id.strip():
         raise HTTPException(status_code=400, detail="Missing X-Session-Id header")
-    return session_id
+    return session_id.strip()
+
+
+def _require_backtest(backtest_id: str, session_id: str):
+    session = get_session(backtest_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+    if not verify_session(session, session_id):
+        raise HTTPException(status_code=403, detail="Backtest belongs to a different session")
+    return session
+
+
+@router.get("/schema")
+async def api_decision_schema():
+    """
+    Decision JSON schema for external agents.
+
+    Submit this shape to POST .../steps/current/decisions each trading hour.
+    """
+    return {
+        "decision_timeout_seconds": DECISION_TIMEOUT_SECONDS,
+        "valid_symbols": DJIA_30,
+        "format": get_decision_format(),
+        "workflow": [
+            "POST /api/v1/backtest/start",
+            "GET  /api/v1/backtest/{backtest_id}/steps/current",
+            "POST /api/v1/backtest/{backtest_id}/steps/current/decisions",
+            "GET  /api/v1/backtest/runs/{run_id}/result",
+        ],
+    }
 
 
 @router.post("/start")
@@ -68,17 +106,68 @@ async def api_start_backtest(
     return result
 
 
+@router.get("/runs/{run_id}/result")
+async def api_run_result(run_id: str, x_session_id: Optional[str] = Header(None)):
+    """Full result for a completed run: metadata, equity curve, trades, decisions."""
+    session_id = _require_session(x_session_id)
+    result = get_run_result(run_id, session_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Run not found or not in your session")
+    return result
+
+
+@router.get("/runs/{run_id}/trades")
+async def api_run_trades(run_id: str, x_session_id: Optional[str] = Header(None)):
+    """Trade log for a completed external-agent backtest run."""
+    session_id = _require_session(x_session_id)
+    trades = get_run_trades(run_id, session_id)
+    if trades is None:
+        raise HTTPException(status_code=404, detail="Run not found or not in your session")
+    return {"run_id": run_id, "trades": trades, "count": len(trades)}
+
+
+@router.get("/runs/{run_id}/decisions")
+async def api_run_decisions(run_id: str, x_session_id: Optional[str] = Header(None)):
+    """Hourly decision log for a completed external-agent backtest run."""
+    session_id = _require_session(x_session_id)
+    decisions = get_run_decisions(run_id, session_id)
+    if decisions is None:
+        raise HTTPException(status_code=404, detail="Run not found or not in your session")
+    return {"run_id": run_id, "decisions": decisions, "count": len(decisions)}
+
+
+@router.get("/{backtest_id}/status")
+async def api_backtest_status(
+    backtest_id: str,
+    x_session_id: Optional[str] = Header(None),
+):
+    """Poll backtest progress."""
+    session_id = _require_session(x_session_id)
+    _require_backtest(backtest_id, session_id)
+    return get_status(backtest_id)
+
+
+@router.get("/{backtest_id}/decisions")
+async def api_backtest_decisions(
+    backtest_id: str,
+    x_session_id: Optional[str] = Header(None),
+):
+    """In-progress or completed decision log for an active backtest session."""
+    session_id = _require_session(x_session_id)
+    _require_backtest(backtest_id, session_id)
+    decisions = get_backtest_decisions(backtest_id)
+    return {"backtest_id": backtest_id, "decisions": decisions or [], "count": len(decisions or [])}
+
+
 @router.get("/{backtest_id}/steps/current")
 async def api_get_current_step(
     backtest_id: str,
     x_session_id: Optional[str] = Header(None),
 ):
-    """Get market context for the current hour. Auto-holds after 10s without a decision."""
-    _require_session(x_session_id)
-    step = get_current_step(backtest_id)
-    if step is None:
-        raise HTTPException(status_code=404, detail="Backtest not found")
-    return step
+    """Get market context for the current hour. Auto-holds after timeout without a decision."""
+    session_id = _require_session(x_session_id)
+    _require_backtest(backtest_id, session_id)
+    return get_current_step(backtest_id)
 
 
 @router.post("/{backtest_id}/steps/current/decisions")
@@ -93,7 +182,8 @@ async def api_submit_decisions(
     Body format:
     {"actions": [{"action":"buy|sell|hold","symbol":"AAPL","confidence":0.8,...}]}
     """
-    _require_session(x_session_id)
+    session_id = _require_session(x_session_id)
+    _require_backtest(backtest_id, session_id)
     payload: Dict[str, Any] = {"actions": [a.model_dump() for a in body.actions]}
     result = submit_decisions(backtest_id, payload)
     if result is None:
@@ -101,16 +191,3 @@ async def api_submit_decisions(
     if not result.get("accepted") and result.get("error") == "step_already_closed":
         raise HTTPException(status_code=409, detail=result)
     return result
-
-
-@router.get("/{backtest_id}/status")
-async def api_backtest_status(
-    backtest_id: str,
-    x_session_id: Optional[str] = Header(None),
-):
-    """Poll backtest progress."""
-    _require_session(x_session_id)
-    status = get_status(backtest_id)
-    if status is None:
-        raise HTTPException(status_code=404, detail="Backtest not found")
-    return status

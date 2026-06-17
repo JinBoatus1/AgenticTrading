@@ -8,6 +8,7 @@ otherwise the step auto-holds (no trades).
 from __future__ import annotations
 
 import sys
+import os
 import uuid
 import threading
 from datetime import datetime, timedelta, timezone
@@ -28,7 +29,7 @@ from paths import SCRIPTS_DIR
 sys.path.insert(0, str(SCRIPTS_DIR))
 import backtest_hourly_agent as bha  # noqa: E402
 
-DECISION_TIMEOUT_SECONDS = 10
+DECISION_TIMEOUT_SECONDS = int(os.getenv("EXTERNAL_AGENT_DECISION_TIMEOUT_SECONDS", "30"))
 INITIAL_CAPITAL = bha.INITIAL_CAPITAL
 ET_TZ = pytz.timezone("US/Eastern")
 
@@ -81,6 +82,7 @@ class ExternalBacktestSession:
         self.step_opened_at: Optional[datetime] = None
         self.last_decision_source: Optional[str] = None
         self.decision_log: List[Dict[str, Any]] = []
+        self.last_executed: List[Dict[str, Any]] = []
 
         self._step_lock = threading.Lock()
 
@@ -278,6 +280,8 @@ class ExternalBacktestSession:
                     "baseline_run_ids": self.baseline_run_ids,
                     "total_steps": self.total_steps,
                     "metrics": self._final_metrics(),
+                    "compare_url": self._compare_url(),
+                    "session_id": self.session_id,
                 }
 
             timestamp = self.timestamps[self.step_index]
@@ -299,6 +303,7 @@ class ExternalBacktestSession:
                 "decision_deadline_at": _iso(self._deadline_at()),
                 "market_snapshot": self.build_market_snapshot(state),
                 "valid_symbols": DJIA_30,
+                "decision_format": get_decision_format(),
             }
 
     def submit_decisions(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -362,11 +367,14 @@ class ExternalBacktestSession:
 
             return {
                 "accepted": True,
-                "executed_count": len(executable),
+                "executed_count": len(self.last_executed),
+                "executed": self.last_executed,
                 "decision_source": self.last_decision_source,
                 "next_step": self.step_index,
                 "status": self.status,
                 "run_id": self.run_id if self.status == "completed" else None,
+                "compare_url": self._compare_url() if self.status == "completed" else None,
+                "metrics": self._final_metrics() if self.status == "completed" else None,
             }
 
     def _advance_step(
@@ -378,6 +386,15 @@ class ExternalBacktestSession:
     ) -> None:
         timestamp = self.timestamps[self.step_index]
         market_data = self._market_data_at(timestamp)
+
+        self.last_executed = []
+        for action in executable:
+            self.last_executed.append({
+                "symbol": action.get("symbol"),
+                "action": action.get("action"),
+                "shares": action.get("shares"),
+                "reason": action.get("reason"),
+            })
 
         self.manager.execute_actions(executable, market_data, timestamp)
         self.manager.update_equity(market_data, self.price_cache, timestamp)
@@ -427,6 +444,8 @@ class ExternalBacktestSession:
             llm_model=self.model_name,
         )
         db.insert_equity_points(self.run_id, equity_curve)
+        db.insert_trades(self.run_id, self.manager.trades)
+        db.insert_decisions(self.run_id, self.decision_log)
 
         backtester = bha.HourlyBacktester(
             self.start_date,
@@ -444,6 +463,16 @@ class ExternalBacktestSession:
             self.baseline_run_ids["djia"] = djia_id
 
         self.status = "completed"
+
+    def _compare_url(self) -> Optional[str]:
+        if not self.run_id:
+            return None
+        ids = [self.run_id]
+        if self.baseline_run_ids.get("djia"):
+            ids.append(self.baseline_run_ids["djia"])
+        if self.baseline_run_ids.get("buy_and_hold"):
+            ids.append(self.baseline_run_ids["buy_and_hold"])
+        return f"/compare?run_ids={','.join(ids)}"
 
     def _final_metrics(self) -> Dict[str, Any]:
         if not self.run_id:
@@ -476,9 +505,35 @@ class ExternalBacktestSession:
             if self.status == "completed":
                 base["metrics"] = self._final_metrics()
                 base["baseline_run_ids"] = self.baseline_run_ids
+                base["compare_url"] = self._compare_url()
             if self.error:
                 base["error"] = self.error
             return base
+
+    def get_decisions(self) -> List[Dict[str, Any]]:
+        with self._step_lock:
+            return list(self.decision_log)
+
+
+def get_decision_format() -> Dict[str, Any]:
+    """Document the expected external agent decision payload."""
+    return {
+        "actions": [
+            {
+                "action": "buy|sell|hold",
+                "symbol": "<DJIA symbol>",
+                "confidence": 0.0,
+                "reasoning": "<short reason>",
+                "position_size": 0,
+                "stop_loss_price": None,
+                "take_profit_price": None,
+            }
+        ]
+    }
+
+
+def verify_session(session: ExternalBacktestSession, session_id: str) -> bool:
+    return session.session_id == session_id
 
 
 # ------------------------------------------------------------------
@@ -526,7 +581,15 @@ def start_backtest(
         "total_steps": session.total_steps,
         "current_step": session.step_index,
         "agent_name": agent_name,
+        "model_name": model_name,
+        "session_id": session_id,
         "decision_timeout_seconds": DECISION_TIMEOUT_SECONDS,
+        "decision_format": get_decision_format(),
+        "next": {
+            "get_context": f"/api/v1/backtest/{backtest_id}/steps/current",
+            "submit_decisions": f"/api/v1/backtest/{backtest_id}/steps/current/decisions",
+            "status": f"/api/v1/backtest/{backtest_id}/status",
+        },
     }
 
 
@@ -554,3 +617,46 @@ def get_status(backtest_id: str) -> Optional[Dict[str, Any]]:
     if not session:
         return None
     return session.get_status()
+
+
+def get_backtest_decisions(backtest_id: str) -> Optional[List[Dict[str, Any]]]:
+    session = get_session(backtest_id)
+    if not session:
+        return None
+    return session.get_decisions()
+
+
+def get_run_trades(run_id: str, session_id: str) -> Optional[List[Dict]]:
+    run = db.get_run_with_session(run_id, session_id)
+    if not run:
+        return None
+    return db.get_trades(run_id)
+
+
+def get_run_decisions(run_id: str, session_id: str) -> Optional[List[Dict]]:
+    run = db.get_run_with_session(run_id, session_id)
+    if not run:
+        return None
+    return db.get_decisions(run_id)
+
+
+def get_run_result(run_id: str, session_id: str) -> Optional[Dict[str, Any]]:
+    run = db.get_run_with_session(run_id, session_id)
+    if not run:
+        return None
+    equity = db.get_equity_curve(run_id)
+    trades = db.get_trades(run_id)
+    decisions = db.get_decisions(run_id)
+    return {
+        "run": run,
+        "equity_curve": equity,
+        "trades": trades,
+        "decisions": decisions,
+        "metrics": {
+            "total_return": run.get("total_return"),
+            "sharpe_ratio": run.get("sharpe_ratio"),
+            "max_drawdown": run.get("max_drawdown"),
+            "num_trades": run.get("num_trades"),
+            "final_equity": run.get("final_equity"),
+        },
+    }

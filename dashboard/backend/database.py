@@ -113,6 +113,31 @@ class BacktestDatabase:
                 FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
             )
         """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_trades_run
+            ON trades(run_id, timestamp)
+        """)
+
+        # backtest_decisions: hourly agent decisions (external + internal)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS backtest_decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                step_index INTEGER NOT NULL,
+                timestamp TEXT NOT NULL,
+                decision_source TEXT NOT NULL,
+                actions_submitted TEXT,
+                actions_executed INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_decisions_run
+            ON backtest_decisions(run_id, step_index)
+        """)
         
         conn.commit()
         conn.close()
@@ -159,6 +184,25 @@ class BacktestDatabase:
             
             if 'session_id' in columns and 'llm_model' in columns:
                 print("✅ Schema up-to-date (session_id, llm_model exist)")
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS backtest_decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    step_index INTEGER NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    decision_source TEXT NOT NULL,
+                    actions_submitted TEXT,
+                    actions_executed INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_decisions_run
+                ON backtest_decisions(run_id, step_index)
+            """)
+            conn.commit()
         
         except Exception as e:
             print(f"⚠️ Migration warning: {e}")
@@ -327,6 +371,91 @@ class BacktestDatabase:
         conn.close()
         
         return [dict(row) for row in rows]
+
+    def insert_trades(self, run_id: str, trades: List[Dict[str, Any]]) -> None:
+        """Batch insert trade records for a backtest run."""
+        if not trades:
+            return
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        for trade in trades:
+            ts = trade.get("timestamp")
+            if hasattr(ts, "isoformat"):
+                ts = ts.isoformat()
+            side = str(trade.get("side", "")).upper()
+            qty = int(trade.get("shares") or trade.get("quantity") or 0)
+            price = float(trade.get("price") or 0)
+            value = float(trade.get("cost") or trade.get("proceeds") or trade.get("value") or qty * price)
+            cursor.execute("""
+                INSERT INTO trades
+                (run_id, timestamp, symbol, quantity, side, price, value, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                run_id,
+                str(ts),
+                trade.get("symbol"),
+                qty,
+                side,
+                price,
+                value,
+                trade.get("reason"),
+            ))
+        conn.commit()
+        conn.close()
+
+    def insert_decisions(self, run_id: str, decisions: List[Dict[str, Any]]) -> None:
+        """Batch insert hourly decision log entries."""
+        if not decisions:
+            return
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        for entry in decisions:
+            cursor.execute("""
+                INSERT INTO backtest_decisions
+                (run_id, step_index, timestamp, decision_source, actions_submitted, actions_executed)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                run_id,
+                entry.get("step_index", 0),
+                entry.get("timestamp"),
+                entry.get("decision_source"),
+                json.dumps(entry.get("actions_submitted") or []),
+                entry.get("actions_executed", 0),
+            ))
+        conn.commit()
+        conn.close()
+
+    def get_trades(self, run_id: str) -> List[Dict]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT timestamp, symbol, quantity, side, price, value, reason
+            FROM trades WHERE run_id = ?
+            ORDER BY timestamp ASC, id ASC
+        """, (run_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+
+    def get_decisions(self, run_id: str) -> List[Dict]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT step_index, timestamp, decision_source, actions_submitted, actions_executed
+            FROM backtest_decisions WHERE run_id = ?
+            ORDER BY step_index ASC
+        """, (run_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        result = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["actions_submitted"] = json.loads(item.get("actions_submitted") or "[]")
+            except json.JSONDecodeError:
+                item["actions_submitted"] = []
+            result.append(item)
+        return result
     
     def delete_run(self, run_id: str) -> None:
         """Delete a run and all its data."""
@@ -335,6 +464,7 @@ class BacktestDatabase:
         
         cursor.execute("DELETE FROM equity_timeseries WHERE run_id = ?", (run_id,))
         cursor.execute("DELETE FROM trades WHERE run_id = ?", (run_id,))
+        cursor.execute("DELETE FROM backtest_decisions WHERE run_id = ?", (run_id,))
         cursor.execute("DELETE FROM agent_runs WHERE run_id = ?", (run_id,))
         
         conn.commit()
@@ -347,6 +477,7 @@ class BacktestDatabase:
         
         cursor.execute("DELETE FROM equity_timeseries")
         cursor.execute("DELETE FROM trades")
+        cursor.execute("DELETE FROM backtest_decisions")
         cursor.execute("DELETE FROM agent_runs")
         
         conn.commit()
