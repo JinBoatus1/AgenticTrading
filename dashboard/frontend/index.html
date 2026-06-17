@@ -507,58 +507,8 @@
             </div>
             <button id="addAgentBtn" class="home-btn home-btn-primary" type="button">Add Agent</button>
         </div>
-        <div class="agents-grid">
-            <div class="section-card agent-card">
-                <div class="agent-card-head">
-                    <h3 class="agent-name">Momentum Alpha</h3>
-                    <span class="status-badge live">Live</span>
-                </div>
-                <div class="agent-meta">
-                    <span>SecureFinAI Contest 2026</span>
-                    <span class="agent-discord connected">Discord connected</span>
-                </div>
-                <div class="agent-metrics">
-                    <div class="agent-metric">
-                        <span class="metric-label">Return</span>
-                        <span class="metric-value positive">+12.4%</span>
-                    </div>
-                    <div class="agent-metric">
-                        <span class="metric-label">Sharpe</span>
-                        <span class="metric-value">1.82</span>
-                    </div>
-                </div>
-                <div class="agent-card-actions">
-                    <button class="agent-action-btn agent-view-playground" type="button">View in Playground</button>
-                    <a class="agent-action-btn agent-action-secondary" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
-                    <button class="agent-action-btn agent-action-secondary" type="button">Settings</button>
-                </div>
-            </div>
-            <div class="section-card agent-card">
-                <div class="agent-card-head">
-                    <h3 class="agent-name">Mean Reversion Bot</h3>
-                    <span class="status-badge baseline">Testing</span>
-                </div>
-                <div class="agent-meta">
-                    <span>SecureFinAI Contest 2026</span>
-                    <span class="agent-discord pending">Discord pending</span>
-                </div>
-                <div class="agent-metrics">
-                    <div class="agent-metric">
-                        <span class="metric-label">Return</span>
-                        <span class="metric-value positive">+3.2%</span>
-                    </div>
-                    <div class="agent-metric">
-                        <span class="metric-label">Sharpe</span>
-                        <span class="metric-value">0.91</span>
-                    </div>
-                </div>
-                <div class="agent-card-actions">
-                    <button class="agent-action-btn agent-view-playground" type="button">View in Playground</button>
-                    <a class="agent-action-btn agent-action-secondary" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
-                    <button class="agent-action-btn agent-action-secondary" type="button">Settings</button>
-                </div>
-            </div>
-        </div>
+        <div id="agentsGrid" class="agents-grid"></div>
+        <p id="agentsEmptyState" class="control-helper" hidden>No agents yet. Click <strong>Add Agent</strong> to register an external agent and get a persistent API key.</p>
     </div>
 
     <div id="addAgentModal" class="auth-modal" hidden>
@@ -566,16 +516,61 @@
         <div class="auth-modal-panel" role="dialog" aria-labelledby="addAgentModalTitle">
             <button id="addAgentModalClose" class="auth-modal-close" type="button" aria-label="Close">×</button>
             <h2 id="addAgentModalTitle" class="auth-modal-title">Add Agent</h2>
-            <p class="auth-modal-subtitle">Choose how you want to connect an agent. Full workflows coming soon.</p>
+            <p class="auth-modal-subtitle">Register an external agent to get a persistent session and API key — no browser console needed.</p>
             <div class="add-agent-options">
-                <button id="createBuiltinAgentBtn" class="add-agent-option" type="button">
+                <button id="createBuiltinAgentBtn" class="add-agent-option" type="button" disabled>
                     <strong>Create a Built-in Agent</strong>
-                    <span>Configure strategy blocks inside the lab</span>
+                    <span>Coming soon — configure strategy blocks inside the lab</span>
                 </button>
                 <button id="connectExternalAgentBtn" class="add-agent-option" type="button">
                     <strong>Connect an External Agent</strong>
-                    <span>Link an agent via Discord or API</span>
+                    <span>Get an API key and session for your backtest client</span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="createExternalAgentModal" class="auth-modal" hidden>
+        <div class="auth-modal-backdrop" id="createExternalAgentModalBackdrop"></div>
+        <div class="auth-modal-panel" role="dialog" aria-labelledby="createExternalAgentModalTitle">
+            <button id="createExternalAgentModalClose" class="auth-modal-close" type="button" aria-label="Close">×</button>
+            <h2 id="createExternalAgentModalTitle" class="auth-modal-title">Register External Agent</h2>
+            <p class="auth-modal-subtitle">Each agent gets its own trading session. Backtest results appear automatically when you select the agent.</p>
+            <form id="createExternalAgentForm" class="auth-form">
+                <label class="auth-field">
+                    <span>Agent name</span>
+                    <input id="externalAgentName" type="text" required maxlength="100" placeholder="my-strategy" autocomplete="off">
+                </label>
+                <label class="auth-field">
+                    <span>Model name (optional)</span>
+                    <input id="externalAgentModel" type="text" maxlength="100" placeholder="gpt-4 / rule-based" autocomplete="off">
+                </label>
+                <p id="createExternalAgentError" class="auth-error" hidden></p>
+                <button id="createExternalAgentSubmit" class="auth-submit-btn" type="submit">Create agent</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="agentCredentialsModal" class="auth-modal" hidden>
+        <div class="auth-modal-backdrop" id="agentCredentialsModalBackdrop"></div>
+        <div class="auth-modal-panel" role="dialog" aria-labelledby="agentCredentialsModalTitle">
+            <button id="agentCredentialsModalClose" class="auth-modal-close" type="button" aria-label="Close">×</button>
+            <h2 id="agentCredentialsModalTitle" class="auth-modal-title">Agent created</h2>
+            <p class="auth-modal-subtitle">Save your API key now — it won't be shown again. Use it with the CLI client instead of a manual session ID.</p>
+            <div class="auth-form">
+                <label class="auth-field">
+                    <span>API key</span>
+                    <input id="agentCredentialApiKey" type="text" readonly>
+                </label>
+                <label class="auth-field">
+                    <span>Session ID</span>
+                    <input id="agentCredentialSessionId" type="text" readonly>
+                </label>
+                <label class="auth-field">
+                    <span>CLI example</span>
+                    <textarea id="agentCredentialCli" rows="4" readonly></textarea>
+                </label>
+                <button id="agentCredentialActivateBtn" class="auth-submit-btn" type="button">Activate &amp; view in Playground</button>
             </div>
         </div>
     </div>

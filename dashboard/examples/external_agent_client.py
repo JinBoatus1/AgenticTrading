@@ -6,14 +6,17 @@ Uses simple RSI rules (no LLM required). Point at your API server and reuse
 the dashboard session id so results appear on the website.
 
 Usage:
-  export SESSION_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+  # Recommended: register agent on website (My Agents), then use API key:
+  python3 examples/external_agent_client.py \\
+    --api https://agentictrading.onrender.com \\
+    --api-key ag_xxxxxxxx \\
+    --start 2026-04-15 --end 2026-04-16
+
+  # Or pass session id manually:
   python3 examples/external_agent_client.py \\
     --api http://localhost:8000 \\
     --session-id "$SESSION_ID" \\
     --start 2026-04-15 --end 2026-04-16
-
-  # Paste SESSION_ID into browser console:
-  # localStorage.setItem('trading-session-id', '<SESSION_ID>'); location.reload();
 """
 
 from __future__ import annotations
@@ -111,10 +114,21 @@ def rule_based_decision(snapshot: dict) -> dict:
     return {"actions": actions}
 
 
+def resolve_api_key(base: str, api_key: str) -> dict:
+    req = urllib.request.Request(
+        f"{base.rstrip('/')}/api/v1/agents/resolve",
+        headers={"X-API-Key": api_key, "Accept": "application/json"},
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="External agent backtest client (demo)")
     parser.add_argument("--api", default="http://localhost:8000", help="API base URL")
-    parser.add_argument("--session-id", required=True, help="X-Session-Id (match dashboard)")
+    parser.add_argument("--api-key", help="Registered agent API key (auto-resolves session)")
+    parser.add_argument("--session-id", help="X-Session-Id (optional if --api-key is set)")
     parser.add_argument("--agent-name", default="my-local-agent")
     parser.add_argument("--model-name", default="rule-based-demo")
     parser.add_argument("--start", default="2026-04-15")
@@ -123,12 +137,27 @@ def main() -> int:
 
     base = args.api.rstrip("/")
 
-    print(f"Session: {args.session_id}")
-    print("Dashboard: localStorage.setItem('trading-session-id', '<SESSION>'); location.reload();")
+    session_id = args.session_id
+    agent_name = args.agent_name
+    model_name = args.model_name
+
+    if args.api_key:
+        resolved = resolve_api_key(base, args.api_key)
+        session_id = resolved["session_id"]
+        if args.agent_name == "my-local-agent" and resolved.get("name"):
+            agent_name = resolved["name"]
+        if args.model_name == "rule-based-demo" and resolved.get("model_name"):
+            model_name = resolved["model_name"]
+        print(f"Agent: {resolved.get('name')} ({resolved.get('agent_id')})")
+    elif not session_id:
+        parser.error("Provide --api-key or --session-id")
+
+    print(f"Session: {session_id}")
+    print("Dashboard: open My Agents and click View in Playground (no console needed).")
     print()
 
     try:
-        schema = api_request("GET", f"{base}/api/v1/backtest/schema", args.session_id)
+        schema = api_request("GET", f"{base}/api/v1/backtest/schema", session_id)
         print(f"Decision timeout: {schema.get('decision_timeout_seconds')}s")
     except RuntimeError as exc:
         print(f"Warning: could not fetch schema ({exc})")
@@ -136,12 +165,12 @@ def main() -> int:
     started = api_request(
         "POST",
         f"{base}/api/v1/backtest/start",
-        args.session_id,
+        session_id,
         {
             "start_date": args.start,
             "end_date": args.end,
-            "agent_name": args.agent_name,
-            "model_name": args.model_name,
+            "agent_name": agent_name,
+            "model_name": model_name,
             "mode": "safe_trading",
         },
     )
@@ -154,7 +183,7 @@ def main() -> int:
         ctx = api_request(
             "GET",
             f"{base}/api/v1/backtest/{backtest_id}/steps/current",
-            args.session_id,
+            session_id,
         )
         status = ctx.get("status")
 
@@ -170,13 +199,13 @@ def main() -> int:
                     summary = api_request(
                         "GET",
                         f"{base}/api/v1/backtest/runs/{run_id}/result",
-                        args.session_id,
+                        session_id,
                     )
                     print(f"\nTrades: {len(summary.get('trades', []))}")
                     print(f"Decisions: {len(summary.get('decisions', []))}")
                 except RuntimeError as exc:
                     print(f"Result fetch: {exc}")
-            print(f"\nWebsite session:\n  localStorage.setItem('trading-session-id', '{args.session_id}'); location.reload();")
+            print(f"\nView on website: My Agents → View in Playground")
             return 0
 
         if status == "failed":
@@ -195,7 +224,7 @@ def main() -> int:
         result = api_request(
             "POST",
             f"{base}/api/v1/backtest/{backtest_id}/steps/current/decisions",
-            args.session_id,
+            session_id,
             payload,
         )
         if isinstance(result, dict) and result.get("error") == "step_already_closed":

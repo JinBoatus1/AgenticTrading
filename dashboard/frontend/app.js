@@ -8,6 +8,9 @@
 // ============================================================================
 
 // Initialize anonymous session on first load
+const ACTIVE_AGENT_KEY = 'active-agent-id';
+const ACTIVE_AGENT_NAME_KEY = 'active-agent-name';
+
 function initSession() {
   let sessionId = localStorage.getItem('trading-session-id');
   if (!sessionId) {
@@ -18,6 +21,240 @@ function initSession() {
     console.log('Restored session:', sessionId);
   }
   window.SESSION_ID = sessionId;
+}
+
+async function restoreActiveAgentSession() {
+  const agentId = localStorage.getItem(ACTIVE_AGENT_KEY);
+  if (!agentId) return;
+
+  try {
+    const data = await API.get(`${API_BASE}/api/v1/agents/${agentId}`);
+    const agent = data.agent;
+    if (!agent?.session_id) return;
+    applyActiveAgent(agent);
+    console.log('Restored active agent:', agent.name, agent.session_id);
+  } catch (error) {
+    console.warn('Could not restore active agent:', error.message);
+    localStorage.removeItem(ACTIVE_AGENT_KEY);
+    localStorage.removeItem(ACTIVE_AGENT_NAME_KEY);
+  }
+}
+
+function applyActiveAgent(agent) {
+  if (!agent?.session_id) return;
+  localStorage.setItem('trading-session-id', agent.session_id);
+  localStorage.setItem(ACTIVE_AGENT_KEY, agent.agent_id);
+  localStorage.setItem(ACTIVE_AGENT_NAME_KEY, agent.name || '');
+  window.SESSION_ID = agent.session_id;
+  window.ACTIVE_AGENT = agent;
+
+  const nameEl = document.getElementById('playgroundAgentName');
+  if (nameEl) nameEl.textContent = agent.name || 'External Agent';
+
+  const statusEl = document.getElementById('playgroundAgentStatus');
+  if (statusEl) {
+    statusEl.textContent = 'External';
+    statusEl.className = 'status-badge baseline';
+  }
+
+  const discordEl = document.getElementById('playgroundAgentDiscord');
+  if (discordEl) {
+    discordEl.textContent = `Session ${agent.session_id.slice(0, 8)}…`;
+    discordEl.className = 'agent-discord connected';
+  }
+}
+
+async function activateAgent(agent) {
+  applyActiveAgent(agent);
+  try {
+    await API.post(`${API_BASE}/api/v1/agents/${agent.agent_id}/activate`, {});
+  } catch (error) {
+    console.warn('Agent activate ping failed:', error.message);
+  }
+}
+
+function formatAgentReturn(value) {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  const pct = Number(value) * 100;
+  const sign = pct >= 0 ? '+' : '';
+  return `${sign}${pct.toFixed(1)}%`;
+}
+
+function renderAgentsGrid(agents) {
+  const grid = document.getElementById('agentsGrid');
+  const empty = document.getElementById('agentsEmptyState');
+  if (!grid) return;
+
+  grid.innerHTML = '';
+  if (!agents.length) {
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (empty) empty.hidden = true;
+
+  const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
+
+  agents.forEach((agent) => {
+    const latest = agent.latest_run || {};
+    const totalReturn = latest.total_return;
+    const sharpe = latest.sharpe_ratio;
+    const isActive = agent.agent_id === activeId;
+    const card = document.createElement('div');
+    card.className = 'section-card agent-card';
+    card.innerHTML = `
+      <div class="agent-card-head">
+        <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
+        <span class="status-badge ${isActive ? 'live' : 'baseline'}">${isActive ? 'Active' : 'Registered'}</span>
+      </div>
+      <div class="agent-meta">
+        <span>${escapeHtml(agent.model_name || 'local-model')}</span>
+        <span class="agent-discord connected">API ${escapeHtml(agent.api_key_prefix || '')}…</span>
+      </div>
+      <div class="agent-metrics">
+        <div class="agent-metric">
+          <span class="metric-label">Return</span>
+          <span class="metric-value ${totalReturn >= 0 ? 'positive' : ''}">${formatAgentReturn(totalReturn)}</span>
+        </div>
+        <div class="agent-metric">
+          <span class="metric-label">Sharpe</span>
+          <span class="metric-value">${sharpe != null ? Number(sharpe).toFixed(2) : '—'}</span>
+        </div>
+      </div>
+      <div class="agent-meta">
+        <span>${agent.run_count || 0} backtest run(s)</span>
+      </div>
+      <div class="agent-card-actions">
+        <button class="agent-action-btn agent-select-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">View in Playground</button>
+        <button class="agent-action-btn agent-action-secondary agent-delete-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">Remove</button>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+
+  grid.querySelectorAll('.agent-select-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const agent = agents.find((a) => a.agent_id === btn.dataset.agentId);
+      if (!agent) return;
+      await activateAgent(agent);
+      navigateToPage('playground', { playgroundTab: 'backtest' });
+      currentMode = 'backtest';
+      await loadData();
+    });
+  });
+
+  grid.querySelectorAll('.agent-delete-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const agentId = btn.dataset.agentId;
+      if (!agentId || !confirm('Remove this agent? Backtest history stays in the database.')) return;
+      try {
+        await API.request(`${API_BASE}/api/v1/agents/${agentId}`, { method: 'DELETE' });
+        if (localStorage.getItem(ACTIVE_AGENT_KEY) === agentId) {
+          localStorage.removeItem(ACTIVE_AGENT_KEY);
+          localStorage.removeItem(ACTIVE_AGENT_NAME_KEY);
+        }
+        await loadAgents();
+      } catch (error) {
+        alert(error.message || 'Failed to remove agent');
+      }
+    });
+  });
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function loadAgents() {
+  try {
+    const data = await API.get(`${API_BASE}/api/v1/agents`);
+    renderAgentsGrid(data.agents || []);
+  } catch (error) {
+    console.warn('Failed to load agents:', error.message);
+    renderAgentsGrid([]);
+  }
+}
+
+function openCreateExternalAgentModal() {
+  closeAddAgentModal();
+  const modal = document.getElementById('createExternalAgentModal');
+  const errorEl = document.getElementById('createExternalAgentError');
+  const form = document.getElementById('createExternalAgentForm');
+  if (errorEl) errorEl.hidden = true;
+  if (form) form.reset();
+  if (modal) modal.hidden = false;
+}
+
+function closeCreateExternalAgentModal() {
+  const modal = document.getElementById('createExternalAgentModal');
+  if (modal) modal.hidden = true;
+}
+
+function showAgentCredentials(agent, apiKey) {
+  const modal = document.getElementById('agentCredentialsModal');
+  const apiInput = document.getElementById('agentCredentialApiKey');
+  const sessionInput = document.getElementById('agentCredentialSessionId');
+  const cliInput = document.getElementById('agentCredentialCli');
+  const activateBtn = document.getElementById('agentCredentialActivateBtn');
+
+  const cli = [
+    `python3 dashboard/examples/external_agent_client.py \\`,
+    `  --api ${API_BASE} \\`,
+    `  --api-key ${apiKey} \\`,
+    `  --start 2026-04-15 --end 2026-04-16 \\`,
+    `  --agent-name "${agent.name}"`,
+  ].join('\n');
+
+  if (apiInput) apiInput.value = apiKey;
+  if (sessionInput) sessionInput.value = agent.session_id;
+  if (cliInput) cliInput.value = cli;
+  if (activateBtn) {
+    activateBtn.onclick = async () => {
+      await activateAgent(agent);
+      closeAgentCredentialsModal();
+      navigateToPage('playground', { playgroundTab: 'backtest' });
+      currentMode = 'backtest';
+      await loadData();
+    };
+  }
+  if (modal) modal.hidden = false;
+}
+
+function closeAgentCredentialsModal() {
+  const modal = document.getElementById('agentCredentialsModal');
+  if (modal) modal.hidden = true;
+}
+
+async function submitCreateExternalAgent(event) {
+  event.preventDefault();
+  const nameInput = document.getElementById('externalAgentName');
+  const modelInput = document.getElementById('externalAgentModel');
+  const errorEl = document.getElementById('createExternalAgentError');
+  const submitBtn = document.getElementById('createExternalAgentSubmit');
+
+  const name = nameInput?.value?.trim();
+  const model_name = modelInput?.value?.trim() || 'local-model';
+  if (!name) return;
+
+  if (errorEl) errorEl.hidden = true;
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const data = await API.post(`${API_BASE}/api/v1/agents`, { name, model_name });
+    closeCreateExternalAgentModal();
+    await loadAgents();
+    showAgentCredentials(data.agent, data.api_key);
+  } catch (error) {
+    if (errorEl) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
 }
 
 // Load default configuration from backend
@@ -122,6 +359,10 @@ const API = {
       'x-session-id': window.SESSION_ID,  // Lowercase to match CORS allow_headers
       ...options.headers,
     };
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
     
     try {
       const response = await fetch(endpoint, { 
@@ -143,8 +384,8 @@ const API = {
       }
       
       if (!response.ok) {
-        const errorMsg = data.error || data.message || `HTTP ${response.status}`;
-        throw new Error(errorMsg);
+        const errorMsg = data.detail || data.error || data.message || `HTTP ${response.status}`;
+        throw new Error(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
       }
       
       return data;
@@ -432,6 +673,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize session FIRST (before any API calls)
     initSession();
     initAuthUI();
+    await restoreActiveAgentSession();
     const config = loadConfigFromURL();
     window.CURRENT_CONFIG = config;
     console.log('⚙️ Experiment config:', config);
@@ -1593,6 +1835,7 @@ function navigateToPage(page, options = {}) {
         if (page === 'agents') {
             currentMode = 'agents';
             if (agentsView) agentsView.style.display = 'block';
+            loadAgents();
         } else if (page === 'playground') {
             if (playgroundView) playgroundView.style.display = 'block';
             showPlaygroundPanel(playgroundTab);
@@ -1727,8 +1970,12 @@ function initNavigation() {
     document.getElementById('addAgentBtn')?.addEventListener('click', openAddAgentModal);
     document.getElementById('addAgentModalClose')?.addEventListener('click', closeAddAgentModal);
     document.getElementById('addAgentModalBackdrop')?.addEventListener('click', closeAddAgentModal);
-    document.getElementById('createBuiltinAgentBtn')?.addEventListener('click', closeAddAgentModal);
-    document.getElementById('connectExternalAgentBtn')?.addEventListener('click', closeAddAgentModal);
+    document.getElementById('connectExternalAgentBtn')?.addEventListener('click', openCreateExternalAgentModal);
+    document.getElementById('createExternalAgentModalClose')?.addEventListener('click', closeCreateExternalAgentModal);
+    document.getElementById('createExternalAgentModalBackdrop')?.addEventListener('click', closeCreateExternalAgentModal);
+    document.getElementById('createExternalAgentForm')?.addEventListener('submit', submitCreateExternalAgent);
+    document.getElementById('agentCredentialsModalClose')?.addEventListener('click', closeAgentCredentialsModal);
+    document.getElementById('agentCredentialsModalBackdrop')?.addEventListener('click', closeAgentCredentialsModal);
 
     document.getElementById('competitionRulesBtn')?.addEventListener('click', () => {
         if (currentPage !== 'competition') {
@@ -1818,7 +2065,11 @@ async function loadData() {
             const latestMyAlgo = latestRun(myAlgoRuns);
 
             const externalRuns = sessionRuns.filter(isExternalAgentRun);
-            const latestExternal = latestRun(externalRuns);
+            const activeName = window.ACTIVE_AGENT?.name || localStorage.getItem(ACTIVE_AGENT_NAME_KEY);
+            const scopedExternal = activeName
+                ? externalRuns.filter(r => r.agent_name === activeName)
+                : externalRuns;
+            const latestExternal = latestRun(scopedExternal.length ? scopedExternal : externalRuns);
 
             if (latestMyAlgo) {
                 window.MY_ALGO_RUN_ID = latestMyAlgo.run_id;

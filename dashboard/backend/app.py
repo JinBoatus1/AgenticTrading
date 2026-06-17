@@ -96,7 +96,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["content-type", "authorization", "x-session-id", "accept"],  # Lowercase headers
+    allow_headers=["content-type", "authorization", "x-session-id", "x-api-key", "accept"],  # Lowercase headers
     expose_headers=["content-type", "cache-control", "etag", "x-session-id"],
     max_age=3600,
 )
