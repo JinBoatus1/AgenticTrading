@@ -573,31 +573,31 @@ def start_backtest(
         end_date=end_date,
         mode=mode,
     )
+    session.status = "loading"
 
     with _lock:
         _sessions[backtest_id] = session
 
-    try:
-        session.load_market_data()
-    except Exception as exc:
-        session.status = "failed"
-        session.error = str(exc)
-        return {
-            "backtest_id": backtest_id,
-            "status": "failed",
-            "error": str(exc),
-        }
+    def _load_in_background() -> None:
+        try:
+            session.load_market_data()
+        except Exception as exc:
+            session.status = "failed"
+            session.error = str(exc)
+
+    threading.Thread(target=_load_in_background, daemon=True).start()
 
     return {
         "backtest_id": backtest_id,
-        "status": session.status,
-        "total_steps": session.total_steps,
-        "current_step": session.step_index,
+        "status": "loading",
+        "total_steps": 0,
+        "current_step": 0,
         "agent_name": agent_name,
         "model_name": model_name,
         "session_id": session_id,
         "decision_timeout_seconds": DECISION_TIMEOUT_SECONDS,
         "decision_format": get_decision_format(),
+        "message": "Loading market data from Alpaca (poll /steps/current)",
         "next": {
             "get_context": f"/api/v1/backtest/{backtest_id}/steps/current",
             "submit_decisions": f"/api/v1/backtest/{backtest_id}/steps/current/decisions",

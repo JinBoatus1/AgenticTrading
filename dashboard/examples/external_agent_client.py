@@ -34,6 +34,7 @@ def api_request(
     url: str,
     session_id: str,
     body: dict | None = None,
+    timeout: int = 120,
 ) -> dict:
     data = None
     headers = {
@@ -46,7 +47,7 @@ def api_request(
 
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -62,6 +63,11 @@ def api_request(
         except json.JSONDecodeError:
             pass
         raise RuntimeError(f"HTTP {exc.code} {url}: {detail}") from exc
+    except TimeoutError as exc:
+        raise RuntimeError(
+            f"Request timed out after {timeout}s: {url}. "
+            "For long date ranges on cloud, redeploy the API or retry — /start now loads data in the background."
+        ) from exc
 
 
 def rule_based_decision(snapshot: dict) -> dict:
@@ -173,12 +179,17 @@ def main() -> int:
             "model_name": model_name,
             "mode": "safe_trading",
         },
+        timeout=60,
     )
     backtest_id = started["backtest_id"]
-    total = started["total_steps"]
-    print(f"Started backtest {backtest_id} ({total} steps)")
+    total = started.get("total_steps") or 0
+    if started.get("status") == "loading":
+        print(f"Backtest {backtest_id} started — loading market data…")
+    else:
+        print(f"Started backtest {backtest_id} ({total} steps)")
 
     step_num = 0
+    loading_announced = False
     while True:
         ctx = api_request(
             "GET",
@@ -186,6 +197,13 @@ def main() -> int:
             session_id,
         )
         status = ctx.get("status")
+
+        if status == "loading":
+            if not loading_announced:
+                print("  Fetching Alpaca bars (long ranges may take 1–3 min on cloud)…")
+                loading_announced = True
+            time.sleep(2)
+            continue
 
         if status == "completed":
             print("\nDone!")
@@ -215,6 +233,10 @@ def main() -> int:
         if status != "waiting_decision":
             time.sleep(0.5)
             continue
+
+        if not total:
+            total = ctx.get("total_steps") or total
+            print(f"Loaded {total} trading hours")
 
         step_num = ctx.get("step_index", 0) + 1
         deadline = ctx.get("decision_deadline_at", "")
