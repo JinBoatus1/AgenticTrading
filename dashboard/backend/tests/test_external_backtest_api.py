@@ -69,3 +69,59 @@ def test_parse_actions_payload_valid():
 def test_get_decision_format():
     fmt = get_decision_format()
     assert "actions" in fmt
+
+
+def test_insert_trades_legacy_schema(tmp_path):
+    """Legacy DBs use shares/action columns; insert_trades must not crash."""
+    db_path = tmp_path / "legacy.db"
+    import sqlite3
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE agent_runs (
+            run_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            agent_name TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            initial_equity REAL NOT NULL,
+            final_equity REAL,
+            total_return REAL,
+            sharpe_ratio REAL,
+            max_drawdown REAL,
+            num_trades INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            llm_model TEXT DEFAULT 'rule-based'
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            action TEXT NOT NULL,
+            shares INTEGER,
+            price REAL,
+            total_value REAL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+    legacy_db = BacktestDatabase(db_path=db_path)
+    legacy_db.insert_trades("ext_test", [{
+        "timestamp": "2026-04-15T14:00:00",
+        "symbol": "AAPL",
+        "side": "BUY",
+        "shares": 10,
+        "price": 150.0,
+        "cost": 1500.0,
+        "reason": "test",
+    }])
+    rows = legacy_db.get_trades("ext_test")
+    assert len(rows) == 1
+    assert rows[0]["quantity"] == 10
+    assert rows[0]["side"] == "BUY"

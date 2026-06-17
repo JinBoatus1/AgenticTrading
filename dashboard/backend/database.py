@@ -202,6 +202,7 @@ class BacktestDatabase:
                 CREATE INDEX IF NOT EXISTS idx_decisions_run
                 ON backtest_decisions(run_id, step_index)
             """)
+            self._migrate_trades_schema(cursor)
             conn.commit()
         
         except Exception as e:
@@ -210,6 +211,37 @@ class BacktestDatabase:
         
         finally:
             conn.close()
+
+    def _migrate_trades_schema(self, cursor) -> None:
+        """Upgrade legacy trades table (shares/action/total_value) to new columns."""
+        cursor.execute("PRAGMA table_info(trades)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if not columns or "quantity" in columns:
+            return
+
+        print("🔄 Migrating: upgrading trades table schema...")
+        additions = [
+            ("quantity", "INTEGER"),
+            ("side", "TEXT"),
+            ("value", "REAL"),
+            ("reason", "TEXT"),
+        ]
+        for name, col_type in additions:
+            if name not in columns:
+                cursor.execute(f"ALTER TABLE trades ADD COLUMN {name} {col_type}")
+
+        if "shares" in columns:
+            cursor.execute("UPDATE trades SET quantity = shares WHERE quantity IS NULL")
+        if "action" in columns:
+            cursor.execute("UPDATE trades SET side = UPPER(action) WHERE side IS NULL")
+        if "total_value" in columns:
+            cursor.execute("UPDATE trades SET value = total_value WHERE value IS NULL")
+
+        print("✅ trades table migrated (quantity, side, value, reason)")
+
+    def _trades_column_set(self, cursor) -> set:
+        cursor.execute("PRAGMA table_info(trades)")
+        return {row[1] for row in cursor.fetchall()}
     
     def insert_run(self, run_id: str, session_id: str, agent_name: str, mode: str, 
                    start_date: str, end_date: str, 
@@ -378,6 +410,7 @@ class BacktestDatabase:
             return
         conn = self._get_connection()
         cursor = conn.cursor()
+        columns = self._trades_column_set(cursor)
         for trade in trades:
             ts = trade.get("timestamp")
             if hasattr(ts, "isoformat"):
@@ -386,20 +419,38 @@ class BacktestDatabase:
             qty = int(trade.get("shares") or trade.get("quantity") or 0)
             price = float(trade.get("price") or 0)
             value = float(trade.get("cost") or trade.get("proceeds") or trade.get("value") or qty * price)
-            cursor.execute("""
-                INSERT INTO trades
-                (run_id, timestamp, symbol, quantity, side, price, value, reason)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                run_id,
-                str(ts),
-                trade.get("symbol"),
-                qty,
-                side,
-                price,
-                value,
-                trade.get("reason"),
-            ))
+
+            if "quantity" in columns:
+                col_names = ["run_id", "timestamp", "symbol", "quantity", "side", "price", "value"]
+                col_values = [run_id, str(ts), trade.get("symbol"), qty, side, price, value]
+                if "reason" in columns:
+                    col_names.append("reason")
+                    col_values.append(trade.get("reason"))
+                # Legacy columns may still be NOT NULL after migration
+                if "action" in columns:
+                    col_names.extend(["action", "shares", "total_value"])
+                    col_values.extend([side, qty, value])
+                placeholders = ", ".join("?" for _ in col_names)
+                cursor.execute(
+                    f"INSERT INTO trades ({', '.join(col_names)}) VALUES ({placeholders})",
+                    col_values,
+                )
+            elif "shares" in columns:
+                cursor.execute("""
+                    INSERT INTO trades
+                    (run_id, timestamp, symbol, action, shares, price, total_value)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    run_id,
+                    str(ts),
+                    trade.get("symbol"),
+                    side,
+                    qty,
+                    price,
+                    value,
+                ))
+            else:
+                raise RuntimeError("trades table has unsupported schema")
         conn.commit()
         conn.close()
 
@@ -428,11 +479,20 @@ class BacktestDatabase:
     def get_trades(self, run_id: str) -> List[Dict]:
         conn = self._get_connection()
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT timestamp, symbol, quantity, side, price, value, reason
-            FROM trades WHERE run_id = ?
-            ORDER BY timestamp ASC, id ASC
-        """, (run_id,))
+        columns = self._trades_column_set(cursor)
+        if "quantity" in columns:
+            cursor.execute("""
+                SELECT timestamp, symbol, quantity, side, price, value, reason
+                FROM trades WHERE run_id = ?
+                ORDER BY timestamp ASC, id ASC
+            """, (run_id,))
+        else:
+            cursor.execute("""
+                SELECT timestamp, symbol, shares AS quantity, action AS side,
+                       price, total_value AS value
+                FROM trades WHERE run_id = ?
+                ORDER BY timestamp ASC, id ASC
+            """, (run_id,))
         rows = cursor.fetchall()
         conn.close()
         return [dict(row) for row in rows]
