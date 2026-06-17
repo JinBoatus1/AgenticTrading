@@ -281,29 +281,28 @@ function closeCreateExternalAgentModal() {
 function showAgentCredentials(agent, apiKey) {
   const modal = document.getElementById('agentCredentialsModal');
   const apiInput = document.getElementById('agentCredentialApiKey');
-  const sessionInput = document.getElementById('agentCredentialSessionId');
-  const cliInput = document.getElementById('agentCredentialCli');
-  const activateBtn = document.getElementById('agentCredentialActivateBtn');
-
-  const cli = [
-    `python3 dashboard/examples/external_agent_client.py \\`,
-    `  --api ${API_BASE} \\`,
-    `  --api-key ${apiKey} \\`,
-    `  --start 2026-04-15 --end 2026-04-16 \\`,
-    `  --agent-name "${agent.name}"`,
-  ].join('\n');
+  const copyBtn = document.getElementById('agentCredentialCopyBtn');
+  const doneBtn = document.getElementById('agentCredentialDoneBtn');
 
   if (apiInput) apiInput.value = apiKey;
-  if (sessionInput) sessionInput.value = agent.session_id;
-  if (cliInput) cliInput.value = cli;
-  if (activateBtn) {
-    activateBtn.onclick = async () => {
-      await activateAgent(agent);
-      closeAgentCredentialsModal();
-      navigateToPage('playground', { playgroundTab: 'backtest' });
-      currentMode = 'backtest';
-      await loadData();
+  if (copyBtn) {
+    copyBtn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(apiKey);
+        const prev = copyBtn.textContent;
+        copyBtn.textContent = 'Copied';
+        setTimeout(() => {
+          copyBtn.textContent = prev;
+        }, 1500);
+      } catch (error) {
+        apiInput?.select();
+        document.execCommand?.('copy');
+        copyBtn.textContent = 'Copied';
+      }
     };
+  }
+  if (doneBtn) {
+    doneBtn.onclick = () => closeAgentCredentialsModal();
   }
   if (modal) modal.hidden = false;
 }

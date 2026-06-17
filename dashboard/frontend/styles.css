@@ -287,14 +287,66 @@ body {
     font-size: 12px;
 }
 
-.auth-submit {
+.auth-submit,
+.auth-submit-btn {
     padding: 10px 12px;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     background: var(--info-color);
-    color: white;
+    color: #fff;
     font-weight: 700;
+    font-size: 13px;
     cursor: pointer;
+    width: 100%;
+    transition: filter 0.15s, background-color 0.15s;
+}
+
+.auth-submit:hover,
+.auth-submit-btn:hover {
+    filter: brightness(1.08);
+}
+
+.auth-submit:disabled,
+.auth-submit-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.credential-copy-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.credential-copy-row input {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.credential-copy-btn {
+    flex-shrink: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.credential-copy-btn:hover {
+    border-color: var(--info-color);
+    color: var(--info-color);
+}
+
+.credential-hint {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
 }
 
 .auth-switch {

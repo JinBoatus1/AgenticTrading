@@ -556,21 +556,17 @@
         <div class="auth-modal-panel" role="dialog" aria-labelledby="agentCredentialsModalTitle">
             <button id="agentCredentialsModalClose" class="auth-modal-close" type="button" aria-label="Close">×</button>
             <h2 id="agentCredentialsModalTitle" class="auth-modal-title">Agent created</h2>
-            <p class="auth-modal-subtitle">Save your API key now — it won't be shown again. Use it with the CLI client instead of a manual session ID.</p>
+            <p class="auth-modal-subtitle">Save your API key now — it won't be shown again. Your agent uses this key to authenticate backtest requests to Agentic Trading Lab.</p>
             <div class="auth-form">
                 <label class="auth-field">
                     <span>API key</span>
-                    <input id="agentCredentialApiKey" type="text" readonly>
+                    <div class="credential-copy-row">
+                        <input id="agentCredentialApiKey" type="text" readonly aria-label="API key">
+                        <button id="agentCredentialCopyBtn" class="credential-copy-btn" type="button">Copy</button>
+                    </div>
+                    <p class="credential-hint">Pass this as <code>X-API-Key</code> or <code>--api-key</code> in your own client. The lab resolves it to your agent automatically.</p>
                 </label>
-                <label class="auth-field">
-                    <span>Session ID</span>
-                    <input id="agentCredentialSessionId" type="text" readonly>
-                </label>
-                <label class="auth-field">
-                    <span>CLI example</span>
-                    <textarea id="agentCredentialCli" rows="4" readonly></textarea>
-                </label>
-                <button id="agentCredentialActivateBtn" class="auth-submit-btn" type="button">Activate &amp; view in Playground</button>
+                <button id="agentCredentialDoneBtn" class="auth-submit-btn" type="button">Done</button>
             </div>
         </div>
     </div>
