@@ -185,38 +185,35 @@ class BacktestDatabase:
             if 'session_id' in columns and 'llm_model' in columns:
                 print("✅ Schema up-to-date (session_id, llm_model exist)")
 
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS backtest_decisions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id TEXT NOT NULL,
-                    step_index INTEGER NOT NULL,
-                    timestamp TEXT NOT NULL,
-                    decision_source TEXT NOT NULL,
-                    actions_submitted TEXT,
-                    actions_executed INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
-                )
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_decisions_run
-                ON backtest_decisions(run_id, step_index)
-            """)
+            self._ensure_decisions_table(cursor)
             self._migrate_trades_schema(cursor)
             conn.commit()
         
         except Exception as e:
             print(f"⚠️ Migration warning: {e}")
-            # If migration fails, it's OK - proceed anyway
         
         finally:
             conn.close()
+
+        # Trades migration is critical for external backtest finalize; retry isolated.
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            self._migrate_trades_schema(cursor)
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"⚠️ Trades migration retry warning: {e}")
 
     def _migrate_trades_schema(self, cursor) -> None:
         """Upgrade legacy trades table (shares/action/total_value) to new columns."""
         cursor.execute("PRAGMA table_info(trades)")
         columns = {row[1] for row in cursor.fetchall()}
-        if not columns or "quantity" in columns:
+        if not columns:
+            return
+
+        needed = {"quantity", "side", "value", "reason"}
+        if needed.issubset(columns) and "shares" not in columns:
             return
 
         print("🔄 Migrating: upgrading trades table schema...")
@@ -238,6 +235,25 @@ class BacktestDatabase:
             cursor.execute("UPDATE trades SET value = total_value WHERE value IS NULL")
 
         print("✅ trades table migrated (quantity, side, value, reason)")
+
+    def _ensure_decisions_table(self, cursor) -> None:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS backtest_decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                step_index INTEGER NOT NULL,
+                timestamp TEXT NOT NULL,
+                decision_source TEXT NOT NULL,
+                actions_submitted TEXT,
+                actions_executed INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_decisions_run
+            ON backtest_decisions(run_id, step_index)
+        """)
 
     def _trades_column_set(self, cursor) -> set:
         cursor.execute("PRAGMA table_info(trades)")
@@ -410,6 +426,8 @@ class BacktestDatabase:
             return
         conn = self._get_connection()
         cursor = conn.cursor()
+        self._migrate_trades_schema(cursor)
+        conn.commit()
         columns = self._trades_column_set(cursor)
         for trade in trades:
             ts = trade.get("timestamp")
@@ -460,6 +478,8 @@ class BacktestDatabase:
             return
         conn = self._get_connection()
         cursor = conn.cursor()
+        self._ensure_decisions_table(cursor)
+        conn.commit()
         for entry in decisions:
             cursor.execute("""
                 INSERT INTO backtest_decisions

@@ -185,7 +185,10 @@ async def api_submit_decisions(
     session_id = _require_session(x_session_id)
     _require_backtest(backtest_id, session_id)
     payload: Dict[str, Any] = {"actions": [a.model_dump() for a in body.actions]}
-    result = submit_decisions(backtest_id, payload)
+    try:
+        result = submit_decisions(backtest_id, payload)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="Backtest not found")
     if not result.get("accepted") and result.get("error") == "step_already_closed":

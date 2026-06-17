@@ -52,6 +52,12 @@ def api_request(
                 return json.loads(detail).get("detail", json.loads(detail))
             except json.JSONDecodeError:
                 pass
+        try:
+            parsed = json.loads(detail)
+            if isinstance(parsed, dict) and "detail" in parsed:
+                detail = parsed["detail"]
+        except json.JSONDecodeError:
+            pass
         raise RuntimeError(f"HTTP {exc.code} {url}: {detail}") from exc
 
 

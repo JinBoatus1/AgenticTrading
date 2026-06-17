@@ -447,20 +447,23 @@ class ExternalBacktestSession:
         db.insert_trades(self.run_id, self.manager.trades)
         db.insert_decisions(self.run_id, self.decision_log)
 
-        backtester = bha.HourlyBacktester(
-            self.start_date,
-            self.end_date,
-            self.session_id,
-            use_llm=False,
-            mode=self.mode,
-        )
-        backtester.all_data = self.all_data
-        buyhold_id, _ = backtester.run_buyhold_baseline()
-        djia_id, _ = backtester.run_djia_baseline()
-        if buyhold_id:
-            self.baseline_run_ids["buy_and_hold"] = buyhold_id
-        if djia_id:
-            self.baseline_run_ids["djia"] = djia_id
+        try:
+            backtester = bha.HourlyBacktester(
+                self.start_date,
+                self.end_date,
+                self.session_id,
+                use_llm=False,
+                mode=self.mode,
+            )
+            backtester.all_data = self.all_data
+            buyhold_id, _ = backtester.run_buyhold_baseline()
+            djia_id, _ = backtester.run_djia_baseline()
+            if buyhold_id:
+                self.baseline_run_ids["buy_and_hold"] = buyhold_id
+            if djia_id:
+                self.baseline_run_ids["djia"] = djia_id
+        except Exception as exc:
+            print(f"⚠️ Baseline generation failed (run saved): {exc}")
 
         self.status = "completed"
 
