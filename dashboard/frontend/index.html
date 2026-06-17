@@ -516,7 +516,7 @@
         <div class="auth-modal-panel" role="dialog" aria-labelledby="addAgentModalTitle">
             <button id="addAgentModalClose" class="auth-modal-close" type="button" aria-label="Close">×</button>
             <h2 id="addAgentModalTitle" class="auth-modal-title">Add Agent</h2>
-            <p class="auth-modal-subtitle">Register an external agent to get a persistent session and API key — no browser console needed.</p>
+            <p class="auth-modal-subtitle">Register an external agent to get a persistent session and API key. Log in to keep agents across devices and sessions.</p>
             <div class="add-agent-options">
                 <button id="createBuiltinAgentBtn" class="add-agent-option" type="button" disabled>
                     <strong>Create a Built-in Agent</strong>
@@ -822,6 +822,9 @@
                         <h2>TRADING PERFORMANCE</h2>
                     </div>
                     <div class="chart-controls">
+                        <select id="backtestRunSelect" class="filter-select backtest-run-select" aria-label="Select backtest run" hidden>
+                            <option value="">Latest run</option>
+                        </select>
                         <button class="run-backtest-btn">▶ Run Backtest</button>
                         <button class="time-btn active">1D</button>
                         <button class="time-btn">1W</button>
@@ -927,9 +930,6 @@
                 
                 <button class="view-more-btn">View More Metrics →</button>
             </div>
-
-            <!-- Live Market Events -->
-            <div id="marketEventsFeed" class="section-card compact market-events-panel"></div>
 
             <!-- Performance Drivers -->
             <div class="section-card compact">

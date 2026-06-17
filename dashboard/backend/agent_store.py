@@ -205,8 +205,7 @@ class AgentStore:
                 """,
                 (owner_user_id,),
             )
-
-        if owner_browser_session:
+        elif owner_browser_session:
             _add_rows(
                 """
                 SELECT * FROM external_agents
@@ -264,6 +263,32 @@ class AgentStore:
             conn.commit()
         conn.close()
         return _public_agent(row) if row else None
+
+    def claim_browser_agents_to_user(
+        self,
+        browser_session: str,
+        user_id: int,
+    ) -> int:
+        """Attach all browser-owned agents to a logged-in user account."""
+        if not browser_session or user_id is None:
+            return 0
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE external_agents
+            SET owner_user_id = ?,
+                owner_browser_session = COALESCE(owner_browser_session, ?),
+                last_used_at = ?
+            WHERE owner_browser_session = ?
+              AND (owner_user_id IS NULL OR owner_user_id = ?)
+            """,
+            (user_id, browser_session, _utcnow_iso(), browser_session, user_id),
+        )
+        updated = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return updated
 
     def claim_agent(
         self,

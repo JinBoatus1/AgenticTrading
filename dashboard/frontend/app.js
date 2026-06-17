@@ -11,6 +11,7 @@
 const ACTIVE_AGENT_KEY = 'active-agent-id';
 const ACTIVE_AGENT_NAME_KEY = 'active-agent-name';
 const BROWSER_OWNER_KEY = 'browser-owner-id';
+const SELECTED_BACKTEST_RUN_KEY = 'selected-backtest-run-id';
 
 function initSession() {
   // Stable browser identity — never changes when switching agents
@@ -72,6 +73,7 @@ function applyActiveAgent(agent, options = {}) {
   }
   window.SESSION_ID = agent.session_id;
   window.ACTIVE_AGENT = agent;
+  localStorage.removeItem(SELECTED_BACKTEST_RUN_KEY);
 
   const nameEl = document.getElementById('playgroundAgentName');
   if (nameEl) nameEl.textContent = agent.name || 'External Agent';
@@ -148,6 +150,7 @@ function renderAgentsGrid(agents) {
       <div class="agent-meta">
         <span>${agent.run_count || 0} backtest run(s)</span>
       </div>
+      ${renderAgentRunList(agent)}
       <div class="agent-card-actions">
         <button class="agent-action-btn agent-select-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">View in Playground</button>
         <button class="agent-action-btn agent-action-secondary agent-delete-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">Remove</button>
@@ -161,6 +164,19 @@ function renderAgentsGrid(agents) {
       const agent = agents.find((a) => a.agent_id === btn.dataset.agentId);
       if (!agent) return;
       await activateAgent(agent);
+      navigateToPage('playground', { playgroundTab: 'backtest' });
+      currentMode = 'backtest';
+      await loadData();
+    });
+  });
+
+  grid.querySelectorAll('.agent-run-link').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const agent = agents.find((a) => a.agent_id === btn.dataset.agentId);
+      const runId = btn.dataset.runId;
+      if (!agent || !runId) return;
+      await activateAgent(agent);
+      localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, runId);
       navigateToPage('playground', { playgroundTab: 'backtest' });
       currentMode = 'backtest';
       await loadData();
@@ -191,6 +207,19 @@ function escapeHtml(value) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function renderAgentRunList(agent) {
+  const runs = agent.runs || [];
+  if (!runs.length) return '';
+  const items = runs
+    .slice(0, 8)
+    .map(
+      (run) =>
+        `<button type="button" class="agent-run-link" data-agent-id="${escapeHtml(agent.agent_id)}" data-run-id="${escapeHtml(run.run_id)}">${escapeHtml(formatBacktestRunLabel(run))}</button>`,
+    )
+    .join('');
+  return `<div class="agent-run-list">${items}</div>`;
 }
 
 async function loadAgents() {
@@ -544,6 +573,17 @@ function setAuthState(user, token) {
   updateAuthUI();
 }
 
+async function claimAgentsForUser() {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  if (!token) return;
+  try {
+    await API.post(`${API_BASE}/api/v1/agents/claim-account`, {});
+  } catch (error) {
+    console.warn('Agent account claim skipped:', error.message);
+  }
+  await loadAgents();
+}
+
 function clearAuthState() {
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_USER_KEY);
@@ -639,6 +679,7 @@ async function refreshAuthUser() {
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
     window.AUTH_USER = data.user;
     updateAuthUI();
+    await claimAgentsForUser();
   } catch (error) {
     console.warn('Auth session expired:', error.message);
     clearAuthState();
@@ -661,6 +702,7 @@ function initAuthUI() {
       console.warn('Logout request failed:', error.message);
     } finally {
       clearAuthState();
+      await loadAgents();
     }
   });
   closeBtn?.addEventListener('click', closeAuthModal);
@@ -697,6 +739,7 @@ function initAuthUI() {
         ? await AuthAPI.signup(email, displayName, password)
         : await AuthAPI.login(email, password);
       setAuthState(data.user, data.token);
+      await claimAgentsForUser();
       closeAuthModal();
     } catch (error) {
       if (errorEl) {
@@ -741,7 +784,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     setupTickerResizeHandler();
     setupTickerScrollControls();
-    initMarketEventFeed();
 
     // Setup slider value displays
     document.querySelectorAll('.slider').forEach(slider => {
@@ -769,6 +811,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (runBtn) {
         runBtn.addEventListener('click', () => {
             runBacktest();
+        });
+    }
+
+    const backtestRunSelect = document.getElementById('backtestRunSelect');
+    if (backtestRunSelect) {
+        backtestRunSelect.addEventListener('change', async () => {
+            const runId = backtestRunSelect.value;
+            if (runId) {
+                localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, runId);
+            } else {
+                localStorage.removeItem(SELECTED_BACKTEST_RUN_KEY);
+            }
+            await loadData();
         });
     }
 
@@ -836,12 +891,13 @@ async function loadPerformanceMetrics() {
 
         try {
             const sessionRuns = await API.get(`${API_BASE}/api/backtest/runs?t=${Date.now()}`);
-            const extRuns = sessionRuns.filter(r => r.run_id && r.run_id.startsWith('ext_'));
+            const activeName = window.ACTIVE_AGENT?.name || localStorage.getItem(ACTIVE_AGENT_NAME_KEY);
+            const externalRuns = scopedExternalRuns(sessionRuns, activeName);
             const myAlgoRuns = sessionRuns.filter(r => r.run_id && r.run_id.startsWith('algo_'));
-            if (extRuns.length) {
-                metrics = extRuns.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
+            if (externalRuns.length) {
+                metrics = resolveSelectedExternalRun(externalRuns);
             } else if (myAlgoRuns.length) {
-                metrics = myAlgoRuns.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
+                metrics = latestRun(myAlgoRuns);
             }
         } catch (e) {
             console.warn('Could not load session runs for my algo metrics');
@@ -1533,24 +1589,6 @@ function notifyAssetUniverseChanged() {
     document.dispatchEvent(new CustomEvent('asset-universe-changed'));
 }
 
-function initMarketEventFeed() {
-    const container = document.getElementById('marketEventsFeed');
-    if (!container) {
-        console.warn('Market events container not found');
-        return null;
-    }
-    if (!window.MarketEventFeed) {
-        console.warn('MarketEventFeed module not loaded — check market-events/*.js script paths');
-        return null;
-    }
-
-    window.marketEventFeed = new window.MarketEventFeed({
-        container,
-        getSelectedAssets
-    });
-    return window.marketEventFeed;
-}
-
 /**
  * Show autocomplete suggestions as user types
  */
@@ -2098,6 +2136,65 @@ function latestRun(runs) {
     return runs.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
 }
 
+function scopedExternalRuns(sessionRuns, activeName) {
+    const externalRuns = sessionRuns.filter(isExternalAgentRun);
+    if (!activeName) return externalRuns;
+    const scoped = externalRuns.filter((r) => r.agent_name === activeName);
+    return scoped.length ? scoped : externalRuns;
+}
+
+function formatBacktestRunLabel(run) {
+    const dates = [run.start_date, run.end_date].filter(Boolean).join(' → ');
+    let retLabel = '—';
+    if (run.total_return != null) {
+        const pct = Math.abs(run.total_return) <= 1 ? run.total_return * 100 : run.total_return;
+        const sign = pct >= 0 ? '+' : '';
+        retLabel = `${sign}${pct.toFixed(2)}%`;
+    }
+    const when = run.created_at ? new Date(run.created_at).toLocaleString() : '';
+    return [dates || run.run_id, retLabel, when].filter(Boolean).join(' · ');
+}
+
+function resolveSelectedExternalRun(externalRuns) {
+    const selectedId = localStorage.getItem(SELECTED_BACKTEST_RUN_KEY);
+    if (selectedId) {
+        const match = externalRuns.find((r) => r.run_id === selectedId);
+        if (match) return match;
+    }
+    return latestRun([...externalRuns]);
+}
+
+function populateBacktestRunSelector(externalRuns) {
+    const select = document.getElementById('backtestRunSelect');
+    if (!select) return;
+
+    const sorted = [...externalRuns].sort(
+        (a, b) => (b.created_at || '').localeCompare(a.created_at || ''),
+    );
+
+    if (!sorted.length) {
+        select.innerHTML = '';
+        select.hidden = true;
+        return;
+    }
+
+    select.hidden = false;
+    const previous = select.value || localStorage.getItem(SELECTED_BACKTEST_RUN_KEY);
+    select.innerHTML = sorted
+        .map(
+            (run) =>
+                `<option value="${escapeHtml(run.run_id)}">${escapeHtml(formatBacktestRunLabel(run))}</option>`,
+        )
+        .join('');
+
+    const selectedId =
+        previous && sorted.some((r) => r.run_id === previous)
+            ? previous
+            : sorted[0].run_id;
+    select.value = selectedId;
+    localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, selectedId);
+}
+
 function findLatestRunByAgent(runs, agentName) {
     const matched = runs.filter(r => r.agent_name === agentName);
     if (!matched.length) return null;
@@ -2122,12 +2219,10 @@ async function loadData() {
             const myAlgoRuns = sessionRuns.filter(isMyAlgoRun);
             const latestMyAlgo = latestRun(myAlgoRuns);
 
-            const externalRuns = sessionRuns.filter(isExternalAgentRun);
             const activeName = window.ACTIVE_AGENT?.name || localStorage.getItem(ACTIVE_AGENT_NAME_KEY);
-            const scopedExternal = activeName
-                ? externalRuns.filter(r => r.agent_name === activeName)
-                : externalRuns;
-            const latestExternal = latestRun(scopedExternal.length ? scopedExternal : externalRuns);
+            const scopedExternal = scopedExternalRuns(sessionRuns, activeName);
+            populateBacktestRunSelector(scopedExternal);
+            const selectedExternal = resolveSelectedExternalRun(scopedExternal);
 
             if (latestMyAlgo) {
                 window.MY_ALGO_RUN_ID = latestMyAlgo.run_id;
@@ -2138,19 +2233,19 @@ async function loadData() {
             allRuns = await API.get(`${API_BASE}/runs?t=${Date.now()}`);
             console.log('Loaded runs:', allRuns.length);
 
-            if (allRuns.length === 0 && !latestMyAlgo && !latestExternal) {
+            if (allRuns.length === 0 && !latestMyAlgo && !selectedExternal) {
                 console.warn('No runs available');
                 return;
             }
 
             let runIds;
-            if (latestExternal) {
+            if (selectedExternal) {
                 const buyhold = latestRun(sessionRuns.filter(r => r.agent_name === 'buy-and-hold'))
                     || findLatestRunByAgent(allRuns, 'buy-and-hold');
                 const djia = latestRun(sessionRuns.filter(r => r.agent_name === 'DJIA'))
                     || findLatestRunByAgent(allRuns, 'DJIA');
-                runIds = [latestExternal.run_id, djia?.run_id, buyhold?.run_id].filter(Boolean).join(',');
-                window.EXTERNAL_AGENT_RUN_ID = latestExternal.run_id;
+                runIds = [selectedExternal.run_id, djia?.run_id, buyhold?.run_id].filter(Boolean).join(',');
+                window.EXTERNAL_AGENT_RUN_ID = selectedExternal.run_id;
                 console.log('External agent compare IDs:', runIds);
             } else if (latestMyAlgo) {
                 const buyhold = findLatestRunByAgent(allRuns, 'buy-and-hold');

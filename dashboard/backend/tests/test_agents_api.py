@@ -105,3 +105,42 @@ def test_import_session_from_backtest_runs(client):
 
     listed = client.get("/api/v1/agents", headers=headers)
     assert len(listed.json()["agents"]) == 1
+
+
+def test_claim_account_links_browser_agents(client):
+    browser_session = str(uuid.uuid4())
+    anon_headers = {"X-Session-Id": browser_session, "X-Browser-Id": browser_session}
+
+    created = client.post(
+        "/api/v1/agents",
+        json={"name": "pre-login-agent"},
+        headers=anon_headers,
+    )
+    assert created.status_code == 200
+    agent_id = created.json()["agent"]["agent_id"]
+
+    signup = client.post(
+        "/api/auth/signup",
+        json={
+            "email": "claim-test@example.com",
+            "display_name": "Claim Test",
+            "password": "securepass123",
+        },
+    )
+    assert signup.status_code == 200
+    token = signup.json()["token"]
+    auth_headers = {
+        **anon_headers,
+        "Authorization": f"Bearer {token}",
+    }
+
+    claimed = client.post("/api/v1/agents/claim-account", headers=auth_headers)
+    assert claimed.status_code == 200
+    body = claimed.json()
+    assert body["claimed"] >= 1
+    assert any(a["agent_id"] == agent_id for a in body["agents"])
+
+    listed = client.get("/api/v1/agents", headers={"Authorization": f"Bearer {token}"})
+    assert listed.status_code == 200
+    assert len(listed.json()["agents"]) == 1
+    assert listed.json()["agents"][0]["agent_id"] == agent_id

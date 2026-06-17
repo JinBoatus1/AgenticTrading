@@ -23,7 +23,7 @@
 Turn trading ideas into traceable experiments: prototype agents, run backtests and paper-trading simulations, inspect reasoning and decision logs, benchmark against market baselines, and study how agents behave under realistic financial constraints.
 
 <div align="center">
-  <img src="./dashboard/frontend/images/snapshot.png" alt="Website Snapshot" width="720">
+  <img src="./dashboard/frontend/images/snapshot_updated.png" alt="Website Snapshot" width="720">
 </div>
 
 ## Outline

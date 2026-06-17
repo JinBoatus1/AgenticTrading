@@ -36,6 +36,9 @@
     /* Typography */
     --font-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
     --font-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+
+    /* Shared accent (used outside .home-view, e.g. My Agents) */
+    --home-accent-cyan: #22d3ee;
 }
 
 html, body {
@@ -3594,6 +3597,10 @@ body {
     margin-bottom: 16px;
 }
 
+.page-header .home-btn-primary {
+    flex-shrink: 0;
+}
+
 .page-title {
     margin: 0 0 6px;
     font-size: 22px;
@@ -4165,6 +4172,39 @@ body {
     flex-wrap: wrap;
     gap: 6px;
     margin-top: auto;
+}
+
+.agent-run-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 140px;
+    overflow-y: auto;
+}
+
+.agent-run-link {
+    display: block;
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.agent-run-link:hover {
+    border-color: var(--info-color);
+    color: var(--text-primary);
+}
+
+.chart-controls .backtest-run-select {
+    flex: 0 1 auto;
+    min-width: 220px;
+    max-width: 360px;
 }
 
 .agent-action-btn {

@@ -75,6 +75,11 @@ def _agent_with_stats(agent: Dict[str, Any]) -> Dict[str, Any]:
     result = dict(agent)
     result["run_count"] = len(ext_runs)
     result["latest_run"] = latest
+    result["runs"] = sorted(
+        ext_runs,
+        key=lambda r: r.get("created_at") or "",
+        reverse=True,
+    )
     return result
 
 
@@ -119,6 +124,25 @@ async def list_agents(
         trading_session_id=ctx.get("trading_session"),
     )
     return {"agents": [_agent_with_stats(a) for a in agents]}
+
+
+@router.post("/claim-account")
+async def claim_account_agents(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+):
+    """Link this browser's agents to the logged-in user (call after login)."""
+    ctx = _owner_context(request, authorization)
+    if not ctx["user_id"]:
+        raise HTTPException(status_code=401, detail="Log in to claim agents")
+    if not ctx["browser_session"]:
+        raise HTTPException(status_code=400, detail="Missing browser session")
+    claimed = agent_store.claim_browser_agents_to_user(
+        ctx["browser_session"],
+        ctx["user_id"],
+    )
+    agents = agent_store.list_agents(owner_user_id=ctx["user_id"])
+    return {"claimed": claimed, "agents": [_agent_with_stats(a) for a in agents]}
 
 
 class ImportSessionBody(BaseModel):
@@ -180,6 +204,23 @@ async def resolve_api_key(x_api_key: Optional[str] = Header(default=None, alias=
         "session_id": agent["session_id"],
         "model_name": agent["model_name"],
     }
+
+
+@router.get("/{agent_id}/runs")
+async def list_agent_runs(
+    agent_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+):
+    """List external backtest runs for an agent."""
+    ctx = _require_owner_context(request, authorization)
+    agent = _require_agent_access(agent_id, ctx)
+    runs = db.get_runs_by_session(agent["session_id"]) or []
+    ext_runs = [
+        r for r in runs if str(r.get("run_id", "")).startswith("ext_")
+    ]
+    ext_runs.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    return {"runs": ext_runs}
 
 
 @router.get("/{agent_id}")
