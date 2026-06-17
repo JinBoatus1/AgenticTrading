@@ -536,8 +536,11 @@ async function loadPerformanceMetrics() {
 
         try {
             const sessionRuns = await API.get(`${API_BASE}/api/backtest/runs?t=${Date.now()}`);
+            const extRuns = sessionRuns.filter(r => r.run_id && r.run_id.startsWith('ext_'));
             const myAlgoRuns = sessionRuns.filter(r => r.run_id && r.run_id.startsWith('algo_'));
-            if (myAlgoRuns.length) {
+            if (extRuns.length) {
+                metrics = extRuns.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
+            } else if (myAlgoRuns.length) {
                 metrics = myAlgoRuns.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
             }
         } catch (e) {
@@ -1781,6 +1784,15 @@ function isMyAlgoRun(run) {
     return run && run.run_id && String(run.run_id).startsWith('algo_');
 }
 
+function isExternalAgentRun(run) {
+    return run && run.run_id && String(run.run_id).startsWith('ext_');
+}
+
+function latestRun(runs) {
+    if (!runs || !runs.length) return null;
+    return runs.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
+}
+
 function findLatestRunByAgent(runs, agentName) {
     const matched = runs.filter(r => r.agent_name === agentName);
     if (!matched.length) return null;
@@ -1803,9 +1815,10 @@ async function loadData() {
             }
 
             const myAlgoRuns = sessionRuns.filter(isMyAlgoRun);
-            const latestMyAlgo = myAlgoRuns.length
-                ? myAlgoRuns.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0]
-                : null;
+            const latestMyAlgo = latestRun(myAlgoRuns);
+
+            const externalRuns = sessionRuns.filter(isExternalAgentRun);
+            const latestExternal = latestRun(externalRuns);
 
             if (latestMyAlgo) {
                 window.MY_ALGO_RUN_ID = latestMyAlgo.run_id;
@@ -1816,13 +1829,21 @@ async function loadData() {
             allRuns = await API.get(`${API_BASE}/runs?t=${Date.now()}`);
             console.log('Loaded runs:', allRuns.length);
 
-            if (allRuns.length === 0 && !latestMyAlgo) {
+            if (allRuns.length === 0 && !latestMyAlgo && !latestExternal) {
                 console.warn('No runs available');
                 return;
             }
 
             let runIds;
-            if (latestMyAlgo) {
+            if (latestExternal) {
+                const buyhold = latestRun(sessionRuns.filter(r => r.agent_name === 'buy-and-hold'))
+                    || findLatestRunByAgent(allRuns, 'buy-and-hold');
+                const djia = latestRun(sessionRuns.filter(r => r.agent_name === 'DJIA'))
+                    || findLatestRunByAgent(allRuns, 'DJIA');
+                runIds = [latestExternal.run_id, djia?.run_id, buyhold?.run_id].filter(Boolean).join(',');
+                window.EXTERNAL_AGENT_RUN_ID = latestExternal.run_id;
+                console.log('External agent compare IDs:', runIds);
+            } else if (latestMyAlgo) {
                 const buyhold = findLatestRunByAgent(allRuns, 'buy-and-hold');
                 const djia = findLatestRunByAgent(allRuns, 'DJIA');
                 runIds = [latestMyAlgo.run_id, djia?.run_id, buyhold?.run_id].filter(Boolean).join(',');
@@ -1882,6 +1903,8 @@ function initializeCharts() {
             let agentType;
             if (isMyAlgoRun(run)) {
                 agentType = 'my-algo';
+            } else if (isExternalAgentRun(run)) {
+                agentType = 'external-agent';
             } else {
                 agentType = run.agent_name.toLowerCase();
             }
@@ -1895,12 +1918,15 @@ function initializeCharts() {
         const datasets = [];
         const colorMap = {
             'my-algo': '#fbbf24',
+            'external-agent': '#4FC3F7',
             'agent': '#4FC3F7',
             'djia': '#F5C04A',
             'buy-and-hold': '#9AA4B2'
         };
         
-        const order = agentMap['my-algo']
+        const order = agentMap['external-agent']
+            ? ['external-agent', 'djia', 'buy-and-hold']
+            : agentMap['my-algo']
             ? ['my-algo', 'djia', 'buy-and-hold']
             : ['agent', 'djia', 'buy-and-hold'];
         const timestamps = runs[0].data.map(point => point.timestamp);

@@ -47,6 +47,11 @@ def api_request(
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
+        if exc.code == 409:
+            try:
+                return json.loads(detail).get("detail", json.loads(detail))
+            except json.JSONDecodeError:
+                pass
         raise RuntimeError(f"HTTP {exc.code} {url}: {detail}") from exc
 
 
@@ -175,6 +180,9 @@ def main() -> int:
             args.session_id,
             payload,
         )
+        if isinstance(result, dict) and result.get("error") == "step_already_closed":
+            print("  Step closed (timeout), continuing...")
+            continue
         if not result.get("accepted"):
             print("  Decision rejected:", result)
         else:
