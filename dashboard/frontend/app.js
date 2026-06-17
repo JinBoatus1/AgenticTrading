@@ -23,9 +23,7 @@ function initSession() {
 // Load default configuration from backend
 async function loadDefaults() {
   try {
-    const defaultsUrl = API_BASE === 'http://localhost:8000' 
-      ? 'http://localhost:8000/config/defaults' 
-      : 'https://agentictrading.onrender.com/config/defaults';
+    const defaultsUrl = `${API_BASE}/config/defaults`;
     
     console.log('📥 Fetching defaults from:', defaultsUrl);
     
@@ -170,7 +168,7 @@ const API = {
 // ============================================================================
 
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://localhost:8000'
+    ? window.location.origin
     : 'https://agentictrading.onrender.com';
 
 const AUTH_TOKEN_KEY = 'auth-token';

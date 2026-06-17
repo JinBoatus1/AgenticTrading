@@ -13,7 +13,7 @@ Usage:
 
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from enum import Enum
 from decimal import Decimal
 from datetime import datetime
@@ -262,6 +262,96 @@ def validate_llm_response(
     return decision
 
 
+class LLMTradingDecisionBatch(BaseModel):
+    """Batch trading decisions from an external agent."""
+
+    actions: List[LLMTradingDecision]
+
+
+def parse_actions_payload(payload: Dict[str, Any]) -> Tuple[Optional[List[LLMTradingDecision]], Optional[str]]:
+    """
+    Parse and validate an external agent decision payload.
+
+    Returns:
+        (list of decisions, None) on success, or (None, error_message) on failure.
+    """
+    if not isinstance(payload, dict):
+        return None, "Payload must be a JSON object"
+
+    actions_raw = payload.get("actions")
+    if not isinstance(actions_raw, list):
+        return None, 'Payload must include an "actions" array'
+
+    decisions: List[LLMTradingDecision] = []
+    for idx, item in enumerate(actions_raw):
+        try:
+            decisions.append(LLMTradingDecision(**item))
+        except ValidationError as exc:
+            return None, f"actions[{idx}]: {exc.errors()[0]['msg']}"
+
+    return decisions, None
+
+
+def actions_to_executable(
+    decisions: List[LLMTradingDecision],
+    *,
+    cash: float,
+    positions: Dict[str, int],
+    current_prices: Dict[str, float],
+    min_confidence: float = 0.3,
+) -> List[Dict[str, Any]]:
+    """
+    Convert validated external decisions into backtest executable actions.
+
+    Matches logic in backtest_hourly_agent.make_trading_decision_with_llm().
+    """
+    executable: List[Dict[str, Any]] = []
+
+    for decision in decisions:
+        symbol = decision.symbol
+        action_type = decision.action
+        confidence = decision.confidence
+        reasoning = decision.reasoning
+
+        if confidence < min_confidence:
+            continue
+
+        if action_type == TradingAction.HOLD:
+            continue
+
+        price = current_prices.get(symbol, 0)
+        if price <= 0:
+            continue
+
+        if action_type == TradingAction.BUY:
+            shares = decision.position_size
+            if shares <= 0:
+                continue
+            cost = shares * price
+            if cost <= cash:
+                executable.append({
+                    "symbol": symbol,
+                    "action": "buy",
+                    "shares": shares,
+                    "reason": f"[External] {reasoning} (confidence: {confidence:.0%})",
+                    "confidence": confidence,
+                })
+
+        elif action_type == TradingAction.SELL:
+            if symbol in positions and positions[symbol] > 0:
+                sell_shares = min(decision.position_size or positions[symbol], positions[symbol])
+                if sell_shares > 0:
+                    executable.append({
+                        "symbol": symbol,
+                        "action": "sell",
+                        "shares": sell_shares,
+                        "reason": f"[External] {reasoning} (confidence: {confidence:.0%})",
+                        "confidence": confidence,
+                    })
+
+    return executable
+
+
 def log_audit_trail(
     session_id: str,
     decision: LLMTradingDecision,
@@ -348,7 +438,7 @@ Return ONLY this JSON format:
       "action": "buy|sell|hold",
       "symbol": "<DJIA symbol from VALID SYMBOLS>",
       "confidence": <float 0.0-1.0>,
-      "reasoning": "<short reason, max 500 chars>",
+      "reasoning": "<short reason, max 30 chars>",
       "position_size": <integer shares, 0 for hold>,
       "stop_loss_price": <float or null>,
       "take_profit_price": <float or null>

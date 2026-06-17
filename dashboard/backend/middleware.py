@@ -18,6 +18,8 @@ EXEMPT_PATHS = {
     '/api/health',
     '/ticker',
     '/config/defaults',  # Default configuration (public, no session needed)
+    '/compare',  # Public equity comparison (browser-friendly links)
+    '/runs',  # Public backtest run listing
 }
 
 EXEMPT_EXTENSIONS = {'.js', '.css', '.png', '.jpg', '.gif', '.svg', '.woff', '.woff2', '.ttf'}
