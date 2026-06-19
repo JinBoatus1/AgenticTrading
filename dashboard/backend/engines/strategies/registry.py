@@ -12,12 +12,14 @@ from .base import BaselineStrategy
 from .buy_hold import BuyHoldStrategy
 from .equal_weight_buyhold import EqualWeightBuyHoldStrategy
 from .equal_weight_index import EqualWeightIndexStrategy
+from .market_index import MarketIndexStrategy
 from .mean_variance import MeanVarianceStrategy
 
 _STRATEGY_CLASSES = [
     BuyHoldStrategy,
     EqualWeightIndexStrategy,
     EqualWeightBuyHoldStrategy,
+    MarketIndexStrategy,
     MeanVarianceStrategy,
 ]
 

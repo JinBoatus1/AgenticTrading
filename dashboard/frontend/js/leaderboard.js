@@ -37,6 +37,7 @@ function buildEquityCurvesFromEntries(entries) {
   const days = [];
   const curves = {};
   const trajectories = {};
+  const initials = {};
 
   entries.forEach((entry) => {
     const points = entry.equity_curve || [];
@@ -57,10 +58,11 @@ function buildEquityCurvesFromEntries(entries) {
 
     const seriesLabel = entry.model || entry.team_name;
     curves[seriesLabel] = values;
+    initials[seriesLabel] = Number(entry.initial_equity) || values[0];
     trajectories[seriesLabel] = getLeaderboardColorConfig(seriesLabel, entry.entry_type);
   });
 
-  return { days, curves, trajectories };
+  return { days, curves, trajectories, initials };
 }
 
 function updateLeaderboardHeader(payload) {
@@ -247,11 +249,11 @@ async function renderEquityCurvesChart() {
   if (!canvas) return;
 
   const ctx = canvas.getContext('2d');
-  const { days, curves, trajectories } = equityCurvesData;
+  const { days, curves, trajectories, initials } = equityCurvesData;
 
   const datasets = Object.entries(curves).map(([teamName, curveValues]) => {
     const config = getLeaderboardColorConfig(teamName, trajectories[teamName]?.isBaseline ? 'baseline' : 'agent');
-    const initial = curveValues[0] || 100000;
+    const initial = (initials && initials[teamName]) || curveValues[0] || 100000;
     const data = transformLeaderboardChartData(curveValues, currentChartView, initial);
     const isBaseline = trajectories[teamName]?.isBaseline;
 

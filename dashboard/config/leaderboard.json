@@ -10,16 +10,16 @@
       "name": "Agentic Trading Lab",
       "label": "Index",
       "model": "S&P 500 (SPY)",
-      "strategy": "buy_hold",
-      "symbols": ["SPY"]
+      "strategy": "market_index",
+      "symbols": ["^GSPC"]
     },
     {
       "id": "djia_index",
       "name": "Agentic Trading Lab",
       "label": "Index",
       "model": "Dow Jones Industrial Average (DJIA)",
-      "strategy": "buy_hold",
-      "symbols": ["DIA"]
+      "strategy": "market_index",
+      "symbols": ["^DJI"]
     },
     {
       "id": "buy_hold_djia",

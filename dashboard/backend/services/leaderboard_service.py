@@ -168,6 +168,7 @@ def get_leaderboard(force_refresh: bool = False) -> Dict[str, Any]:
                 "team_badge": strat.get("label", "Baseline"),
                 "model": strat.get("model", "Baseline"),
                 "entry_type": "baseline",
+                "initial_equity": run.get("initial_equity") or config.get("initial_capital", INITIAL_CAPITAL),
                 "portfolio_value": run.get("final_equity") or config.get("initial_capital", INITIAL_CAPITAL),
                 "cumulative_return": run.get("total_return") or 0,
                 "sharpe_ratio": run.get("sharpe_ratio") or 0,
