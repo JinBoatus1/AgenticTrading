@@ -1191,8 +1191,7 @@
                     <ul class="about-list">
                         <li>Cumulative return (rCR)</li>
                         <li>Sharpe ratio (rSR)</li>
-                        <li>Win/loss ratio (rWL)</li>
-                        <li>Final score = average of normalized ranks</li>
+                        <li>Final score = (rCR + rSR) / 2 (baselines omit W/L)</li>
                     </ul>
                 </div>
             </div>
@@ -1208,27 +1207,27 @@
                 <div class="header-stats compact">
                     <div class="stat-item compact">
                         <span class="stat-label">Teams</span>
-                        <span class="stat-value" id="totalTeams">7</span>
+                        <span class="stat-value" id="totalTeams">—</span>
                     </div>
                     <div class="stat-item compact">
                         <span class="stat-label">Window</span>
-                        <span class="stat-value" id="tradingWindow">Sep 1 – Oct 30</span>
+                        <span class="stat-value" id="tradingWindow">—</span>
                     </div>
                     <div class="stat-item compact">
                         <span class="stat-label">Updated</span>
-                        <span class="stat-value" id="lastUpdate">Oct 30, 16:00 UTC</span>
+                        <span class="stat-value" id="lastUpdate">—</span>
                     </div>
                     <div class="stat-item compact">
                         <span class="stat-label">Leader</span>
-                        <span class="stat-value" id="leaderTeam">AlphaForge</span>
+                        <span class="stat-value" id="leaderTeam">—</span>
                     </div>
                 </div>
 
                 <!-- Right: Controls -->
                 <div class="header-controls compact">
                     <div class="filter-tabs compact">
-                        <button class="filter-tab compact active" data-filter="all">All Teams</button>
-                        <button class="filter-tab compact" data-filter="top10">Top 10</button>
+                        <button class="filter-tab compact active" data-filter="all">All</button>
+                        <button class="filter-tab compact" data-filter="baselines">Baselines</button>
                     </div>
 
                     <div class="view-toggle compact">
@@ -1286,11 +1285,11 @@
                     <div class="sidebar-card compact">
                         <h3 class="sidebar-title compact">Rules</h3>
                         <div class="ranking-formula compact">
-                            <p class="formula-compact">Final Score = (rCR + rSR + rWL) / 3</p>
+                            <p class="formula-compact">Final Score = (rCR + rSR) / 2</p>
                             <ul class="formula-items compact">
-                                <li>rCR = Return</li>
-                                <li>rSR = Sharpe</li>
-                                <li>rWL = W/L</li>
+                                <li>rCR = Return rank</li>
+                                <li>rSR = Sharpe rank</li>
+                                <li>Baselines: no W/L</li>
                             </ul>
                         </div>
                     </div>
@@ -1312,7 +1311,8 @@
     <script src="market-events/marketEventRelativeTime.js"></script>
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
-    <script src="app.js?v=3"></script>
+    <script src="app.js?v=5"></script>
+    <script src="js/leaderboard.js?v=6"></script>
     <script src="home-page.js"></script>
 </body>
 </html>

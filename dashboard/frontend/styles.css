@@ -2658,8 +2658,8 @@ body {
 }
 
 .leaderboard-table th.rank-col { width: 60px; text-align: center; }
-.leaderboard-table th.name-col { width: 150px; }
-.leaderboard-table th.model-col { width: 140px; }
+.leaderboard-table th.name-col { width: 230px; }
+.leaderboard-table th.model-col { width: 150px; }
 .leaderboard-table th.portfolio-col { width: 130px; text-align: right; }
 .leaderboard-table th.return-col { width: 130px; text-align: right; }
 .leaderboard-table th.sharpe-col { width: 100px; text-align: right; }
@@ -2722,6 +2722,8 @@ body {
     align-items: center;
     gap: 8px;
     font-weight: 600;
+    flex-wrap: nowrap;
+    white-space: nowrap;
 }
 
 .team-badge {
@@ -3145,7 +3147,7 @@ body {
 }
 
 .leaderboard-main.compact.full-width .chart-container.medium {
-    height: 360px;
+    height: 280px;
 }
 
 .chart-container canvas {
@@ -4468,7 +4470,8 @@ body {
 }
 
 .competition-leaderboard-panel {
-    height: calc(100vh - 220px);
+    height: auto;
+    overflow-y: visible;
 }
 
 @media (max-width: 1100px) {

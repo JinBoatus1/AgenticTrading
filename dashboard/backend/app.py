@@ -1081,6 +1081,19 @@ async def serve_home_page_js():
     """Serve home-page.js for the Home tab mock live UI."""
     return FileResponse(frontend_path / "home-page.js", media_type="text/javascript")
 
+@app.get("/js/{file_name}", include_in_schema=False)
+async def serve_js_module(file_name: str):
+    """Serve js/*.js modules (e.g. leaderboard.js)."""
+    if not file_name.endswith(".js") or "/" in file_name or "\\" in file_name:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    script_path = (frontend_path / "js" / file_name).resolve()
+    js_dir = (frontend_path / "js").resolve()
+    if not script_path.is_file() or js_dir not in script_path.parents:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    return FileResponse(script_path, media_type="text/javascript")
+
 @app.get("/market-events/{file_name}", include_in_schema=False)
 async def serve_market_events_js(file_name: str):
     """Serve market-events/*.js modules for the Live Market Events panel."""
