@@ -30,8 +30,10 @@ const LEADERBOARD_STYLES = {
   'Equal-Weight': { color: '#4ADE80', kind: 'strategy', dash: [10, 6] },
 };
 
-const KIND_WIDTH = { team: 2.25, strategy: 1.75, benchmark: 1.5 };
-const KIND_ALPHA = { team: 1.0, strategy: 0.75, benchmark: 0.75 };
+// Visual hierarchy: teams are boldest, strategy baselines secondary, market
+// indices (benchmarks) the most understated — thin, neutral, low-opacity.
+const KIND_WIDTH = { team: 2.25, strategy: 1.6, benchmark: 1.1 };
+const KIND_ALPHA = { team: 1.0, strategy: 0.7, benchmark: 0.5 };
 const EMPHASIS_WIDTH = 3;
 
 // Stable bright palette for actual competition teams (assigned first-seen).
@@ -438,8 +440,13 @@ const endpointLabelPlugin = {
     });
     if (!labels.length) return;
 
-    // Stagger overlapping labels downward, keeping >= GAP px spacing.
+    // Stagger overlapping labels downward, keeping >= GAP px spacing. Each
+    // label keeps its original endpoint y (anchorY) so we can tell later
+    // whether collision-avoidance actually moved it.
     const GAP = 20;
+    // Only draw a leader line once a label has been displaced enough that the
+    // connection is genuinely ambiguous; otherwise it just leaves a tiny stub.
+    const LEADER_MIN_DISPLACEMENT = 7;
     labels.sort((a, b) => a.y - b.y);
     for (let k = 1; k < labels.length; k += 1) {
       if (labels[k].y - labels[k - 1].y < GAP) labels[k].y = labels[k - 1].y + GAP;
@@ -448,20 +455,28 @@ const endpointLabelPlugin = {
     const overflow = labels[labels.length - 1].y - chartArea.bottom;
     if (overflow > 0) labels.forEach((lab) => { lab.y -= overflow; });
 
-    const labelX = chartArea.right + 10;
+    // Labels live entirely inside the reserved right gutter so the plotted
+    // line paths (which end at chartArea.right) never leave stubs under them.
+    const gutterStart = chartArea.right + 6;
+    const labelX = chartArea.right + 12;
     ctx.save();
     ctx.font = '600 11px Inter, system-ui, sans-serif';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     labels.forEach((lab) => {
       const faded = hoveredDatasetIndex != null && lab.i !== hoveredDatasetIndex;
-      if (Math.abs(lab.y - lab.anchorY) > 2) {
-        ctx.strokeStyle = hexToRgba(lab.color, faded ? 0.15 : 0.4);
+      const displaced = Math.abs(lab.y - lab.anchorY) > LEADER_MIN_DISPLACEMENT;
+      if (displaced) {
+        // Subtle dotted leader, drawn only within the gutter (never over the
+        // data line endpoint), connecting the displaced label to its curve.
+        ctx.setLineDash([1, 3]);
+        ctx.strokeStyle = hexToRgba(lab.color, faded ? 0.12 : 0.35);
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(lab.anchorX, lab.anchorY);
-        ctx.lineTo(labelX - 4, lab.y);
+        ctx.moveTo(gutterStart, lab.anchorY);
+        ctx.lineTo(labelX - 3, lab.y);
         ctx.stroke();
+        ctx.setLineDash([]);
       }
       ctx.fillStyle = hexToRgba(lab.color, faded ? 0.3 : 1);
       ctx.fillText(lab.text, labelX, lab.y);
@@ -559,7 +574,9 @@ async function renderEquityCurvesChart() {
       responsive: true,
       maintainAspectRatio: false,
       layout: { padding: { right: 120, top: 8 } },
-      interaction: { mode: 'nearest', intersect: false, axis: 'x' },
+      // 'nearest' across BOTH axes (no axis:'x') so hover targets the single
+      // line under the cursor instead of every series sharing that x-position.
+      interaction: { mode: 'nearest', intersect: false },
       onHover(event, _els, chart) {
         let idx = null;
         const hits = chart.getElementsAtEventForMode(event, 'nearest', { intersect: false }, true);
@@ -575,6 +592,7 @@ async function renderEquityCurvesChart() {
         tooltip: {
           mode: 'nearest',
           intersect: false,
+          position: 'nearest',
           backgroundColor: 'rgba(15, 23, 42, 0.96)',
           borderColor: 'rgba(148, 163, 184, 0.25)',
           borderWidth: 1,

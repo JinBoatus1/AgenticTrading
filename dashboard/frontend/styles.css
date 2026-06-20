@@ -2279,6 +2279,64 @@ body {
     overflow-y: auto;
 }
 
+/* Contest identity header (merged into the leaderboard card) */
+.leaderboard-contest-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+
+.contest-identity {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.contest-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.contest-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--text-primary);
+}
+
+.contest-live-badge {
+    transform: scale(0.85);
+    transform-origin: left center;
+}
+
+.contest-subtitle {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.contest-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.contest-action-btn {
+    padding: 5px 12px;
+    font-size: 11px;
+}
+
 /* Combined Header Bar (Stats + Controls) */
 .leaderboard-header-bar {
     background-color: var(--bg-card);

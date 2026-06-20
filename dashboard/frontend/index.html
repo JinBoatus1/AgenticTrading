@@ -1082,20 +1082,6 @@
 
     <!-- Competition -->
     <div id="competitionView" class="page-view competition-view" style="display: none;">
-        <div class="competition-season-header section-card compact">
-            <div class="competition-season-info">
-                <h2 class="page-title">SecureFinAI Contest 2026</h2>
-                <span class="status-badge live">Live</span>
-                <div class="competition-season-meta">
-                    <span>Sep 1 – Oct 30, 2026</span>
-                    <span>7 teams</span>
-                </div>
-            </div>
-            <div class="competition-season-actions">
-                <button id="competitionRulesBtn" class="agent-action-btn agent-action-secondary" type="button">Rules</button>
-                <a class="discord-nav-btn discord-nav-btn-sm" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Join Discord</a>
-            </div>
-        </div>
         <div class="subtab-bar competition-subtabs">
             <button class="subtab-btn active" data-competition-tab="leaderboard">Leaderboard</button>
             <button class="subtab-btn" data-competition-tab="participants">Participants</button>
@@ -1201,6 +1187,20 @@
     <!-- Leaderboard View (Competition / Leaderboard) -->
     <div id="leaderboardView" class="leaderboard-view competition-panel competition-leaderboard-panel" style="display: none;">
         <div class="leaderboard-container compact">
+            <!-- Contest identity (merged from former standalone banner) -->
+            <div class="leaderboard-contest-header">
+                <div class="contest-identity">
+                    <div class="contest-title-row">
+                        <h2 class="contest-title">SecureFinAI Contest 2026</h2>
+                        <span class="status-badge live contest-live-badge">Live</span>
+                    </div>
+                    <p class="contest-subtitle">Sep 1 – Oct 30, 2026 · 7 teams</p>
+                </div>
+                <div class="contest-actions">
+                    <button id="competitionRulesBtn" class="agent-action-btn agent-action-secondary contest-action-btn" type="button">Rules</button>
+                    <a class="discord-nav-btn discord-nav-btn-sm" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Join Discord</a>
+                </div>
+            </div>
             <!-- Combined Header with Stats + Controls -->
             <div class="leaderboard-header-bar compact">
                 <!-- Left: Stats -->
@@ -1317,7 +1317,7 @@
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
     <script src="app.js?v=5"></script>
-    <script src="js/leaderboard.js?v=9"></script>
+    <script src="js/leaderboard.js?v=10"></script>
     <script src="home-page.js"></script>
 </body>
 </html>
