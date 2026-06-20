@@ -9,7 +9,7 @@
       "id": "spy_index",
       "name": "Agentic Trading Lab",
       "label": "Index",
-      "model": "S&P 500 (SPY)",
+      "model": "SPY",
       "strategy": "market_index",
       "symbols": ["^GSPC"]
     },
@@ -17,7 +17,7 @@
       "id": "djia_index",
       "name": "Agentic Trading Lab",
       "label": "Index",
-      "model": "Dow Jones Industrial Average (DJIA)",
+      "model": "DJIA",
       "strategy": "market_index",
       "symbols": ["^DJI"]
     },
@@ -25,7 +25,7 @@
       "id": "buy_hold_djia",
       "name": "Agentic Trading Lab",
       "label": "Strategy",
-      "model": "Buy-and-hold (DJIA 30)",
+      "model": "Buy & Hold",
       "strategy": "equal_weight_buyhold",
       "symbols": []
     },
@@ -33,7 +33,7 @@
       "id": "mean_variance_djia",
       "name": "Agentic Trading Lab",
       "label": "Strategy",
-      "model": "Mean-Variance (DJIA 30)",
+      "model": "Mean-Variance",
       "strategy": "mean_variance",
       "symbols": []
     },
@@ -41,7 +41,7 @@
       "id": "equal_weight_djia",
       "name": "Agentic Trading Lab",
       "label": "Strategy",
-      "model": "Equal-weight (DJIA 30)",
+      "model": "Equal-Weight",
       "strategy": "equal_weight_index",
       "symbols": []
     }

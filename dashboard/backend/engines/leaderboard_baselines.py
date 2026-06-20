@@ -7,6 +7,7 @@ strategy. This module just handles data fetching, dispatch, and metrics.
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -21,9 +22,17 @@ INITIAL_CAPITAL = bha.INITIAL_CAPITAL
 
 
 def fetch_hourly_bars(symbols: List[str], start_date: str, end_date: str) -> Dict[str, pd.DataFrame]:
-    """Load Alpaca hourly bars for the contest window."""
+    """Load Alpaca hourly bars for the contest window.
+
+    Alpaca treats ``end`` as exclusive, which would drop the final window day
+    (e.g. bars on ``end_date`` start after midnight). We bump it by one day so
+    the Alpaca strategies cover the same last day as the Yahoo index series.
+    """
     loader = bha.AlpacaDataLoader()
-    return loader.fetch_bars(symbols, start_date, end_date)
+    end_inclusive = (
+        datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+    ).strftime("%Y-%m-%d")
+    return loader.fetch_bars(symbols, start_date, end_inclusive)
 
 
 def compute_equity_curve(

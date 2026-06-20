@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 import pytz
 
+import token_cost
 from agent_store import agent_store
 from database import db
 from llm_validator import (
@@ -84,6 +85,13 @@ class ExternalBacktestSession:
         self.last_decision_source: Optional[str] = None
         self.decision_log: List[Dict[str, Any]] = []
         self.last_executed: List[Dict[str, Any]] = []
+
+        # Estimated token usage. The agent's LLM runs client-side, so we
+        # approximate input tokens from the context we serve each hour and
+        # output tokens from the decisions the agent submits.
+        self.llm_calls = 0
+        self.est_input_tokens = 0
+        self.est_output_tokens = 0
 
         self._step_lock = threading.Lock()
 
@@ -252,6 +260,29 @@ class ExternalBacktestSession:
     # Step API
     # ------------------------------------------------------------------
 
+    def _build_step_context(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """The payload an agent consumes to decide — used as the input estimate."""
+        return {
+            "market_snapshot": self.build_market_snapshot(state),
+            "valid_symbols": DJIA_30,
+            "decision_format": get_decision_format(),
+        }
+
+    def _account_step_tokens(
+        self,
+        state: Dict[str, Any],
+        decision_payload: Dict[str, Any],
+    ) -> None:
+        """Accumulate estimated input/output tokens for one agent decision."""
+        try:
+            self.est_input_tokens += token_cost.estimate_tokens(
+                self._build_step_context(state)
+            )
+            self.est_output_tokens += token_cost.estimate_tokens(decision_payload)
+            self.llm_calls += 1
+        except Exception as exc:  # never let estimation break a backtest
+            print(f"⚠️ Token estimate skipped for step {self.step_index}: {exc}")
+
     def _maybe_apply_timeout(self) -> bool:
         """Auto-hold if the decision window expired. Returns True if advanced."""
         if self.status != "waiting_decision":
@@ -348,6 +379,8 @@ class ExternalBacktestSession:
             state = self.manager.get_portfolio_state(
                 market_data, self.price_cache, timestamp
             )
+            state["timestamp"] = timestamp
+            self._account_step_tokens(state, payload)
             current_prices = {
                 sym: float(row.get("price", 0))
                 for sym, row in state["market_signals"].items()
@@ -429,6 +462,10 @@ class ExternalBacktestSession:
         final_eq = equity_curve[-1]["equity"] if equity_curve else INITIAL_CAPITAL
         total_return = (final_eq - INITIAL_CAPITAL) / INITIAL_CAPITAL
 
+        est_cost = token_cost.estimate_cost_usd(
+            self.model_name, self.est_input_tokens, self.est_output_tokens
+        )
+
         db.insert_run(
             run_id=self.run_id,
             session_id=self.session_id,
@@ -443,6 +480,10 @@ class ExternalBacktestSession:
             max_drawdown=bha.HourlyBacktester._calc_max_dd(equity_curve),
             num_trades=len(self.manager.trades),
             llm_model=self.model_name,
+            llm_calls=self.llm_calls,
+            input_tokens=self.est_input_tokens,
+            output_tokens=self.est_output_tokens,
+            est_cost_usd=est_cost,
         )
         db.insert_equity_points(self.run_id, equity_curve)
         db.insert_trades(self.run_id, self.manager.trades)
@@ -504,6 +545,10 @@ class ExternalBacktestSession:
             "max_drawdown": run.get("max_drawdown"),
             "num_trades": run.get("num_trades"),
             "final_equity": run.get("final_equity"),
+            "llm_calls": run.get("llm_calls"),
+            "input_tokens": run.get("input_tokens"),
+            "output_tokens": run.get("output_tokens"),
+            "est_cost_usd": run.get("est_cost_usd"),
         }
 
     def get_status(self) -> Dict[str, Any]:
@@ -676,5 +721,9 @@ def get_run_result(run_id: str, session_id: str) -> Optional[Dict[str, Any]]:
             "max_drawdown": run.get("max_drawdown"),
             "num_trades": run.get("num_trades"),
             "final_equity": run.get("final_equity"),
+            "llm_calls": run.get("llm_calls"),
+            "input_tokens": run.get("input_tokens"),
+            "output_tokens": run.get("output_tokens"),
+            "est_cost_usd": run.get("est_cost_usd"),
         },
     }

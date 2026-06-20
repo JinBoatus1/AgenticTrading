@@ -107,6 +107,22 @@ function formatAgentReturn(value) {
   return `${sign}${pct.toFixed(1)}%`;
 }
 
+function formatUsd(value) {
+  const num = Number(value);
+  if (value == null || Number.isNaN(num)) return null;
+  if (num === 0) return '$0';
+  if (num < 0.01) return `$${num.toFixed(4)}`;
+  return `$${num.toFixed(num < 1 ? 3 : 2)}`;
+}
+
+function formatTokenCount(value) {
+  const num = Number(value);
+  if (!num || Number.isNaN(num)) return '0';
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}k`;
+  return String(num);
+}
+
 function renderAgentsGrid(agents) {
   const grid = document.getElementById('agentsGrid');
   const empty = document.getElementById('agentsEmptyState');
@@ -149,6 +165,7 @@ function renderAgentsGrid(agents) {
       </div>
       <div class="agent-meta">
         <span>${agent.run_count || 0} backtest run(s)</span>
+        ${renderAgentTokenCost(agent)}
       </div>
       ${renderAgentRunList(agent)}
       <div class="agent-card-actions">
@@ -226,6 +243,15 @@ function escapeHtml(value) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function renderAgentTokenCost(agent) {
+  const totalTokens =
+    Number(agent.total_input_tokens || 0) + Number(agent.total_output_tokens || 0);
+  if (!totalTokens) return '';
+  const cost = formatUsd(agent.total_est_cost_usd);
+  const costLabel = cost ? `${cost} est. LLM cost` : '';
+  return `<span title="Estimated from market context served and decisions returned">${formatTokenCount(totalTokens)} tokens${costLabel ? ` · ${costLabel}` : ''}</span>`;
 }
 
 function renderAgentRunList(agent) {
@@ -2193,7 +2219,9 @@ function formatBacktestRunLabel(run) {
         retLabel = `${sign}${pct.toFixed(2)}%`;
     }
     const when = run.created_at ? new Date(run.created_at).toLocaleString() : '';
-    return [dates || run.run_id, retLabel, when].filter(Boolean).join(' · ');
+    const cost = formatUsd(run.est_cost_usd);
+    const costLabel = cost && Number(run.est_cost_usd) > 0 ? `${cost}` : '';
+    return [dates || run.run_id, retLabel, costLabel, when].filter(Boolean).join(' · ');
 }
 
 function resolveSelectedExternalRun(externalRuns) {

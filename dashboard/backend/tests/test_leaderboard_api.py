@@ -96,8 +96,8 @@ def test_leaderboard_api_returns_baselines(client, monkeypatch):
     names = {e["team_name"] for e in body["entries"]}
     assert names == {"Agentic Trading Lab"}
     models = {e["model"] for e in body["entries"]}
-    assert "Dow Jones Industrial Average (DJIA)" in models
-    assert "S&P 500 (SPY)" in models
+    assert "DJIA" in models
+    assert "SPY" in models
     assert body["entries"][0]["rank"] == 1
     assert body["entries"][0]["entry_type"] == "baseline"
     assert "win_loss_ratio" not in body["entries"][0]

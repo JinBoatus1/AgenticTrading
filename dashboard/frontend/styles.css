@@ -2528,6 +2528,83 @@ body {
     margin-top: -2px;
 }
 
+/* Custom chart legend with line-style samples */
+.chart-legend-custom {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 6px 14px;
+    padding: 8px 6px 2px;
+}
+
+.chart-legend-custom .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1;
+    border-radius: 4px;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.chart-legend-custom .legend-item:hover {
+    background: rgba(148, 163, 184, 0.1);
+    color: var(--text-primary);
+}
+
+.chart-legend-custom .legend-sample {
+    flex: 0 0 auto;
+    display: block;
+}
+
+.chart-legend-custom .legend-item.legend-hidden {
+    opacity: 0.45;
+}
+
+.chart-legend-custom .legend-item.legend-hidden .legend-label {
+    text-decoration: line-through;
+}
+
+/* Table sort toggle */
+.sort-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.sort-toggle .sort-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-right: 2px;
+}
+
+.sort-btn {
+    background: var(--bg-secondary, rgba(148, 163, 184, 0.08));
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sort-btn:hover {
+    color: var(--text-primary);
+}
+
+.sort-btn.active {
+    background: var(--accent-color, #3b82f6);
+    border-color: var(--accent-color, #3b82f6);
+    color: #fff;
+}
+
 /* Leaderboard Bottom Section (Table + Sidebars) */
 .leaderboard-bottom {
     display: grid;
@@ -2663,7 +2740,8 @@ body {
 .leaderboard-table th.portfolio-col { width: 130px; text-align: right; }
 .leaderboard-table th.return-col { width: 130px; text-align: right; }
 .leaderboard-table th.sharpe-col { width: 100px; text-align: right; }
-.leaderboard-table th.wl-col { width: 100px; text-align: right; }
+.leaderboard-table th.dd-col { width: 100px; text-align: right; }
+.leaderboard-table th.ranks-col { width: 120px; text-align: center; }
 .leaderboard-table th.rank-badges-col { width: 120px; text-align: center; }
 .leaderboard-table th.final-score-col { width: 100px; text-align: right; }
 .leaderboard-table th.status-col { width: 80px; text-align: center; }

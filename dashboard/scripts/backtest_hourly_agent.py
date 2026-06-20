@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 from paths import CREDENTIALS_DIR
 from database import db
+import token_cost
 from baseline_generator import generate_baselines
 from llm_validator import create_safe_prompt, create_prompt, validate_llm_response, LLMTradingDecision, TOP_10_STOCKS
 
@@ -349,6 +350,10 @@ class PortfolioManager:
         self.entry_prices = {}  # {symbol: entry_price}
         self.trades = []
         self.equity_history = []
+        # Real LLM token usage (server-side calls report actual counts)
+        self.llm_calls = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
     
     def get_portfolio_state(self, market_data: Dict[str, pd.Series], price_cache: Dict = None, timestamp = None) -> Dict:
         """Get current portfolio state with market indicators.
@@ -626,7 +631,17 @@ Make precise, actionable trading decisions based on the technical indicators pro
             )
             
             llm_response = response.content[0].text
-            
+
+            # Record real token usage reported by the provider
+            try:
+                usage = getattr(response, "usage", None)
+                if usage is not None:
+                    self.input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
+                    self.output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+                self.llm_calls += 1
+            except Exception as usage_err:
+                print(f"   ⚠️  Could not read token usage: {usage_err}")
+
             # ================================================================
             # STEP 3: Parse and validate LLM response
             # ================================================================
@@ -1039,7 +1054,11 @@ class HourlyBacktester:
         initial_eq = equity_curve[0]["equity"] if equity_curve else INITIAL_CAPITAL
         final_eq = equity_curve[-1]["equity"] if equity_curve else INITIAL_CAPITAL
         total_return = (final_eq - INITIAL_CAPITAL) / INITIAL_CAPITAL
-        
+
+        est_cost = token_cost.estimate_cost_usd(
+            llm_model, manager.input_tokens, manager.output_tokens
+        )
+
         db.insert_run(
             run_id=run_id,
             session_id=self.session_id,
@@ -1053,7 +1072,11 @@ class HourlyBacktester:
             sharpe_ratio=self._calc_sharpe(equity_curve),
             max_drawdown=self._calc_max_dd(equity_curve),
             num_trades=len(manager.trades),
-            llm_model=llm_model  # Track which model was used
+            llm_model=llm_model,  # Track which model was used
+            llm_calls=manager.llm_calls,
+            input_tokens=manager.input_tokens,
+            output_tokens=manager.output_tokens,
+            est_cost_usd=est_cost,
         )
         
         db.insert_equity_points(run_id, equity_curve)
@@ -1063,6 +1086,7 @@ class HourlyBacktester:
         model_display = LLM_MODEL_NAME if llm_calls_count > 0 else "rule-based"
         print(f"     • Model: {model_display} (✅ LLM enabled)" if llm_calls_count > 0 else f"     • Model: {model_display} (❌ fallback)")
         print(f"     • LLM Calls: {llm_calls_count}")
+        print(f"     • Tokens: {manager.input_tokens:,} in / {manager.output_tokens:,} out (est. cost ${est_cost:.4f})")
         print(f"     • Trades: {len(manager.trades)}")
         print(f"     • Final: ${final_eq:,.0f}")
         print(f"     • Return: {total_return*100:+.2f}%\n")
