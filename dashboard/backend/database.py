@@ -56,6 +56,10 @@ class BacktestDatabase:
                 sharpe_ratio REAL,
                 max_drawdown REAL,
                 num_trades INTEGER DEFAULT 0,
+                llm_calls INTEGER DEFAULT 0,
+                input_tokens INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                est_cost_usd REAL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -202,6 +206,22 @@ class BacktestDatabase:
                 """)
                 conn.commit()
                 print("✅ Added baseline_buyhold_run_id to agent_runs")
+
+            # Token usage / cost tracking columns
+            token_columns = [
+                ("llm_calls", "INTEGER DEFAULT 0"),
+                ("input_tokens", "INTEGER DEFAULT 0"),
+                ("output_tokens", "INTEGER DEFAULT 0"),
+                ("est_cost_usd", "REAL DEFAULT 0"),
+            ]
+            for col_name, col_def in token_columns:
+                if col_name not in columns:
+                    print(f"🔄 Migrating: Adding {col_name} to agent_runs...")
+                    cursor.execute(
+                        f"ALTER TABLE agent_runs ADD COLUMN {col_name} {col_def}"
+                    )
+                    conn.commit()
+                    print(f"✅ Added {col_name} to agent_runs")
             
             if 'session_id' in columns and 'llm_model' in columns:
                 print("✅ Schema up-to-date (session_id, llm_model exist)")
@@ -288,8 +308,12 @@ class BacktestDatabase:
                    sharpe_ratio: Optional[float] = None,
                    max_drawdown: Optional[float] = None,
                    num_trades: int = 0,
-                   llm_model: str = "rule-based") -> None:
-        """Insert a new backtest run with session_id and LLM model tracking."""
+                   llm_model: str = "rule-based",
+                   llm_calls: int = 0,
+                   input_tokens: int = 0,
+                   output_tokens: int = 0,
+                   est_cost_usd: float = 0.0) -> None:
+        """Insert a new backtest run with session_id, LLM model and token-cost tracking."""
         conn = self._get_connection()
         cursor = conn.cursor()
         
@@ -297,11 +321,13 @@ class BacktestDatabase:
             INSERT OR REPLACE INTO agent_runs 
             (run_id, session_id, agent_name, mode, start_date, end_date, 
              initial_equity, final_equity, total_return, sharpe_ratio, 
-             max_drawdown, num_trades, llm_model)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             max_drawdown, num_trades, llm_model,
+             llm_calls, input_tokens, output_tokens, est_cost_usd)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (run_id, session_id, agent_name, mode, start_date, end_date,
               initial_equity, final_equity, total_return, sharpe_ratio,
-              max_drawdown, num_trades, llm_model))
+              max_drawdown, num_trades, llm_model,
+              llm_calls, input_tokens, output_tokens, est_cost_usd))
         
         conn.commit()
         conn.close()

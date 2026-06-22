@@ -1082,20 +1082,6 @@
 
     <!-- Competition -->
     <div id="competitionView" class="page-view competition-view" style="display: none;">
-        <div class="competition-season-header section-card compact">
-            <div class="competition-season-info">
-                <h2 class="page-title">SecureFinAI Contest 2026</h2>
-                <span class="status-badge live">Live</span>
-                <div class="competition-season-meta">
-                    <span>Sep 1 – Oct 30, 2026</span>
-                    <span>7 teams</span>
-                </div>
-            </div>
-            <div class="competition-season-actions">
-                <button id="competitionRulesBtn" class="agent-action-btn agent-action-secondary" type="button">Rules</button>
-                <a class="discord-nav-btn discord-nav-btn-sm" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Join Discord</a>
-            </div>
-        </div>
         <div class="subtab-bar competition-subtabs">
             <button class="subtab-btn active" data-competition-tab="leaderboard">Leaderboard</button>
             <button class="subtab-btn" data-competition-tab="participants">Participants</button>
@@ -1191,8 +1177,7 @@
                     <ul class="about-list">
                         <li>Cumulative return (rCR)</li>
                         <li>Sharpe ratio (rSR)</li>
-                        <li>Win/loss ratio (rWL)</li>
-                        <li>Final score = average of normalized ranks</li>
+                        <li>Final score = (rCR + rSR) / 2 (baselines omit W/L)</li>
                     </ul>
                 </div>
             </div>
@@ -1202,38 +1187,53 @@
     <!-- Leaderboard View (Competition / Leaderboard) -->
     <div id="leaderboardView" class="leaderboard-view competition-panel competition-leaderboard-panel" style="display: none;">
         <div class="leaderboard-container compact">
+            <!-- Contest identity (merged from former standalone banner) -->
+            <div class="leaderboard-contest-header">
+                <div class="contest-identity">
+                    <div class="contest-title-row">
+                        <h2 class="contest-title">SecureFinAI Contest 2026</h2>
+                        <span class="status-badge live contest-live-badge">Live</span>
+                    </div>
+                    <p class="contest-subtitle">Sep 1 – Oct 30, 2026 · 7 teams</p>
+                </div>
+                <div class="contest-actions">
+                    <button id="competitionRulesBtn" class="agent-action-btn agent-action-secondary contest-action-btn" type="button">Rules</button>
+                    <a class="discord-nav-btn discord-nav-btn-sm" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Join Discord</a>
+                </div>
+            </div>
             <!-- Combined Header with Stats + Controls -->
             <div class="leaderboard-header-bar compact">
                 <!-- Left: Stats -->
                 <div class="header-stats compact">
                     <div class="stat-item compact">
                         <span class="stat-label">Teams</span>
-                        <span class="stat-value" id="totalTeams">7</span>
+                        <span class="stat-value" id="totalTeams">—</span>
                     </div>
                     <div class="stat-item compact">
                         <span class="stat-label">Window</span>
-                        <span class="stat-value" id="tradingWindow">Sep 1 – Oct 30</span>
+                        <span class="stat-value" id="tradingWindow">—</span>
                     </div>
                     <div class="stat-item compact">
                         <span class="stat-label">Updated</span>
-                        <span class="stat-value" id="lastUpdate">Oct 30, 16:00 UTC</span>
+                        <span class="stat-value" id="lastUpdate">—</span>
                     </div>
                     <div class="stat-item compact">
                         <span class="stat-label">Leader</span>
-                        <span class="stat-value" id="leaderTeam">AlphaForge</span>
+                        <span class="stat-value" id="leaderTeam">—</span>
                     </div>
                 </div>
 
                 <!-- Right: Controls -->
                 <div class="header-controls compact">
                     <div class="filter-tabs compact">
-                        <button class="filter-tab compact active" data-filter="all">All Teams</button>
-                        <button class="filter-tab compact" data-filter="top10">Top 10</button>
+                        <button class="filter-tab compact active" data-filter="all">All</button>
+                        <button class="filter-tab compact" data-filter="teams">Teams</button>
+                        <button class="filter-tab compact" data-filter="baselines">Baselines</button>
                     </div>
 
                     <div class="view-toggle compact">
-                        <button class="view-toggle-btn compact active" data-view="cumulative">%</button>
-                        <button class="view-toggle-btn compact" data-view="absolute">$</button>
+                        <button class="view-toggle-btn compact" data-view="cumulative">%</button>
+                        <button class="view-toggle-btn compact active" data-view="absolute">$</button>
                     </div>
                 </div>
             </div>
@@ -1245,7 +1245,8 @@
                     <div class="chart-container medium">
                         <canvas id="equityCurvesChart"></canvas>
                     </div>
-                    <div class="chart-hint">Click legend to highlight teams • Hover for values</div>
+                    <div id="equityCurvesLegend" class="chart-legend-custom"></div>
+                    <div class="chart-hint">Click a legend item to show/hide a curve • Hover to emphasize • Click a row to select a team</div>
                 </section>
             </div>
 
@@ -1255,7 +1256,11 @@
                 <section class="leaderboard-table-section compact">
                     <div class="table-header compact">
                         <h3>Official Rankings</h3>
-                        <span class="update-indicator">Updates every 60s</span>
+                        <div class="sort-toggle compact">
+                            <span class="sort-label">Sort</span>
+                            <button class="sort-btn compact active" data-sort="return">Return</button>
+                            <button class="sort-btn compact" data-sort="sharpe">Sharpe</button>
+                        </div>
                     </div>
                     <div class="table-wrapper compact">
                         <table class="leaderboard-table compact">
@@ -1267,10 +1272,9 @@
                                     <th class="portfolio-col">Value</th>
                                     <th class="return-col">Return</th>
                                     <th class="sharpe-col">Sharpe</th>
-                                    <th class="wl-col">W/L</th>
+                                    <th class="dd-col">Max DD</th>
                                     <th class="ranks-col">Ranks</th>
                                     <th class="score-col">Score</th>
-                                    <th class="status-col">Status</th>
                                 </tr>
                             </thead>
                             <tbody id="leaderboardTableBody">
@@ -1286,11 +1290,11 @@
                     <div class="sidebar-card compact">
                         <h3 class="sidebar-title compact">Rules</h3>
                         <div class="ranking-formula compact">
-                            <p class="formula-compact">Final Score = (rCR + rSR + rWL) / 3</p>
+                            <p class="formula-compact">Final Score = (rCR + rSR) / 2</p>
                             <ul class="formula-items compact">
-                                <li>rCR = Return</li>
-                                <li>rSR = Sharpe</li>
-                                <li>rWL = W/L</li>
+                                <li>rCR = Return rank</li>
+                                <li>rSR = Sharpe rank</li>
+                                <li>Baselines: no W/L</li>
                             </ul>
                         </div>
                     </div>
@@ -1312,7 +1316,8 @@
     <script src="market-events/marketEventRelativeTime.js"></script>
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
-    <script src="app.js?v=3"></script>
+    <script src="app.js?v=5"></script>
+    <script src="js/leaderboard.js?v=10"></script>
     <script src="home-page.js"></script>
 </body>
 </html>

@@ -80,6 +80,12 @@ def _agent_with_stats(agent: Dict[str, Any]) -> Dict[str, Any]:
         key=lambda r: r.get("created_at") or "",
         reverse=True,
     )
+    result["total_llm_calls"] = sum(int(r.get("llm_calls") or 0) for r in ext_runs)
+    result["total_input_tokens"] = sum(int(r.get("input_tokens") or 0) for r in ext_runs)
+    result["total_output_tokens"] = sum(int(r.get("output_tokens") or 0) for r in ext_runs)
+    result["total_est_cost_usd"] = round(
+        sum(float(r.get("est_cost_usd") or 0) for r in ext_runs), 6
+    )
     return result
 
 

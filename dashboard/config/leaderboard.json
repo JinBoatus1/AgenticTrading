@@ -1,0 +1,49 @@
+{
+  "session_id": "leaderboard-contest",
+  "initial_capital": 100000,
+  "start_date": "2026-04-15",
+  "end_date": "2026-05-15",
+  "description": "One-month contest window (backtest data)",
+  "strategies": [
+    {
+      "id": "spy_index",
+      "name": "Agentic Trading Lab",
+      "label": "Index",
+      "model": "SPY",
+      "strategy": "market_index",
+      "symbols": ["^GSPC"]
+    },
+    {
+      "id": "djia_index",
+      "name": "Agentic Trading Lab",
+      "label": "Index",
+      "model": "DJIA",
+      "strategy": "market_index",
+      "symbols": ["^DJI"]
+    },
+    {
+      "id": "buy_hold_djia",
+      "name": "Agentic Trading Lab",
+      "label": "Strategy",
+      "model": "Buy & Hold",
+      "strategy": "equal_weight_buyhold",
+      "symbols": []
+    },
+    {
+      "id": "mean_variance_djia",
+      "name": "Agentic Trading Lab",
+      "label": "Strategy",
+      "model": "Mean-Variance",
+      "strategy": "mean_variance",
+      "symbols": []
+    },
+    {
+      "id": "equal_weight_djia",
+      "name": "Agentic Trading Lab",
+      "label": "Strategy",
+      "model": "Equal-Weight",
+      "strategy": "equal_weight_index",
+      "symbols": []
+    }
+  ]
+}
