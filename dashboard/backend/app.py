@@ -33,7 +33,7 @@ if __package__ in (None, ""):
 
 from dashboard.backend.database import db, DB_PATH
 from dashboard.backend.paths import CONFIG_DIR, DASHBOARD_DIR, FRONTEND_DIR, REPO_ROOT, SCRIPTS_DIR
-from dashboard.backend.market_data import get_market_quotes
+from dashboard.backend.infrastructure.market_data.quotes import get_market_quotes
 from dashboard.backend.middleware import SessionMiddleware, get_session_id_from_request
 from dashboard.backend.api.router import api_router
 from dashboard.backend.api.routers.paper_trading import router as paper_trading_router
