@@ -284,3 +284,20 @@ def test_canonical_routers_do_not_import_scripts():
 def test_market_router_uses_canonical_market_data():
     modules = _imported_modules(Path(market_canon.__file__))
     assert "dashboard.backend.infrastructure.market_data.quotes" in modules
+
+
+# ---------------------------------------------------------------------------
+# Composition root has no path manipulation (Phase 3D4B)
+# ---------------------------------------------------------------------------
+
+def test_app_has_no_sys_path_mutation():
+    src = _APP_FILE.read_text(encoding="utf-8")
+    assert "sys.path.insert" not in src
+    assert "sys.path.append" not in src
+
+
+def test_app_first_party_imports_are_canonical():
+    modules = _imported_modules(_APP_FILE)
+    first_party = {m for m in modules if "backend" in m or m.startswith("dashboard")}
+    for m in first_party:
+        assert m.startswith("dashboard.backend"), m

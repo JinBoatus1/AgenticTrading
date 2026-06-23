@@ -11,25 +11,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pathlib import Path
-import os
-
-# --- Deprecated direct-execution compatibility ---------------------------------
-# Canonical startup is:  uvicorn dashboard.backend.app:app
-# Running this file directly (``python dashboard/backend/app.py``) is a DEPRECATED
-# compatibility path. When executed as a script, Python puts ``dashboard/backend``
-# on ``sys.path`` (not the repo root), so the canonical ``dashboard.backend.*``
-# imports below would not resolve. Add the repo root to ``sys.path`` in that case
-# only. When imported as a package (``uvicorn dashboard.backend.app:app``), this
-# block is a no-op and there is no import-path side effect.
-if __package__ in (None, ""):
-    import sys as _sys
-
-    _REPO_ROOT = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    )
-    if _REPO_ROOT not in _sys.path:
-        _sys.path.insert(0, _REPO_ROOT)
-# -------------------------------------------------------------------------------
 
 from dashboard.backend.database import db, DB_PATH
 from dashboard.backend.paths import FRONTEND_DIR
