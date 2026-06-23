@@ -6,6 +6,7 @@ from api.auth import router as auth_router
 from api.external_backtest import router as external_backtest_router
 from api.health import router as health_router
 from api.leaderboard import router as leaderboard_router
+from api.v2.router import v2_router
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health_router)
@@ -14,3 +15,4 @@ api_router.include_router(algo_router)
 api_router.include_router(agents_router)
 api_router.include_router(external_backtest_router)
 api_router.include_router(leaderboard_router)
+api_router.include_router(v2_router)
