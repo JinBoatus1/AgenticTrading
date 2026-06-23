@@ -152,7 +152,7 @@ class BacktestDatabase:
                 idem_key TEXT NOT NULL,
                 ack_json TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (run_id, step_index, idem_key)
+                PRIMARY KEY (run_id, idem_key)
             )
         """)
 
@@ -263,7 +263,7 @@ class BacktestDatabase:
                     idem_key TEXT NOT NULL,
                     ack_json TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (run_id, step_index, idem_key)
+                    PRIMARY KEY (run_id, idem_key)
                 )
             """)
             cursor.execute("""
@@ -673,12 +673,19 @@ class BacktestDatabase:
 
     def get_idempotency(self, run_id: str, step_index: int,
                         idem_key: str) -> Optional[Dict[str, Any]]:
+        """Look up a stored ack by (run_id, idem_key).
+
+        The key scope is (run_id, idem_key), NOT the step: a client replaying a
+        submission after the run has advanced must still get its original ack.
+        step_index is accepted for call symmetry with put_idempotency but is not
+        part of the lookup key.
+        """
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("""
             SELECT ack_json FROM idempotency_keys
-            WHERE run_id = ? AND step_index = ? AND idem_key = ?
-        """, (run_id, step_index, idem_key))
+            WHERE run_id = ? AND idem_key = ?
+        """, (run_id, idem_key))
         row = cursor.fetchone()
         conn.close()
         return json.loads(row["ack_json"]) if row else None
