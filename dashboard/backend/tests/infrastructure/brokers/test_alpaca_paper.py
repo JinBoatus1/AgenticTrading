@@ -325,7 +325,11 @@ def test_app_uses_canonical_broker_adapter():
 
 
 def test_paper_baselines_uses_canonical_broker_adapter():
-    mods = _imported_modules(_BACKEND / "paper_baselines.py")
+    # Phase 3C5B: the calculator moved to the canonical baselines package, which
+    # is the real runtime consumer of the broker adapter.
+    mods = _imported_modules(
+        _BACKEND / "domain" / "backtesting" / "baselines" / "paper.py"
+    )
     assert "dashboard.backend.infrastructure.brokers.alpaca_paper" in mods
 
 

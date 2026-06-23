@@ -37,8 +37,8 @@ from dashboard.backend.market_data import get_market_quotes
 from dashboard.backend.middleware import SessionMiddleware, get_session_id_from_request
 from dashboard.backend.api.router import api_router
 from dashboard.backend.infrastructure.brokers.alpaca_paper import AlpacaPaperTradingClient
-from dashboard.backend.paper_trading import create_paper_trading_session
-from dashboard.backend.paper_baselines import create_paper_baselines_if_not_exists
+from dashboard.backend.domain.trading.paper_session import create_paper_trading_session
+from dashboard.backend.domain.backtesting.baselines.paper import create_paper_baselines_if_not_exists
 from dashboard.backend.baselines_endpoint import get_baselines_from_db
 from dashboard.backend.cache import paper_trading_cache, CACHE_KEY_ACCOUNT, CACHE_KEY_POSITIONS, CACHE_KEY_TRADES, CACHE_KEY_PORTFOLIO_HISTORY, CACHE_KEY_BASELINES, TTL_ACCOUNT, TTL_POSITIONS, TTL_TRADES, TTL_PORTFOLIO_HISTORY, TTL_BASELINES
 import pytz
