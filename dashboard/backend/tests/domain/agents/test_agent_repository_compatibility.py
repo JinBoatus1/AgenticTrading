@@ -22,9 +22,12 @@ SHIM_MODULES = {
 }
 
 # Runtime backend consumers that previously imported the flat shim modules.
+# The agent routers moved to the canonical ``api/routers`` package in Phase 3A3;
+# the old ``api/agents.py`` / ``api/agent_versions.py`` are now thin shims, so the
+# canonical router modules are the real domain consumers.
 CONSUMERS = [
-    _BACKEND / "api" / "agents.py",
-    _BACKEND / "api" / "agent_versions.py",
+    _BACKEND / "api" / "routers" / "agents.py",
+    _BACKEND / "api" / "routers" / "agent_versions.py",
     _BACKEND / "api" / "protocol_auth.py",
     _BACKEND / "api" / "runs.py",
     _BACKEND / "external_backtest_service.py",
