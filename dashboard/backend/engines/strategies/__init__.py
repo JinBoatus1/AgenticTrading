@@ -1,10 +1,14 @@
-"""Leaderboard baseline strategies — one strategy per module.
+"""Compatibility shim for the leaderboard baseline strategies package.
 
-Each strategy is independent; shared price/equity helpers live in ``_common``.
-Use ``get_strategy(config)`` to resolve a strategy from a config entry.
+The implementation moved (Phase 3C3) to
+``dashboard.backend.domain.leaderboard.strategies``. This package re-exports the
+public API so legacy imports keep working with identical class identity.
 """
 
-from .base import BaselineStrategy
-from .registry import available_strategies, get_strategy
+from dashboard.backend.domain.leaderboard.strategies import (
+    BaselineStrategy,
+    available_strategies,
+    get_strategy,
+)
 
 __all__ = ["BaselineStrategy", "get_strategy", "available_strategies"]

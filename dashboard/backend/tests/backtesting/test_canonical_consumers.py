@@ -50,13 +50,13 @@ def _import_isolated(module: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def test_leaderboard_baselines_does_not_load_legacy_script():
-    res = _import_isolated("dashboard.backend.engines.leaderboard_baselines")
+    res = _import_isolated("dashboard.backend.domain.leaderboard.baselines")
     assert res["flat"] is False
     assert res["canon"] is False
 
 
 def test_llm_agent_does_not_load_legacy_script():
-    res = _import_isolated("dashboard.backend.engines.strategies.llm_agent")
+    res = _import_isolated("dashboard.backend.domain.leaderboard.strategies.llm_agent")
     assert res["flat"] is False
     assert res["canon"] is False
 
@@ -93,7 +93,7 @@ def test_external_backtest_service_uses_canonical_symbols():
 
 
 def test_leaderboard_baselines_uses_canonical_symbols():
-    import dashboard.backend.engines.leaderboard_baselines as lb
+    import dashboard.backend.domain.leaderboard.baselines as lb
     from dashboard.backend.infrastructure.market_data.alpaca_bars import AlpacaDataLoader
     from dashboard.backend.domain.backtesting.metrics import (
         calculate_max_drawdown,
@@ -108,7 +108,7 @@ def test_leaderboard_baselines_uses_canonical_symbols():
 
 
 def test_llm_agent_uses_canonical_symbols():
-    import dashboard.backend.engines.strategies.llm_agent as la
+    import dashboard.backend.domain.leaderboard.strategies.llm_agent as la
     from dashboard.backend.domain.backtesting.features import TechnicalIndicators
     from dashboard.backend.domain.backtesting.portfolio_manager import PortfolioManager
     from dashboard.backend.infrastructure.llm.backtest_harness import (

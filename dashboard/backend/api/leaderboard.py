@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Query
 
-from services.leaderboard_service import get_leaderboard
+from dashboard.backend.domain.leaderboard.service import get_leaderboard
 
 router = APIRouter(prefix="/v1/leaderboard", tags=["leaderboard"])
 
