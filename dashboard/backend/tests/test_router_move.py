@@ -19,6 +19,7 @@ from dashboard.backend.api import algo as algo_shim
 from dashboard.backend.api import dependencies as deps
 from dashboard.backend.api import environments as environments_shim
 from dashboard.backend.api import external_backtest as external_backtest_shim
+from dashboard.backend.api import leaderboard as leaderboard_shim
 from dashboard.backend.api import protocol_auth
 from dashboard.backend.api import router as router_module
 from dashboard.backend.api import runs as runs_shim
@@ -27,6 +28,7 @@ from dashboard.backend.api.routers import agents as agents_canon
 from dashboard.backend.api.routers import algo as algo_canon
 from dashboard.backend.api.routers import environments as environments_canon
 from dashboard.backend.api.routers import external_backtest as external_backtest_canon
+from dashboard.backend.api.routers import leaderboard as leaderboard_canon
 from dashboard.backend.api.routers import runs as runs_canon
 from dashboard.backend.app import app
 
@@ -90,6 +92,10 @@ EXPECTED_ALGO_ROUTES = {
     ("POST", "/algo/execute", "algo_execute"),
     ("GET", "/algo/status", "algo_execution_status"),
     ("GET", "/algo/submissions", "list_submissions"),
+}
+
+EXPECTED_LEADERBOARD_ROUTES = {
+    ("GET", "/v1/leaderboard", "api_get_leaderboard"),
 }
 
 
@@ -175,6 +181,8 @@ def test_router_prefixes_and_tags_unchanged():
     assert external_backtest_canon.router.tags == ["external-backtest"]
     assert algo_canon.router.prefix == "/algo"
     assert algo_canon.router.tags == ["algo"]
+    assert leaderboard_canon.router.prefix == "/v1/leaderboard"
+    assert leaderboard_canon.router.tags == ["leaderboard"]
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +261,27 @@ def test_canonical_backtesting_routers_use_canonical_services():
     assert "dashboard.backend.domain.backtesting.algo_service" in algo_modules
 
 
+# ---------------------------------------------------------------------------
+# Leaderboard router move (Phase 3C4)
+# ---------------------------------------------------------------------------
+
+def test_leaderboard_canonical_module_imports():
+    assert leaderboard_canon.router.__class__.__name__ == "APIRouter"
+
+
+def test_leaderboard_shim_reexports_same_router_object():
+    assert leaderboard_shim.router is leaderboard_canon.router
+
+
+def test_leaderboard_router_route_contract_unchanged():
+    assert _route_triples(leaderboard_canon.router) == EXPECTED_LEADERBOARD_ROUTES
+
+
+def test_canonical_leaderboard_router_uses_canonical_service():
+    modules = _all_imported_modules(leaderboard_canon.__file__)
+    assert "dashboard.backend.domain.leaderboard.service" in modules
+
+
 def test_each_endpoint_registered_exactly_once_in_app():
     counts = {}
     for route in app.routes:
@@ -268,6 +297,7 @@ def test_each_endpoint_registered_exactly_once_in_app():
         EXPECTED_AGENT_ROUTES | EXPECTED_VERSION_ROUTES
         | EXPECTED_RUN_ROUTES | EXPECTED_ENV_ROUTES
         | EXPECTED_EXTERNAL_BACKTEST_ROUTES | EXPECTED_ALGO_ROUTES
+        | EXPECTED_LEADERBOARD_ROUTES
     )
     for method, path, _ in all_routes:
         expected_full.add((method, f"/api{path}"))
@@ -294,6 +324,7 @@ def test_router_py_uses_canonical_imports():
     assert "dashboard.backend.api.routers.environments" in modules
     assert "dashboard.backend.api.routers.external_backtest" in modules
     assert "dashboard.backend.api.routers.algo" in modules
+    assert "dashboard.backend.api.routers.leaderboard" in modules
     # Must not import the routers from the legacy shim locations.
     assert "dashboard.backend.api.agents" not in modules
     assert "dashboard.backend.api.agent_versions" not in modules
@@ -301,6 +332,7 @@ def test_router_py_uses_canonical_imports():
     assert "dashboard.backend.api.environments" not in modules
     assert "dashboard.backend.api.external_backtest" not in modules
     assert "dashboard.backend.api.algo" not in modules
+    assert "dashboard.backend.api.leaderboard" not in modules
 
 
 # ---------------------------------------------------------------------------
@@ -315,12 +347,14 @@ def test_no_circular_imports():
         "import dashboard.backend.api.routers.environments\n"
         "import dashboard.backend.api.routers.external_backtest\n"
         "import dashboard.backend.api.routers.algo\n"
+        "import dashboard.backend.api.routers.leaderboard\n"
         "import dashboard.backend.api.agents\n"
         "import dashboard.backend.api.agent_versions\n"
         "import dashboard.backend.api.runs\n"
         "import dashboard.backend.api.environments\n"
         "import dashboard.backend.api.external_backtest\n"
         "import dashboard.backend.api.algo\n"
+        "import dashboard.backend.api.leaderboard\n"
         "import dashboard.backend.api.router\n"
         "import dashboard.backend.api.protocol_auth\n"
         "print('ok')\n"

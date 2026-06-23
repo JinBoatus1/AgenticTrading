@@ -7,7 +7,7 @@ from dashboard.backend.api.auth import router as auth_router
 from dashboard.backend.api.routers.environments import router as environments_router
 from dashboard.backend.api.routers.external_backtest import router as external_backtest_router
 from dashboard.backend.api.health import router as health_router
-from dashboard.backend.api.leaderboard import router as leaderboard_router
+from dashboard.backend.api.routers.leaderboard import router as leaderboard_router
 from dashboard.backend.api.routers.runs import router as runs_router
 
 api_router = APIRouter(prefix="/api")

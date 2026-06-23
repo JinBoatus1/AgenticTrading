@@ -85,7 +85,9 @@ def test_canonical_package_does_not_import_api_or_scripts():
 
 
 def test_runtime_consumer_uses_canonical_import():
-    import dashboard.backend.api.leaderboard as api_lb
+    # Phase 3C4: the leaderboard router moved to the canonical routers package,
+    # which is the real runtime consumer of the leaderboard service.
+    import dashboard.backend.api.routers.leaderboard as api_lb
     mods = _imported_modules(api_lb.__file__)
     assert "dashboard.backend.domain.leaderboard.service" in mods
     assert "dashboard.backend.services.leaderboard_service" not in mods
