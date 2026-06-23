@@ -57,5 +57,5 @@ async def rotate_key(agent_id: str, agent: dict = Depends(require_scope("agents:
         raise ApiError("forbidden_scope", "Can only rotate your own key", status=403)
     new_key = agent_store.rotate_api_key(agent_id)
     if not new_key:
-        raise ApiError("run_not_found", "Agent not found", status=404)
+        raise ApiError("agent_not_found", "Agent not found", status=404)
     return {"agent_id": agent_id, "api_key": new_key}

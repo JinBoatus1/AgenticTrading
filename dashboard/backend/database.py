@@ -675,10 +675,16 @@ class BacktestDatabase:
                         idem_key: str) -> Optional[Dict[str, Any]]:
         """Look up a stored ack by (run_id, idem_key).
 
-        The key scope is (run_id, idem_key), NOT the step: a client replaying a
-        submission after the run has advanced must still get its original ack.
-        step_index is accepted for call symmetry with put_idempotency but is not
-        part of the lookup key.
+        The key scope is (run_id, idem_key), NOT the step. This realizes the spec
+        §5.2 *intent* — the idempotency_key enables "safe retries past the
+        step_already_closed race" — which per-step keying cannot provide: this
+        engine advances the step synchronously inside submit_decisions, so a retry
+        arriving after the advance would look up a later step and miss the record,
+        re-executing the decision. (The spec's §5.2 mechanism wording lists
+        step_index in the key; that contradicts its own stated intent for a
+        synchronous-advance engine.) step_index is accepted for call symmetry with
+        put_idempotency, where it is stored as audit metadata, but is not part of
+        the lookup key.
         """
         conn = self._get_connection()
         cursor = conn.cursor()
