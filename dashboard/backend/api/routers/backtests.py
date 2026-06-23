@@ -146,7 +146,6 @@ def run_backtest_background(start_date: str, end_date: str, session_id: str):
         print(f"🚀 Background: Running backtest: {start_date} to {end_date}", flush=True)
         print(f"   Session: {session_id[:8]}...", flush=True)
         
-        backend_dir = Path(__file__).parent.resolve()
         script_path = SCRIPTS_DIR / "backtest_hourly_agent.py"
         db_path = DB_PATH
         venv_dir = REPO_ROOT / ".venv"
