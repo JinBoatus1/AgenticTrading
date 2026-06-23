@@ -19,15 +19,16 @@ class FakeBackend(ExecutionBackend):
         self.step_index = 0
         self._status = "waiting_decision"
         self._executed_log: List[Dict[str, Any]] = []
+        self._decisions: List[Dict[str, Any]] = []
 
     def current_step_index(self) -> int:
         return self.step_index
 
     def build_context(self) -> Dict[str, Any]:
-        if self._status == "completed":
+        if self._status in ("completed", "closed"):
             return {
                 "schema_version": SCHEMA_VERSION, "run_id": self.run_id,
-                "mode": "backtest", "loop": self.loop, "status": "completed",
+                "mode": "backtest", "loop": self.loop, "status": self._status,
                 "step_index": self.step_index, "total_steps": self.total_steps,
                 "universe": list(UNIVERSE), "news_sentiment": {}, "news_overview": None,
             }
@@ -50,6 +51,11 @@ class FakeBackend(ExecutionBackend):
                      "shares": a.get("position_size", 0), "price": 100.0}
                     for a in actions if a.get("action") in ("buy", "sell")]
         self._executed_log.extend(executed)
+        self._decisions.append({
+            "step_index": self.step_index,
+            "decision_source": "external_agent",
+            "actions_executed": len(executed),
+        })
         self.step_index += 1
         if self.step_index >= self.total_steps:
             self._status = "completed"
@@ -84,6 +90,9 @@ class FakeBackend(ExecutionBackend):
                          "end_date": "2026-04-16", "decision_timeout_seconds": 30,
                          "schema_version": SCHEMA_VERSION, "news_sentiment_source": None},
         }
+
+    def decisions(self) -> List[Dict[str, Any]]:
+        return self._decisions
 
     def cancel(self) -> None:
         self._status = "closed"

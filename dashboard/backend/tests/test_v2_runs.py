@@ -35,4 +35,5 @@ def test_wrong_session_cannot_read_run():
     from api.v2.errors import ApiError
     with pytest.raises(ApiError) as exc:
         runs_mod._context_for("run_unit_2", "intruder")
-    assert exc.value.status in (403, 404)
+    assert exc.value.status == 404
+    assert exc.value.code == "run_not_found"

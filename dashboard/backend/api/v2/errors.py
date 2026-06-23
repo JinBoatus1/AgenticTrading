@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from fastapi import Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 ERROR_CODES = [
@@ -40,3 +42,19 @@ async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
     if exc.code == "rate_limited" and exc.details and "retry_after" in exc.details:
         headers["Retry-After"] = str(exc.details["retry_after"])
     return JSONResponse(status_code=exc.status, content=exc.to_envelope(), headers=headers)
+
+
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Render request-body validation errors through the uniform envelope (spec §5.4).
+
+    Scoped to /api/v2 so the legacy v1 surface keeps FastAPI's default {"detail": ...}.
+    """
+    errors = jsonable_encoder(exc.errors())
+    if request.url.path.startswith("/api/v2"):
+        return JSONResponse(status_code=422, content={"error": {
+            "code": "validation_failed",
+            "message": "Request validation failed",
+            "details": {"errors": errors},
+            "retryable": False,
+        }})
+    return JSONResponse(status_code=422, content={"detail": errors})

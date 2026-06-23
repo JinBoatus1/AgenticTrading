@@ -27,6 +27,10 @@ class ExecutionBackend(ABC):
     def result(self) -> Optional[Dict[str, Any]]:
         """Return a ResultEnvelope-shaped dict, or None if not finalized."""
 
+    def decisions(self) -> List[Dict[str, Any]]:
+        """Per-decision log for this run (empty if the backend keeps none)."""
+        return []
+
     def advance(self) -> None:
         """Lockstep stepping hook. Realtime backends are wall-clock driven (no-op)."""
         return None

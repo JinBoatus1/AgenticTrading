@@ -150,8 +150,7 @@ async def get_result(run_id: str, agent: dict = Depends(require_scope("runs:read
 @router.get("/{run_id}/decisions")
 async def decisions_log(run_id: str, agent: dict = Depends(require_scope("runs:read"))):
     backend = _require_run(run_id, agent["session_id"])
-    return {"run_id": run_id, "decisions": backend.session.get_decisions()
-            if hasattr(backend, "session") else []}
+    return {"run_id": run_id, "decisions": backend.decisions()}
 
 
 @router.post("/{run_id}/cancel")

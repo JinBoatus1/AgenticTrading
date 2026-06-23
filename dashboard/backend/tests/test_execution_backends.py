@@ -76,3 +76,69 @@ def test_backtest_backend_emits_typed_context(monkeypatch):
     ])
     SubmitAck.model_validate(ack)
     assert ack["accepted"] is True
+
+
+def test_news_sentiment_fail_closed_when_loader_raises(monkeypatch):
+    # Plan 1 adapter exists but throws at call time → still fail-closed.
+    import types
+
+    fake = types.ModuleType("integrations.news_sentiment")
+
+    def _boom(universe, timestamp):
+        raise RuntimeError("news service down")
+
+    fake.get_news_sentiment = _boom
+    monkeypatch.setitem(sys.modules, "integrations.news_sentiment", fake)
+
+    sentiment, overview = load_news_sentiment(["AAPL"], "2026-04-15T10:30:00+00:00")
+    assert sentiment == {} and overview is None
+
+
+def test_apply_decisions_splits_valid_and_invalid_actions():
+    # Schema-invalid actions are dropped with a reason; valid ones execute.
+    backend = BacktestBackend.__new__(BacktestBackend)
+    backend.run_id = "run_split"
+
+    class _StubSession:
+        step_index = 1
+        status = "waiting_decision"
+
+        def submit_decisions(self, payload):
+            executed = [{"action": a["action"], "symbol": a["symbol"],
+                         "shares": a["position_size"]} for a in payload["actions"]]
+            return {"accepted": True, "executed": executed,
+                    "decision_source": "external_agent", "next_step": 1,
+                    "status": "waiting_decision", "metrics": None}
+
+    backend.session = _StubSession()
+    ack = backend.apply_decisions([
+        {"action": "buy", "symbol": "AAPL", "confidence": 0.7,
+         "reasoning": "valid action here", "position_size": 3},
+        {"action": "buy", "symbol": "ZZZ", "confidence": 0.7,
+         "reasoning": "bad symbol here", "position_size": 3},
+    ])
+    SubmitAck.model_validate(ack)
+    assert any(e["symbol"] == "AAPL" for e in ack["executed"])
+    assert any(r["reason"] == "universe_violation" for r in ack["rejected"])
+
+
+def test_cancel_makes_context_report_closed(monkeypatch):
+    symbols = ["AAPL", "MSFT", "JPM"]
+
+    class _Loader:
+        def fetch_bars(self, syms, start, end):
+            return _synthetic_bars(symbols)
+
+    monkeypatch.setattr(bb_mod.bha, "AlpacaDataLoader", lambda: _Loader())
+    monkeypatch.setattr(bb_mod, "DJIA_30", symbols, raising=False)
+
+    backend = BacktestBackend(
+        run_id="run_closed_1", session_id="sess_c", agent_name="a",
+        model_name="m", start_date="2026-04-15", end_date="2026-04-16",
+    )
+    backend.load_blocking()
+    backend.cancel()
+
+    ctx = backend.build_context()
+    assert ctx["status"] == "closed"
+    ContextEnvelope.model_validate(ctx)

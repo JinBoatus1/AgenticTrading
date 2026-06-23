@@ -320,6 +320,16 @@ class ExternalBacktestSession:
                     "session_id": self.session_id,
                 }
 
+            if self.status == "closed":
+                return {
+                    "status": "closed",
+                    "backtest_id": self.backtest_id,
+                    "run_id": self.run_id,
+                    "step_index": self.step_index,
+                    "total_steps": self.total_steps,
+                    "session_id": self.session_id,
+                }
+
             timestamp = self.timestamps[self.step_index]
             market_data = self._market_data_at(timestamp)
             state = self.manager.get_portfolio_state(

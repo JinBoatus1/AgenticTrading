@@ -70,8 +70,12 @@ class BacktestBackend(ExecutionBackend):
             try:
                 self.session.load_market_data()
             except Exception as exc:  # mirror v1 start_backtest behavior
-                self.session.status = "failed"
-                self.session.error = str(exc)
+                # Take the session lock: HTTP readers inspect status/error under
+                # the same lock (get_current_step/get_status), so the writer must
+                # hold it too to avoid a data race on these fields.
+                with self.session._step_lock:
+                    self.session.status = "failed"
+                    self.session.error = str(exc)
 
         self.session.status = "loading"
         threading.Thread(target=_load, daemon=True).start()
@@ -155,6 +159,9 @@ class BacktestBackend(ExecutionBackend):
             "run_id": self.run_id,
             "metrics": result.get("metrics"),
         }
+
+    def decisions(self) -> List[Dict[str, Any]]:
+        return self.session.get_decisions()
 
     def advance(self) -> None:
         # Lockstep engine advances inside submit; this only applies a pending timeout.
