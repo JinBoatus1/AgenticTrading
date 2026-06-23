@@ -91,6 +91,14 @@ from dashboard.backend.domain.trading.portfolio import (
     get_equity_curve as _get_equity_curve,
 )
 
+# Phase 2B3 extraction: in-memory order execution / trade mutation now lives in
+# dashboard.backend.domain.trading.execution. PortfolioManager.execute_actions
+# stays defined below but delegates to this helper; imported privately because
+# the script's public compatibility surface is unchanged.
+from dashboard.backend.domain.trading.execution import (
+    execute_actions as _execute_actions,
+)
+
 # ============================================================================
 # DJIA 30 Stocks
 # ============================================================================
@@ -602,52 +610,15 @@ Make precise, actionable trading decisions based on the technical indicators pro
     
     def execute_actions(self, actions: List[Dict], market_data: Dict, timestamp: datetime):
         """Execute trading decisions."""
-        for action in actions:
-            symbol = action.get("symbol")
-            action_type = action.get("action")
-            shares = action.get("shares", 0)
-            reason = action.get("reason", "")
-            
-            if symbol not in market_data:
-                continue
-            
-            price = market_data[symbol]["close"]
-            
-            if action_type == "buy":
-                cost = shares * price
-                if cost <= self.cash and shares > 0:
-                    self.cash -= cost
-                    self.positions[symbol] = self.positions.get(symbol, 0) + shares
-                    self.entry_prices[symbol] = price
-                    self.trades.append({
-                        "timestamp": timestamp,
-                        "symbol": symbol,
-                        "side": "BUY",
-                        "shares": shares,
-                        "price": price,
-                        "cost": cost,
-                        "reason": reason
-                    })
-            
-            elif action_type == "sell":
-                if symbol in self.positions and self.positions[symbol] > 0:
-                    sell_shares = min(shares, self.positions[symbol])
-                    proceeds = sell_shares * price
-                    self.cash += proceeds
-                    self.positions[symbol] -= sell_shares
-                    if self.positions[symbol] == 0:
-                        del self.positions[symbol]
-                        if symbol in self.entry_prices:
-                            del self.entry_prices[symbol]
-                    self.trades.append({
-                        "timestamp": timestamp,
-                        "symbol": symbol,
-                        "side": "SELL",
-                        "shares": sell_shares,
-                        "price": price,
-                        "proceeds": proceeds,
-                        "reason": reason
-                    })
+        self.cash = _execute_actions(
+            actions=actions,
+            market_data=market_data,
+            timestamp=timestamp,
+            cash=self.cash,
+            positions=self.positions,
+            entry_prices=self.entry_prices,
+            trades=self.trades,
+        )
     
     def update_equity(self, market_data: Dict, price_cache: Dict = None, timestamp = None):
         """Update equity snapshot using real data or forward-filled prices.
