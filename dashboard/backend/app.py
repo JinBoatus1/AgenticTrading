@@ -12,15 +12,35 @@ from pydantic import BaseModel
 from datetime import datetime
 import json
 import os
-from database import db, DB_PATH
-from paths import CONFIG_DIR, DASHBOARD_DIR, FRONTEND_DIR, REPO_ROOT, SCRIPTS_DIR
-from market_data import get_market_quotes
-from middleware import SessionMiddleware, get_session_id_from_request
-from api.router import api_router
-from paper_trading import AlpacaPaperTradingClient, create_paper_trading_session
-from paper_baselines import create_paper_baselines_if_not_exists
-from baselines_endpoint import get_baselines_from_db
-from cache import paper_trading_cache, CACHE_KEY_ACCOUNT, CACHE_KEY_POSITIONS, CACHE_KEY_TRADES, CACHE_KEY_PORTFOLIO_HISTORY, CACHE_KEY_BASELINES, TTL_ACCOUNT, TTL_POSITIONS, TTL_TRADES, TTL_PORTFOLIO_HISTORY, TTL_BASELINES
+
+# --- Deprecated direct-execution compatibility ---------------------------------
+# Canonical startup is:  uvicorn dashboard.backend.app:app
+# Running this file directly (``python dashboard/backend/app.py``) is a DEPRECATED
+# compatibility path. When executed as a script, Python puts ``dashboard/backend``
+# on ``sys.path`` (not the repo root), so the canonical ``dashboard.backend.*``
+# imports below would not resolve. Add the repo root to ``sys.path`` in that case
+# only. When imported as a package (``uvicorn dashboard.backend.app:app``), this
+# block is a no-op and there is no import-path side effect.
+if __package__ in (None, ""):
+    import sys as _sys
+
+    _REPO_ROOT = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
+    if _REPO_ROOT not in _sys.path:
+        _sys.path.insert(0, _REPO_ROOT)
+# -------------------------------------------------------------------------------
+
+from dashboard.backend.database import db, DB_PATH
+from dashboard.backend.paths import CONFIG_DIR, DASHBOARD_DIR, FRONTEND_DIR, REPO_ROOT, SCRIPTS_DIR
+from dashboard.backend.market_data import get_market_quotes
+from dashboard.backend.middleware import SessionMiddleware, get_session_id_from_request
+from dashboard.backend.api.router import api_router
+from dashboard.backend.infrastructure.brokers.alpaca_paper import AlpacaPaperTradingClient
+from dashboard.backend.paper_trading import create_paper_trading_session
+from dashboard.backend.paper_baselines import create_paper_baselines_if_not_exists
+from dashboard.backend.baselines_endpoint import get_baselines_from_db
+from dashboard.backend.cache import paper_trading_cache, CACHE_KEY_ACCOUNT, CACHE_KEY_POSITIONS, CACHE_KEY_TRADES, CACHE_KEY_PORTFOLIO_HISTORY, CACHE_KEY_BASELINES, TTL_ACCOUNT, TTL_POSITIONS, TTL_TRADES, TTL_PORTFOLIO_HISTORY, TTL_BASELINES
 import pytz
 
 # Load .env from project root (ANTHROPIC_API_KEY, ALPACA_*)
@@ -1133,5 +1153,8 @@ async def serve_image(file_name: str):
 # ============================================================================
 
 if __name__ == "__main__":
+    # Canonical startup is ``uvicorn dashboard.backend.app:app``. This direct
+    # invocation is a deprecated compatibility path; reference the app by its
+    # canonical import string so the reloader resolves the same module identity.
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("dashboard.backend.app:app", host="0.0.0.0", port=8000, reload=True)

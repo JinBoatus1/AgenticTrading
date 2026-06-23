@@ -11,11 +11,10 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 import sys
 
-from paths import CREDENTIALS_DIR
+from dashboard.backend.paths import CREDENTIALS_DIR
 
-sys.path.insert(0, str(Path(__file__).parent))
-from database import db
-from paper_trading import AlpacaPaperTradingClient
+from dashboard.backend.database import db
+from dashboard.backend.infrastructure.brokers.alpaca_paper import AlpacaPaperTradingClient
 
 
 DJIA_SYMBOLS = [
