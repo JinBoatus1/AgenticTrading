@@ -9,10 +9,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from app import app
-from users import UserStore
+from dashboard.backend.app import app
+from dashboard.backend.users import UserStore
 
 
 @pytest.fixture
@@ -24,7 +22,7 @@ def temp_user_store():
 
 @pytest.fixture
 def client(temp_user_store, monkeypatch):
-    import users as users_module
+    import dashboard.backend.users as users_module
 
     monkeypatch.setattr(users_module, "user_store", temp_user_store)
     return TestClient(app)

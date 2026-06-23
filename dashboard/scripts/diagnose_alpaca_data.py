@@ -11,8 +11,12 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import sys
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
-from paths import CREDENTIALS_DIR
+# Direct-execution bootstrap: make the repo root importable so canonical
+# `dashboard.backend.*` imports resolve (no-op when run as part of the package).
+from _bootstrap import ensure_repo_root
+
+ensure_repo_root()
+from dashboard.backend.paths import CREDENTIALS_DIR
 
 # Load credentials
 creds_path = CREDENTIALS_DIR / "alpaca.json"

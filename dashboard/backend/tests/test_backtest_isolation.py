@@ -9,11 +9,9 @@ import sys
 from pathlib import Path
 
 # Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from fastapi.testclient import TestClient
-from app import app
-from database import BacktestDatabase
+from dashboard.backend.app import app
+from dashboard.backend.database import BacktestDatabase
 import uuid
 
 @pytest.fixture
@@ -29,8 +27,8 @@ def temp_db():
 def client(temp_db, monkeypatch):
     """Test client with temporary database."""
     # Patch the database module to use temp DB
-    import app as app_module
-    import database as db_module
+    import dashboard.backend.app as app_module
+    import dashboard.backend.database as db_module
     
     monkeypatch.setattr(app_module, "db", temp_db)
     monkeypatch.setattr(db_module, "db", temp_db)

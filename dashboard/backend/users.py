@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 
 import bcrypt
 
-from database import DB_PATH
+from dashboard.backend.database import DB_PATH
 
 SESSION_TTL_DAYS = 7
 BCRYPT_ROUNDS = 12

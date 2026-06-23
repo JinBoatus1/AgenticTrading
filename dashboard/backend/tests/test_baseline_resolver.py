@@ -3,9 +3,7 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from baseline_resolver import resolve_baselines_for_run
+from dashboard.backend.baseline_resolver import resolve_baselines_for_run
 
 
 def test_resolve_baselines_uses_persisted_ids():

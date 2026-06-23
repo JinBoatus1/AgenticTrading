@@ -13,7 +13,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 
-from paths import DEFAULT_DB_PATH
+from dashboard.backend.paths import DEFAULT_DB_PATH
 
 # Use persistent disk path if set (Render), otherwise local dashboard storage path
 DB_PATH = Path(os.getenv("DATABASE_PATH", str(DEFAULT_DB_PATH)))

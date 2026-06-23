@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from users import public_user, user_store
+from dashboard.backend.users import public_user, user_store
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

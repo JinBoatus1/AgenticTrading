@@ -3,7 +3,7 @@ Baselines endpoint logic - fetch from backtest runs or database.
 Uses same data source as backtesting for consistency.
 """
 
-from database import db
+from dashboard.backend.database import db
 from typing import Dict
 
 
