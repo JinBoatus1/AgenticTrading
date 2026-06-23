@@ -72,3 +72,21 @@ def test_require_scope_rejects_bad_scope(tmp_path, monkeypatch):
         dep(x_api_key=created["api_key"])
     assert exc.value.status == 403
     assert exc.value.code == "forbidden_scope"
+
+
+from rate_limit import TokenBucketLimiter  # noqa: E402
+
+
+def test_rate_limiter_allows_then_blocks():
+    limiter = TokenBucketLimiter(per_minute=3, burst=3)
+    results = [limiter.check("agent-1") for _ in range(4)]
+    assert [r["allowed"] for r in results] == [True, True, True, False]
+    assert results[-1]["remaining"] == 0
+    assert results[-1]["retry_after"] >= 1
+
+
+def test_rate_limiter_is_per_agent():
+    limiter = TokenBucketLimiter(per_minute=1, burst=1)
+    assert limiter.check("agent-a")["allowed"] is True
+    assert limiter.check("agent-b")["allowed"] is True  # separate bucket
+    assert limiter.check("agent-a")["allowed"] is False
