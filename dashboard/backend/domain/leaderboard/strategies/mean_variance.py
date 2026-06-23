@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 import numpy as np
 import pandas as pd
 
-from dashboard.backend.llm_validator import DJIA_30
+from dashboard.backend.infrastructure.llm.validator import DJIA_30
 
 from .base import BaselineStrategy
 from ._common import (

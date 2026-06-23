@@ -26,7 +26,7 @@ from dashboard.backend.domain.backtesting.external_run_service import (
     submit_decisions,
     verify_session,
 )
-from dashboard.backend.llm_validator import DJIA_30
+from dashboard.backend.infrastructure.llm.validator import DJIA_30
 
 router = APIRouter(prefix="/v1/backtest", tags=["external-backtest"])
 

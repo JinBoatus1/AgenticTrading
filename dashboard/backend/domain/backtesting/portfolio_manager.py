@@ -21,7 +21,7 @@ from typing import Dict, List
 
 import pandas as pd
 
-from dashboard.backend.llm_validator import DJIA_30, create_prompt
+from dashboard.backend.infrastructure.llm.validator import DJIA_30, create_prompt
 from dashboard.backend.domain.trading.portfolio import (
     append_equity_record as _append_equity_record,
     build_portfolio_state as _build_portfolio_state,

@@ -23,10 +23,10 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 import pytz
 
-import dashboard.backend.token_cost as token_cost
+import dashboard.backend.infrastructure.llm.token_cost as token_cost
 from dashboard.backend.domain.agents.repository import agent_store
 from dashboard.backend.database import db
-from dashboard.backend.llm_validator import (
+from dashboard.backend.infrastructure.llm.validator import (
     DJIA_30,
     actions_to_executable,
     parse_actions_payload,

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from dashboard.backend.llm_validator import DJIA_30
+from dashboard.backend.infrastructure.llm.validator import DJIA_30
 
 ENVIRONMENTS: Dict[str, Dict[str, Any]] = {
     "us-equity-hourly-v1": {

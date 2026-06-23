@@ -18,7 +18,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
-from dashboard.backend.llm_validator import DJIA_30
+from dashboard.backend.infrastructure.llm.validator import DJIA_30
 from dashboard.backend.domain.backtesting.features import TechnicalIndicators
 from dashboard.backend.domain.backtesting.portfolio_manager import PortfolioManager
 from dashboard.backend.infrastructure.llm.backtest_harness import (

@@ -14,7 +14,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import dashboard.backend.token_cost as token_cost
+import dashboard.backend.infrastructure.llm.token_cost as token_cost
 from dashboard.backend.database import db
 from dashboard.backend.domain.leaderboard.baselines import (
     INITIAL_CAPITAL,

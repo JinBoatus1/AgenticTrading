@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 import dashboard.backend.domain.backtesting.external_run_service as ebs
 from dashboard.backend.database import db
 from dashboard.backend.domain.runs.environment import get_environment
-from dashboard.backend.llm_validator import DJIA_30
+from dashboard.backend.infrastructure.llm.validator import DJIA_30
 from dashboard.backend.domain.runs.protocol import (
     PROTOCOL_VERSION,
     VALID_SIDES,

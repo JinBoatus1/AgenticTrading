@@ -20,9 +20,9 @@ from datetime import datetime
 from typing import Dict, List, Tuple
 
 from dashboard.backend.database import db
-import dashboard.backend.token_cost as token_cost
+import dashboard.backend.infrastructure.llm.token_cost as token_cost
 from dashboard.backend.baseline_generator import generate_baselines
-from dashboard.backend.llm_validator import DJIA_30, TOP_10_STOCKS as TOP_10
+from dashboard.backend.infrastructure.llm.validator import DJIA_30, TOP_10_STOCKS as TOP_10
 from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
 from dashboard.backend.domain.backtesting.features import TechnicalIndicators
 from dashboard.backend.domain.backtesting.metrics import (
