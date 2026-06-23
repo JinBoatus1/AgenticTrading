@@ -29,14 +29,25 @@ import numpy as np
 import pandas as pd
 import requests
 
-# Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
+# Bootstrap for non-package execution contexts: when this module is run directly
+# as a file (``python dashboard/scripts/backtest_hourly_agent.py``) or imported
+# flat by the backend (``import backtest_hourly_agent`` after the backend adds
+# SCRIPTS_DIR to the import path), the repository root is not necessarily
+# importable, so the canonical ``dashboard.backend.*`` imports below would fail.
+# In those cases
+# ``__package__`` is empty and we use the shared script bootstrap helper. When
+# this module is imported as ``dashboard.scripts.backtest_hourly_agent`` the repo
+# root is already importable and no bootstrap (or extra sys.path entry) is needed.
+if not __package__:
+    from _bootstrap import ensure_repo_root
 
-from paths import CREDENTIALS_DIR
-from database import db
-import token_cost
-from baseline_generator import generate_baselines
-from llm_validator import create_safe_prompt, create_prompt, validate_llm_response, LLMTradingDecision, TOP_10_STOCKS
+    ensure_repo_root()
+
+from dashboard.backend.paths import CREDENTIALS_DIR
+from dashboard.backend.database import db
+import dashboard.backend.token_cost as token_cost
+from dashboard.backend.baseline_generator import generate_baselines
+from dashboard.backend.llm_validator import create_safe_prompt, create_prompt, validate_llm_response, LLMTradingDecision, TOP_10_STOCKS
 
 # Optional: LLM integration
 try:
@@ -54,6 +65,20 @@ except ImportError:
     import subprocess
     subprocess.check_call(["pip", "install", "pandas_ta"])
     import pandas_ta as ta
+
+# ---------------------------------------------------------------------------
+# Phase 2A extraction: the implementations below now live under the canonical
+# dashboard.backend.* packages and are re-exported here so this script's public
+# compatibility surface (and the three backend callers that import this module)
+# stays unchanged. pandas_ta is imported above first so the features module can
+# rely on it being available.
+# ---------------------------------------------------------------------------
+from dashboard.backend.domain.backtesting.features import TechnicalIndicators
+from dashboard.backend.domain.backtesting.metrics import (
+    calculate_sharpe,
+    calculate_max_drawdown,
+)
+from dashboard.backend.infrastructure.llm.decision_parsing import fix_json_formatting
 
 # ============================================================================
 # DJIA 30 Stocks
@@ -74,37 +99,8 @@ TOP_10 = TOP_10_STOCKS  # Import from llm_validator to keep them in sync
 # ============================================================================
 # JSON Parsing Utilities
 # ============================================================================
-
-def fix_json_formatting(json_str: str) -> str:
-    """
-    Try to fix common JSON formatting issues from LLM responses.
-    
-    Fixes:
-    - Missing commas between objects in arrays
-    - Trailing commas
-    - Extra closing brackets
-    """
-    # Fix 1: Add missing commas between objects in arrays (most common issue)
-    # Pattern: } followed by newline(s) and whitespace and {  
-    # This handles: }
-    #             {
-    json_str = re.sub(r'(\})\s*\n\s*(\{)', r'\1,\n\2', json_str)
-    
-    # Fix 1b: Also handle } with no space then {
-    json_str = re.sub(r'(\})(\{)', r'\1,\2', json_str)
-    
-    # Fix 2: Remove trailing commas before closing brackets
-    # Pattern: , followed by optional whitespace and ] or }
-    json_str = re.sub(r',(\s*[\]}])', r'\1', json_str)
-    
-    # Fix 3: Remove multiple closing brackets (sometimes LLM adds extra ones)
-    # Pattern: ]]}  should be ]
-    json_str = re.sub(r'\]\s*\}\s*\]', ']', json_str)
-    
-    # Fix 4: Fix }] at the end - should just be ]
-    json_str = re.sub(r'\}\s*\]\s*$', ']', json_str)
-    
-    return json_str
+# `fix_json_formatting` now lives in
+# dashboard.backend.infrastructure.llm.decision_parsing and is re-exported above.
 
 
 # ============================================================================
@@ -228,112 +224,8 @@ class AlpacaDataLoader:
 # ============================================================================
 # Technical Indicators
 # ============================================================================
-
-class TechnicalIndicators:
-    """Calculates technical indicators for trading signals."""
-    
-    @staticmethod
-    def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Calculate technical indicators.
-        
-        Indicators:
-        - RSI (14-period)
-        - MACD (12/26/9)
-        - Bollinger Bands (20/2)
-        - SMA (20 & 50-period)
-        
-        IMPORTANT: Requires minimum 50 bars for reliable signals.
-        Backtests shorter than 1 month will have unreliable indicators.
-        """
-        if df is None or df.empty:
-            print(f"Warning: Empty or None dataframe, skipping indicators")
-            return df
-        
-        df = df.copy()
-        
-        # Check if we have enough data for indicators
-        min_required = 50  # Need at least 50 bars for SMA50
-        if len(df) < min_required:
-            print(f"\n⚠️  DATA WARNING: Only {len(df)} bars, need {min_required}!")
-            print(f"   Indicators will be unreliable. Backtest needs at least 1 month of data.")
-            print(f"   Recommended: 3+ months for meaningful results.\n")
-            # Still calculate what we can
-        
-        try:
-            # RSI (14-period requires 14+ bars)
-            if len(df) >= 14:
-                rsi = ta.rsi(df["close"], length=14)
-                if rsi is not None:
-                    df["rsi_14"] = rsi
-                else:
-                    df["rsi_14"] = 50.0  # Default neutral RSI
-            else:
-                df["rsi_14"] = 50.0  # Not enough data
-            
-            # MACD (26-period required)
-            if len(df) >= 26:
-                macd = ta.macd(df["close"], fast=12, slow=26, signal=9)
-                if macd is not None and isinstance(macd, pd.DataFrame):
-                    macd_cols = [c for c in macd.columns if "MACD_12_26_9" in c]
-                    signal_cols = [c for c in macd.columns if "MACDs_12_26_9" in c]
-                    if macd_cols:
-                        df["macd"] = macd[macd_cols[0]]
-                    else:
-                        df["macd"] = 0.0
-                    if signal_cols:
-                        df["macd_signal"] = macd[signal_cols[0]]
-                    else:
-                        df["macd_signal"] = 0.0
-                else:
-                    df["macd"] = 0.0
-                    df["macd_signal"] = 0.0
-            else:
-                df["macd"] = 0.0
-                df["macd_signal"] = 0.0
-            
-            # Bollinger Bands (20-period required)
-            if len(df) >= 20:
-                bbands = ta.bbands(df["close"], length=20, std=2)
-                if bbands is not None and isinstance(bbands, pd.DataFrame):
-                    bbu_cols = [c for c in bbands.columns if "BBU" in c]
-                    bbl_cols = [c for c in bbands.columns if "BBL" in c]
-                    if bbu_cols:
-                        df["bb_upper"] = bbands[bbu_cols[0]]
-                    else:
-                        df["bb_upper"] = df["close"].max()
-                    if bbl_cols:
-                        df["bb_lower"] = bbands[bbl_cols[0]]
-                    else:
-                        df["bb_lower"] = df["close"].min()
-                else:
-                    df["bb_upper"] = df["close"].max()
-                    df["bb_lower"] = df["close"].min()
-            else:
-                df["bb_upper"] = df["close"].max()
-                df["bb_lower"] = df["close"].min()
-            
-            # SMAs
-            if len(df) >= 20:
-                sma20 = ta.sma(df["close"], length=20)
-                df["sma20"] = sma20 if sma20 is not None else df["close"].mean()
-            else:
-                df["sma20"] = df["close"].mean()
-            
-            if len(df) >= 50:
-                sma50 = ta.sma(df["close"], length=50)
-                df["sma50"] = sma50 if sma50 is not None else df["close"].mean()
-            else:
-                df["sma50"] = df["close"].mean()
-            
-        except Exception as e:
-            print(f"Warning: Error calculating indicators: {e}")
-            # Fill in defaults
-            for col in ["rsi_14", "macd", "macd_signal", "bb_upper", "bb_lower", "sma20", "sma50"]:
-                if col not in df.columns:
-                    df[col] = df["close"].mean() if col != "rsi_14" else 50.0
-        
-        return df
+# `TechnicalIndicators` now lives in
+# dashboard.backend.domain.backtesting.features and is re-exported above.
 
 
 # ============================================================================
@@ -461,7 +353,7 @@ class PortfolioManager:
         
         return {"actions": actions}
     
-    def make_trading_decision_with_llm(self, portfolio_state: Dict, llm_client, mode: str = "safe_trading") -> Dict:
+    def make_trading_decision_with_llm(self, portfolio_state: Dict, llm_client, mode: str = "safe_trading", model: str = None) -> Dict:
         """
         Make trading decisions using Claude LLM with technical indicators.
         
@@ -540,13 +432,48 @@ class PortfolioManager:
                 # Use all DJIA 30 stocks (same as baseline)
                 symbols_to_include = [s for s in DJIA_30 if s in signals]
             else:
-                # For safe_trading, use RSI extremes (most tradeable opportunities)
-                rsi_sorted = sorted(
-                    [(sym, sig.get("rsi", 50)) for sym, sig in signals.items()],
-                    key=lambda x: abs(x[1] - 50),  # Distance from neutral
-                    reverse=True
+                # For safe_trading, rank by trend/momentum (NOT RSI extremity).
+                # Ranking by |RSI-50| seeds a mean-reversion bias (fade winners,
+                # buy losers) which loses in trending markets. Instead score each
+                # name by trend confluence so the model is offered genuine momentum
+                # opportunities, and ALWAYS include current holdings so it can
+                # actively manage / exit weak positions.
+                def _trend_score(sig: Dict) -> float:
+                    price = float(sig.get("price", 0) or 0)
+                    sma20 = float(sig.get("sma20", 0) or 0)
+                    sma50 = float(sig.get("sma50", 0) or 0)
+                    macd = float(sig.get("macd", 0) or 0)
+                    macd_sig = float(sig.get("macd_signal", 0) or 0)
+                    rsi = float(sig.get("rsi", 50) or 50)
+                    score = 0.0
+                    if sma20 and price > sma20:
+                        score += 1.0
+                    if sma50 and price > sma50:
+                        score += 1.0
+                    if sma20 and sma50 and sma20 > sma50:
+                        score += 1.0
+                    if macd > macd_sig:
+                        score += 1.0
+                    # Reward healthy (not overheated) momentum; penalize extreme RSI
+                    if 45 <= rsi <= 70:
+                        score += 0.5
+                    elif rsi > 80:
+                        score -= 0.5
+                    # Continuous tiebreak: distance above the 50-day trend line
+                    if sma50:
+                        score += max(min((price / sma50) - 1.0, 0.25), -0.25)
+                    return score
+
+                trend_sorted = sorted(
+                    signals.items(),
+                    key=lambda kv: _trend_score(kv[1]),
+                    reverse=True,
                 )
-                symbols_to_include = [sym for sym, _ in rsi_sorted[:10]]
+                symbols_to_include = [sym for sym, _ in trend_sorted[:12]]
+                # Guarantee every currently-held symbol is visible to the model
+                for sym in holdings:
+                    if sym in signals and sym not in symbols_to_include:
+                        symbols_to_include.append(sym)
             
             for symbol in symbols_to_include:
                 signal = signals[symbol]
@@ -606,7 +533,7 @@ class PortfolioManager:
             # STEP 2: Call Claude with technical indicator analysis
             # ================================================================
             response = llm_client.messages.create(
-                model=LLM_MODEL_NAME,
+                model=model or LLM_MODEL_NAME,
                 max_tokens=2000,  # Reduced from 3000 (saves tokens)
                 system="""You are an expert quantitative trading advisor analyzing DJIA stocks.
 
@@ -1187,51 +1114,22 @@ class HourlyBacktester:
     
     @staticmethod
     def _calc_sharpe(equity_curve: List[Dict]) -> float:
+        """Annualized hourly Sharpe ratio.
+
+        Delegates to dashboard.backend.domain.backtesting.metrics.calculate_sharpe;
+        inputs, outputs, edge cases, and the hourly annualization factor are
+        unchanged.
         """
-        Calculate Sharpe ratio from hourly equity curve.
-        
-        Formula:
-            sharpe = (mean(returns) / std(returns)) * sqrt(periods_per_year)
-        
-        Data is HOURLY, so annualization factor = sqrt(252 * 6.5):
-            - 252 = trading days per year
-            - 6.5 = trading hours per day (9:30 AM - 4:00 PM ET)
-            - Total: sqrt(1638) ≈ 40.47
-        
-        Returns: float
-            Annualized Sharpe ratio. Returns 0 if insufficient data or zero volatility.
-        """
-        if len(equity_curve) < 2:
-            return 0
-        
-        equities = np.array([e["equity"] for e in equity_curve])
-        returns = np.diff(equities) / equities[:-1]
-        
-        if len(returns) == 0 or np.std(returns) == 0:
-            return 0
-        
-        # Annualize for hourly data: sqrt(252 trading days * 6.5 hours/day)
-        annualization_factor = np.sqrt(252 * 6.5)
-        return (np.mean(returns) / np.std(returns)) * annualization_factor
-    
+        return calculate_sharpe(equity_curve)
+
     @staticmethod
     def _calc_max_dd(equity_curve: List[Dict]) -> float:
-        """Calculate max drawdown."""
-        if not equity_curve:
-            return 0
-        
-        equities = np.array([e["equity"] for e in equity_curve])
-        running_max = equities[0]
-        max_dd = 0
-        
-        for equity in equities:
-            if equity > running_max:
-                running_max = equity
-            dd = (equity - running_max) / running_max
-            if dd < max_dd:
-                max_dd = dd
-        
-        return max_dd
+        """Maximum drawdown of the equity curve.
+
+        Delegates to
+        dashboard.backend.domain.backtesting.metrics.calculate_max_drawdown.
+        """
+        return calculate_max_drawdown(equity_curve)
 
 
 # ============================================================================
