@@ -227,7 +227,7 @@ In `dashboard/backend/database.py` `_init_schema(...)`, after the `backtest_deci
                 idem_key TEXT NOT NULL,
                 ack_json TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (run_id, step_index, idem_key)
+                PRIMARY KEY (run_id, idem_key)
             )
         """)
 
@@ -268,7 +268,7 @@ In `_migrate_schema(...)`, inside the main `try:` block (just before `self._ensu
                     idem_key TEXT NOT NULL,
                     ack_json TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (run_id, step_index, idem_key)
+                    PRIMARY KEY (run_id, idem_key)
                 )
             """)
             cursor.execute("""
@@ -327,12 +327,15 @@ Add the new methods (place them after `get_decisions`):
 
     def get_idempotency(self, run_id: str, step_index: int,
                         idem_key: str) -> Optional[Dict[str, Any]]:
+        # Key scope is (run_id, idem_key), NOT the step: this realizes spec §5.2's
+        # intent of safe retries past the step_already_closed race. step_index is
+        # accepted for call symmetry with put_idempotency but excluded from the lookup.
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("""
             SELECT ack_json FROM idempotency_keys
-            WHERE run_id = ? AND step_index = ? AND idem_key = ?
-        """, (run_id, step_index, idem_key))
+            WHERE run_id = ? AND idem_key = ?
+        """, (run_id, idem_key))
         row = cursor.fetchone()
         conn.close()
         return json.loads(row["ack_json"]) if row else None
@@ -1974,7 +1977,7 @@ async def get_context(run_id: str, response: Response,
 @router.post("/{run_id}/decisions")
 async def submit_decision(run_id: str, body: DecisionRequest, response: Response,
                           agent: dict = Depends(require_scope("decisions:write"))):
-    """submit_decision — idempotent per (run_id, step_index, idempotency_key)."""
+    """submit_decision — idempotent per (run_id, idempotency_key)."""
     enforce(agent["agent_id"], response)
     actions = [a.model_dump() for a in body.actions]
     return _submit_for(run_id, agent["session_id"], body.idempotency_key, actions)

@@ -157,7 +157,7 @@ Keeps today's *inner* field names (`portfolio`, `current_holdings`, `recent_trad
 }
 ```
 
-- **Idempotency:** server keys on `(run_id, step_index, idempotency_key)`; a replay returns the *original* ack instead of double-executing. This is well-defined because `run_id` is minted at run creation (§4.3) and is stable through the loop — it does not depend on the finalize-time id the old engine used.
+- **Idempotency:** server keys on `(run_id, idempotency_key)`; a replay returns the *original* ack instead of double-executing. This is well-defined because `run_id` is minted at run creation (§4.3) and is stable through the loop — it does not depend on the finalize-time id the old engine used. (Keying on `step_index` would prevent retries after step advance: the engine advances synchronously, so a retry arriving post-advance gets a new `step_index` and misses the record, re-executing. `step_index` is still *stored* as metadata, just not part of the key.)
 - **`reasoning`** becomes a first-class, stored, queryable field (already persists to `trades.reason`/`backtest_decisions`; formalized so the herding probe is a query, not a scrape).
 - **Security boundary unchanged:** `tool_calls`/`function_calls` → reject (`llm_validator`).
 - **Validation rules carried over** from `llm_validator`: symbol ∈ `universe`; `confidence ∈ [0,1]`; `reasoning` 5–500 chars; `position_size` 0–10000; positive-or-null stop/take prices; insufficient-cash / sell-without-position / oversized-position checks.
