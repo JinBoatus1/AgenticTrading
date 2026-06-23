@@ -62,7 +62,7 @@ def test_llm_agent_does_not_load_legacy_script():
 
 
 def test_external_backtest_service_loads_no_script():
-    res = _import_isolated("dashboard.backend.external_backtest_service")
+    res = _import_isolated("dashboard.backend.domain.backtesting.external_run_service")
     # Phase 2C5: HourlyBacktester moved to the canonical engine module, so the
     # service no longer loads ANY dashboard.scripts module (zero backend-to-scripts
     # dependencies). The flat module name must never be created either.
@@ -75,7 +75,7 @@ def test_external_backtest_service_loads_no_script():
 # ---------------------------------------------------------------------------
 
 def test_external_backtest_service_uses_canonical_symbols():
-    import dashboard.backend.external_backtest_service as ebs
+    import dashboard.backend.domain.backtesting.external_run_service as ebs
     from dashboard.backend.domain.backtesting.portfolio_manager import PortfolioManager
     from dashboard.backend.infrastructure.market_data.alpaca_bars import AlpacaDataLoader
     from dashboard.backend.domain.backtesting.features import TechnicalIndicators

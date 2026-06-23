@@ -140,7 +140,7 @@ def test_no_backend_source_imports_scripts():
 
 
 def test_external_backtest_service_uses_canonical_engine():
-    import dashboard.backend.external_backtest_service as ebs
+    import dashboard.backend.domain.backtesting.external_run_service as ebs
 
     assert ebs.HourlyBacktester is HourlyBacktester
     assert ebs.HourlyBacktester.__module__ == ENGINE_MODULE

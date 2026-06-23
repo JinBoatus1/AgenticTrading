@@ -31,7 +31,7 @@ CONSUMERS = [
     _BACKEND / "api" / "routers" / "agent_versions.py",
     _BACKEND / "api" / "protocol_auth.py",
     _BACKEND / "api" / "routers" / "runs.py",
-    _BACKEND / "external_backtest_service.py",
+    _BACKEND / "domain" / "backtesting" / "external_run_service.py",
 ]
 
 

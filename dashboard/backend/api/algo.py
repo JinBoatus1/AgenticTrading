@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from algo_service import (
+from dashboard.backend.domain.backtesting.algo_service import (
     execute_algo,
     get_algo_status,
     get_all_submissions,
@@ -53,7 +53,7 @@ def _require_session(session_id: Optional[str]) -> str:
 @router.get("/setup")
 async def algo_setup_status():
     """Tell frontend which credentials / routes are ready."""
-    from algo_service import _has_alpaca_credentials
+    from dashboard.backend.domain.backtesting.algo_service import _has_alpaca_credentials
     import os
     return {
         "anthropic_configured": bool(os.getenv("ANTHROPIC_API_KEY")),
@@ -64,7 +64,7 @@ async def algo_setup_status():
 
 @router.get("/defaults")
 async def algo_defaults():
-    from algo_service import _default_backtest_dates
+    from dashboard.backend.domain.backtesting.algo_service import _default_backtest_dates
     start, end = _default_backtest_dates()
     return {
         "blocks": get_default_blocks(),

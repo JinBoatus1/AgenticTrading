@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from external_backtest_service import (
+from dashboard.backend.domain.backtesting.external_run_service import (
     DECISION_TIMEOUT_SECONDS,
     get_backtest_decisions,
     get_current_step,
@@ -19,7 +19,7 @@ from external_backtest_service import (
     submit_decisions,
     verify_session,
 )
-from llm_validator import DJIA_30
+from dashboard.backend.llm_validator import DJIA_30
 
 router = APIRouter(prefix="/v1/backtest", tags=["external-backtest"])
 

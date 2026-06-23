@@ -7,18 +7,20 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from app import app
-from database import BacktestDatabase
-from external_backtest_service import _sessions, get_decision_format, parse_actions_payload
+from dashboard.backend.app import app
+from dashboard.backend.database import BacktestDatabase
+from dashboard.backend.domain.backtesting.external_run_service import (
+    _sessions,
+    get_decision_format,
+    parse_actions_payload,
+)
 
 
 @pytest.fixture
 def client(temp_db, monkeypatch):
-    import app as app_module
-    import database as db_module
-    import external_backtest_service as svc
+    import dashboard.backend.app as app_module
+    import dashboard.backend.database as db_module
+    import dashboard.backend.domain.backtesting.external_run_service as svc
 
     monkeypatch.setattr(app_module, "db", temp_db)
     monkeypatch.setattr(db_module, "db", temp_db)

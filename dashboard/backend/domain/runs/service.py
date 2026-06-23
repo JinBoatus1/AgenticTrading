@@ -23,7 +23,7 @@ import threading
 import uuid
 from typing import Any, Dict, List, Optional
 
-import dashboard.backend.external_backtest_service as ebs
+import dashboard.backend.domain.backtesting.external_run_service as ebs
 from dashboard.backend.database import db
 from dashboard.backend.domain.runs.environment import get_environment
 from dashboard.backend.llm_validator import DJIA_30
