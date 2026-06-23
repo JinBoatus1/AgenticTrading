@@ -7,7 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from backend.services.agent_chat_service import (
+from dashboard.backend.domain.chat.service import (
     chat_with_agent,
     reset_agent_conversation,
 )
