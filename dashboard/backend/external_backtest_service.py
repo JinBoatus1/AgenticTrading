@@ -17,7 +17,7 @@ import pandas as pd
 import pytz
 
 import dashboard.backend.token_cost as token_cost
-from dashboard.backend.agent_store import agent_store
+from dashboard.backend.domain.agents.repository import agent_store
 from dashboard.backend.database import db
 from dashboard.backend.llm_validator import (
     DJIA_30,

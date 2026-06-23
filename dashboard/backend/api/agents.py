@@ -5,9 +5,9 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from agent_store import agent_store
-from api.auth import _extract_bearer_token
-from database import db
+from dashboard.backend.domain.agents.repository import agent_store
+from dashboard.backend.api.auth import _extract_bearer_token
+from dashboard.backend.database import db
 
 router = APIRouter(prefix="/v1/agents", tags=["agents"])
 
@@ -21,7 +21,7 @@ def _optional_user(authorization: Optional[str]) -> Optional[dict]:
     token = _extract_bearer_token(authorization)
     if not token:
         return None
-    from users import user_store
+    from dashboard.backend.users import user_store
 
     user = user_store.get_user_for_token(token)
     return user
