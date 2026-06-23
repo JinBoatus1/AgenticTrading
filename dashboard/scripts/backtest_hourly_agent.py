@@ -49,14 +49,16 @@ import dashboard.backend.token_cost as token_cost
 from dashboard.backend.baseline_generator import generate_baselines
 from dashboard.backend.llm_validator import create_safe_prompt, create_prompt, validate_llm_response, LLMTradingDecision, TOP_10_STOCKS
 
-# Optional: LLM integration
-try:
-    from anthropic import Anthropic
-    HAS_ANTHROPIC = True
-except ImportError:
-    HAS_ANTHROPIC = False
-    print("⚠️  Anthropic SDK not installed. Fallback to rule-based trading.")
-    print("   To enable LLM: pip install anthropic")
+# Optional: LLM integration. Phase 2C2 moved the Anthropic SDK import, the
+# default model name, and the LLM request/parse workflow into the canonical
+# harness at dashboard.backend.infrastructure.llm.backtest_harness. These symbols
+# are re-exported here so existing consumers (engines/strategies/llm_agent.py,
+# backtest_custom_algo.py, and bha.* callers) keep working unchanged.
+from dashboard.backend.infrastructure.llm.backtest_harness import (
+    Anthropic,
+    HAS_ANTHROPIC,
+    LLM_MODEL_NAME,
+)
 
 try:
     import pandas_ta as ta
@@ -107,6 +109,19 @@ from dashboard.backend.domain.backtesting.reference_agent import (
     make_rule_based_decision as _make_rule_based_decision,
 )
 
+# Phase 2C2 extraction: the LLM model-interaction workflow (client invocation,
+# response-text/token-usage extraction, and JSON response parsing) now lives in
+# dashboard.backend.infrastructure.llm.backtest_harness.
+# PortfolioManager.make_trading_decision_with_llm stays defined below but
+# delegates the infrastructure steps to these helpers; imported privately because
+# the script's public surface is unchanged.
+from dashboard.backend.infrastructure.llm.backtest_harness import (
+    extract_response_text as _extract_response_text,
+    extract_token_usage as _extract_token_usage,
+    parse_llm_response as _parse_llm_response,
+    request_trading_decision as _request_trading_decision,
+)
+
 # ============================================================================
 # DJIA 30 Stocks
 # ============================================================================
@@ -133,8 +148,8 @@ TOP_10 = TOP_10_STOCKS  # Import from llm_validator to keep them in sync
 # ============================================================================
 # LLM Model Configuration
 # ============================================================================
-
-LLM_MODEL_NAME = "claude-haiku-4-5-20251001"  # Change this to switch models
+# `LLM_MODEL_NAME` now lives in
+# dashboard.backend.infrastructure.llm.backtest_harness and is re-exported above.
 
 # ============================================================================
 # Configuration
@@ -390,39 +405,15 @@ class PortfolioManager:
             # ================================================================
             # STEP 2: Call Claude with technical indicator analysis
             # ================================================================
-            response = llm_client.messages.create(
-                model=model or LLM_MODEL_NAME,
-                max_tokens=2000,  # Reduced from 3000 (saves tokens)
-                system="""You are an expert quantitative trading advisor analyzing DJIA stocks.
+            response = _request_trading_decision(llm_client, prompt=prompt, model=model)
 
-You have deep knowledge of:
-- Technical analysis (RSI, MACD, Bollinger Bands, Moving Averages)
-- Indicator interpretation and confluence
-- Risk management and position sizing
-- Trading psychology and market microstructure
-
-IMPORTANT INSTRUCTIONS:
-1. Analyze EACH stock signal provided (don't skip any)
-2. For each stock, decide: BUY, SELL, or HOLD
-3. Always include a confidence score (0.0-1.0)
-4. Return a JSON object with an "actions" array containing one entry per stock
-5. Even if you decide HOLD, include it in the actions array
-6. Respond with ONLY valid JSON - no explanations outside JSON
-
-Make precise, actionable trading decisions based on the technical indicators provided.""",
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            llm_response = response.content[0].text
+            llm_response = _extract_response_text(response)
 
             # Record real token usage reported by the provider
             try:
-                usage = getattr(response, "usage", None)
-                if usage is not None:
-                    self.input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
-                    self.output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+                input_delta, output_delta = _extract_token_usage(response)
+                self.input_tokens += input_delta
+                self.output_tokens += output_delta
                 self.llm_calls += 1
             except Exception as usage_err:
                 print(f"   ⚠️  Could not read token usage: {usage_err}")
@@ -430,80 +421,10 @@ Make precise, actionable trading decisions based on the technical indicators pro
             # ================================================================
             # STEP 3: Parse and validate LLM response
             # ================================================================
-            print(f"\n📫 Parsing LLM response...")
-            print(f"   Raw response (first 300 chars): {llm_response[:300]}")
-            
-            try:
-                # Extract JSON from response
-                # First, strip markdown code fences if present
-                response_cleaned = llm_response
-                if '```json' in response_cleaned:
-                    response_cleaned = response_cleaned.replace('```json', '').replace('```', '')
-                elif '```' in response_cleaned:
-                    response_cleaned = response_cleaned.replace('```', '')
-                
-                start = response_cleaned.find('{')
-                end = response_cleaned.rfind('}') + 1
-                if start < 0 or end <= 0:
-                    print(f"   ❌ No JSON found in response")
-                    print(f"   Full response: {response_cleaned[:500]}")
-                    return {"actions": []}
-                
-                json_str = response_cleaned[start:end]
-                
-                # Try to parse
-                try:
-                    decision = json.loads(json_str)
-                    print(f"   ✅ JSON parsed successfully")
-                except json.JSONDecodeError as e:
-                    # Try to fix common formatting issues
-                    print(f"   ⚠️  Initial parse failed: {e}")
-                    print(f"   Attempting to fix JSON formatting...")
-                    
-                    json_str_fixed = fix_json_formatting(json_str)
-                    try:
-                        decision = json.loads(json_str_fixed)
-                        print(f"   ✅ JSON fixed and parsed successfully!")
-                    except json.JSONDecodeError as e2:
-                        print(f"   ❌ Still failed after fix: {e2}")
-                        print(f"   Error at line {e2.lineno}, column {e2.colno}")
-                        
-                        # Show detailed context around error
-                        lines = json_str_fixed.split('\n')
-                        if e2.lineno <= len(lines):
-                            start = max(0, e2.lineno - 3)
-                            end = min(len(lines), e2.lineno + 2)
-                            print(f"\n   Context around error (lines {start+1}-{end}):")
-                            for i in range(start, end):
-                                marker = ">> " if i == e2.lineno - 1 else "   "
-                                print(f"   {marker}{i+1:3d}: {lines[i][:70]}")
-                        
-                        # Try one more aggressive fix
-                        print(f"\n   Attempting second fix attempt (validate structure)...")
-                        try:
-                            # Count opening vs closing brackets
-                            open_count = json_str_fixed.count('{')
-                            close_count = json_str_fixed.count('}')
-                            if open_count != close_count:
-                                print(f"   Bracket mismatch: {open_count} open, {close_count} close")
-                                # Remove extra closing brackets from the end
-                                while json_str_fixed.count('}') > json_str_fixed.count('{'):
-                                    json_str_fixed = json_str_fixed.rsplit('}', 1)[0] + '}'
-                                print(f"   Removed extra closing brackets")
-                            
-                            decision = json.loads(json_str_fixed)
-                            print(f"   ✅ JSON fixed after structure cleanup!")
-                        except json.JSONDecodeError as e3:
-                            print(f"   ❌ Cannot fix: {e3}")
-                            return {"actions": []}
-                
-                print(f"   Actions from LLM: {len(decision.get('actions', []))}")
-                
-            except (json.JSONDecodeError, ValueError, Exception) as e:
-                print(f"   ❌ Failed to parse JSON: {e}")
-                print(f"   LLM response: {llm_response[:500]}...")
+            decision = _parse_llm_response(llm_response)
+            if decision is None:
                 return {"actions": []}
-            
+
             # ================================================================
             # STEP 4: Convert LLM decisions to actions
             # ================================================================
