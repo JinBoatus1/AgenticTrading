@@ -1,9 +1,7 @@
-"""Phase 3C3 — leaderboard strategies move + registration characterization.
+"""Phase 3C3 — leaderboard strategies registration characterization.
 
-Verifies the baseline strategy package moved to the canonical
-``dashboard.backend.domain.leaderboard.strategies`` package while the old
-``engines.strategies`` modules remain re-export shims with identical class
-identity, and characterizes registry lookup, aliases, and unknown-strategy
+Verifies the canonical ``dashboard.backend.domain.leaderboard.strategies``
+package and characterizes registry lookup, aliases, and unknown-strategy
 behavior.
 """
 
@@ -34,24 +32,8 @@ _EXPECTED_KEYS = {
 
 
 # ---------------------------------------------------------------------------
-# Old-path identity (shims re-export the same classes)
+# Registry class identity
 # ---------------------------------------------------------------------------
-
-def test_strategies_shim_reexports_identical_classes():
-    from dashboard.backend.engines.strategies import (
-        BaselineStrategy as ShimBase,
-        available_strategies as shim_available,
-        get_strategy as shim_get,
-    )
-    from dashboard.backend.engines.strategies.buy_hold import BuyHoldStrategy as ShimBuyHold
-    from dashboard.backend.engines.strategies.llm_agent import LLMAgentStrategy as ShimLLM
-
-    assert ShimBase is BaselineStrategy
-    assert shim_get is canon.get_strategy
-    assert shim_available is canon.available_strategies
-    assert ShimBuyHold is BuyHoldStrategy
-    assert ShimLLM is LLMAgentStrategy
-
 
 def test_registry_module_identity_single_class_objects():
     # The registry must resolve to the SAME class objects exposed by submodules.

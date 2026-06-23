@@ -1,8 +1,8 @@
-"""Phase 3A1 — compatibility + cross-repository + consumer-import boundary.
+"""Phase 3A1 — cross-repository + consumer-import boundary.
 
-Confirms the legacy shim paths still work, the two repositories share one DB
-cleanly, and runtime backend consumers import the canonical domain modules
-rather than the compatibility shims.
+Confirms the two repositories share one DB cleanly, and runtime backend
+consumers import the canonical domain modules (the legacy flat shims have been
+removed).
 """
 
 import ast
@@ -42,32 +42,7 @@ def _import_froms(path: Path):
 
 
 # ---------------------------------------------------------------------------
-# Legacy shim still importable
-# ---------------------------------------------------------------------------
-
-def test_legacy_shim_imports_work():
-    from dashboard.backend.agent_store import AgentStore as A, agent_store  # noqa: F401
-    from dashboard.backend.agent_version_store import (  # noqa: F401
-        AgentVersionStore as AV,
-        agent_version_store,
-        VALID_EXECUTION_MODES,
-        VALID_VERIFICATION_LEVELS,
-    )
-    assert A is AgentStore
-    assert AV is AgentVersionStore
-
-
-def test_no_duplicate_repository_classes():
-    import dashboard.backend.agent_store as s1
-    import dashboard.backend.domain.agents.repository as s2
-    assert s1.AgentStore is s2.AgentStore
-    import dashboard.backend.agent_version_store as v1
-    import dashboard.backend.domain.agents.version_repository as v2
-    assert v1.AgentVersionStore is v2.AgentVersionStore
-
-
-# ---------------------------------------------------------------------------
-# Runtime consumers use canonical domain imports, not the shims
+# Runtime consumers use canonical domain imports, not the (removed) shims
 # ---------------------------------------------------------------------------
 
 def test_consumers_use_canonical_domain_imports():

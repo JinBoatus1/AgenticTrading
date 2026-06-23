@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from dashboard.backend import protocol as shim
 from dashboard.backend.domain.runs import protocol as canon
 from dashboard.backend.domain.runs.protocol import (
     DecisionIn,
@@ -35,12 +34,12 @@ def _order(**overrides):
 
 
 # ---------------------------------------------------------------------------
-# Identity / re-export
+# Canonical surface
 # ---------------------------------------------------------------------------
 
-def test_shim_reexports_same_objects():
+def test_canonical_exports_present():
     for name in _REEXPORTED:
-        assert getattr(shim, name) is getattr(canon, name), name
+        assert hasattr(canon, name), name
     assert canon.ProtocolError.__module__ == "dashboard.backend.domain.runs.protocol"
 
 

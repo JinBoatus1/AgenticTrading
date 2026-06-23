@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from dashboard.backend import agent_store as shim
 from dashboard.backend.domain.agents import repository
 from dashboard.backend.domain.agents.repository import AgentStore
 
@@ -23,12 +22,10 @@ def store(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Identity / re-export
+# Canonical identity
 # ---------------------------------------------------------------------------
 
-def test_shim_reexports_same_objects():
-    assert shim.AgentStore is repository.AgentStore
-    assert shim.agent_store is repository.agent_store
+def test_canonical_module_identity():
     assert repository.AgentStore.__module__ == (
         "dashboard.backend.domain.agents.repository"
     )

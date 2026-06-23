@@ -45,13 +45,6 @@ def test_create_custom_algo_prompt_contains_blocks_and_risk():
     )
 
 
-def test_shim_reexports_same_objects():
-    import dashboard.backend.algo_prompt as shim
-
-    assert shim.create_custom_algo_prompt is create_custom_algo_prompt
-    assert shim.parse_risk_rules is parse_risk_rules
-
-
 def _imported_modules(path: Path):
     tree = ast.parse(Path(path).read_text(encoding="utf-8"))
     modules = set()

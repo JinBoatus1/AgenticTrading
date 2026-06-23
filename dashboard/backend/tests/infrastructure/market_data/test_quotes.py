@@ -308,17 +308,8 @@ def test_get_market_quotes_crypto_path(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Compatibility + boundaries
+# Boundaries
 # ---------------------------------------------------------------------------
-
-def test_shim_reexports_same_objects():
-    import dashboard.backend.market_data as shim
-
-    assert shim.AlpacaMarketData is AlpacaMarketData
-    assert shim.get_market_quotes is get_market_quotes
-    assert shim.get_yahoo_quotes_batch is get_yahoo_quotes_batch
-    assert shim._ticker_cache is quotes_mod._ticker_cache
-
 
 def _imported_modules(path: Path):
     tree = ast.parse(Path(path).read_text(encoding="utf-8"))

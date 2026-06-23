@@ -292,18 +292,6 @@ def test_get_portfolio_history_non_200_returns_none(client, fake_requests):
 
 
 # ---------------------------------------------------------------------------
-# Compatibility shim identity
-# ---------------------------------------------------------------------------
-
-def test_shim_reexports_same_objects():
-    import dashboard.backend.paper_trading as shim
-
-    assert shim.AlpacaPaperTradingClient is AlpacaPaperTradingClient
-    assert shim.Position is Position
-    assert shim.Trade is Trade
-
-
-# ---------------------------------------------------------------------------
 # Runtime consumers + import boundaries
 # ---------------------------------------------------------------------------
 

@@ -61,15 +61,6 @@ def test_summarize_schema():
     }
 
 
-def test_shim_reexports_same_objects():
-    import dashboard.backend.token_cost as shim
-
-    assert shim.estimate_tokens is estimate_tokens
-    assert shim.estimate_cost_usd is estimate_cost_usd
-    assert shim.price_for_model is price_for_model
-    assert shim.summarize is summarize
-
-
 def _imported_modules(path: Path):
     tree = ast.parse(Path(path).read_text(encoding="utf-8"))
     modules = set()

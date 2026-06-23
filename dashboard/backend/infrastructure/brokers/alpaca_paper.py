@@ -1,14 +1,12 @@
 """Alpaca paper-trading broker adapter.
 
-Canonical location (Phase 3C5A). The provider-specific Alpaca paper-account
-logic was moved verbatim from ``dashboard/backend/paper_trading.py`` (now a thin
-compatibility re-export shim). Credential behavior, the paper base URL, request
-headers/parameters/timeouts, returned dictionaries and field names, exception
-handling, fallback behavior, and logging are unchanged; only the module location
-moved.
+Canonical location (Phase 3C5A). Credential behavior, the paper base URL,
+request headers/parameters/timeouts, returned dictionaries and field names,
+exception handling, fallback behavior, and logging are unchanged.
 
 This module owns provider HTTP calls and response normalization only. Session
-tracking and orchestration remain in ``dashboard.backend.paper_trading``.
+tracking and orchestration live in
+``dashboard.backend.domain.trading.paper_session``.
 """
 
 import json

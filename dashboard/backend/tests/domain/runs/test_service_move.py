@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from dashboard.backend import run_service as shim
 from dashboard.backend.domain.runs import repository, service
 from dashboard.backend.domain.runs.repository import RunStore
 from dashboard.backend.domain.runs.protocol import ProtocolError
@@ -24,13 +23,12 @@ _PUBLIC_FUNCS = [
 
 
 # ---------------------------------------------------------------------------
-# Identity / re-export
+# Canonical wiring
 # ---------------------------------------------------------------------------
 
-def test_shim_reexports_same_callables():
+def test_canonical_public_callables_present():
     for name in _PUBLIC_FUNCS:
-        assert getattr(shim, name) is getattr(service, name), name
-    assert shim.ProtocolRun is service.ProtocolRun
+        assert callable(getattr(service, name)), name
     assert service.ProtocolRun.__module__ == "dashboard.backend.domain.runs.service"
 
 

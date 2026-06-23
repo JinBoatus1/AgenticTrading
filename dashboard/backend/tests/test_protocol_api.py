@@ -52,13 +52,13 @@ def client(tmp_path, monkeypatch):
     db_path = tmp_path / "protocol_test.db"
 
     import dashboard.backend.database as db_module
-    import dashboard.backend.agent_store as agent_store_module
-    import dashboard.backend.agent_version_store as version_module
-    import dashboard.backend.run_store as run_store_module
+    import dashboard.backend.domain.agents.repository as agent_store_module
+    import dashboard.backend.domain.agents.version_repository as version_module
+    import dashboard.backend.domain.runs.repository as run_store_module
     import dashboard.backend.domain.backtesting.external_run_service as ebs
     import dashboard.backend.domain.runs.service as run_service
-    import dashboard.backend.api.agents as agents_api
-    import dashboard.backend.api.agent_versions as versions_api
+    import dashboard.backend.api.routers.agents as agents_api
+    import dashboard.backend.api.routers.agent_versions as versions_api
     import dashboard.backend.api.routers.runs as runs_api
     import dashboard.backend.api.protocol_auth as protocol_auth
 

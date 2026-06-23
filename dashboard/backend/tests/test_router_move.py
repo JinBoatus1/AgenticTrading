@@ -1,9 +1,9 @@
 """Phase 3A3 / 3B3 / 3C2 — HTTP router move verification.
 
 Confirms the agent, run, environment, external-backtest, and algo HTTP routers
-moved to the canonical ``dashboard.backend.api.routers`` package while the old
-modules remain thin re-export shims, with identical route registration and no
-duplicate routes.
+live in the canonical ``dashboard.backend.api.routers`` package, with identical
+route registration and no duplicate routes. (The legacy ``api/<name>.py`` shims
+have been removed.)
 """
 
 import ast
@@ -13,16 +13,9 @@ from pathlib import Path
 
 from fastapi.routing import APIRoute
 
-from dashboard.backend.api import agent_versions as versions_shim
-from dashboard.backend.api import agents as agents_shim
-from dashboard.backend.api import algo as algo_shim
 from dashboard.backend.api import dependencies as deps
-from dashboard.backend.api import environments as environments_shim
-from dashboard.backend.api import external_backtest as external_backtest_shim
-from dashboard.backend.api import leaderboard as leaderboard_shim
 from dashboard.backend.api import protocol_auth
 from dashboard.backend.api import router as router_module
-from dashboard.backend.api import runs as runs_shim
 from dashboard.backend.api.routers import agent_versions as versions_canon
 from dashboard.backend.api.routers import agents as agents_canon
 from dashboard.backend.api.routers import algo as algo_canon
@@ -125,22 +118,15 @@ def _route_triples(router):
 
 
 # ---------------------------------------------------------------------------
-# Canonical import + shim identity
+# Canonical import
 # ---------------------------------------------------------------------------
 
 def test_canonical_modules_import():
     assert agents_canon.router is not None
     assert versions_canon.router is not None
     assert agents_canon.router.__class__.__name__ == "APIRouter"
-
-
-def test_shims_reexport_same_router_objects():
-    assert agents_shim.router is agents_canon.router
-    assert versions_shim.router is versions_canon.router
-    # agent_service singleton identity preserved through both shims.
-    assert agents_shim.agent_service is agents_canon.agent_service
-    assert versions_shim.agent_service is versions_canon.agent_service
-    assert agents_shim.agent_service is versions_shim.agent_service
+    # agent_service singleton identity shared across canonical routers.
+    assert agents_canon.agent_service is versions_canon.agent_service
 
 
 def test_shared_auth_helpers_live_in_dependencies():
@@ -151,14 +137,11 @@ def test_shared_auth_helpers_live_in_dependencies():
     assert agents_canon._require_owner_context is deps._require_owner_context
 
 
-def test_protocol_auth_no_longer_imports_agents_shim():
+def test_protocol_auth_sources_helpers_from_dependencies():
     # protocol_auth must source the helpers from dependencies, not the old shim.
     src = Path(protocol_auth.__file__).read_text(encoding="utf-8")
     assert "from dashboard.backend.api.dependencies import" in src
     assert "from dashboard.backend.api.agents import" not in src
-    # The legacy shim no longer re-exports the private helpers.
-    assert not hasattr(agents_shim, "_owner_context")
-    assert not hasattr(agents_shim, "_require_agent_access")
 
 
 # ---------------------------------------------------------------------------
@@ -207,11 +190,6 @@ def test_run_env_canonical_modules_import():
     assert environments_canon.router.__class__.__name__ == "APIRouter"
 
 
-def test_run_env_shims_reexport_same_router_objects():
-    assert runs_shim.router is runs_canon.router
-    assert environments_shim.router is environments_canon.router
-
-
 def _all_imported_modules(path: Path):
     tree = ast.parse(Path(path).read_text(encoding="utf-8"))
     modules = set()
@@ -245,20 +223,6 @@ def test_backtesting_canonical_modules_import():
     assert algo_canon.router.__class__.__name__ == "APIRouter"
 
 
-def test_backtesting_shims_reexport_same_router_objects():
-    assert external_backtest_shim.router is external_backtest_canon.router
-    assert algo_shim.router is algo_canon.router
-
-
-def test_backtesting_shims_reexport_models():
-    assert external_backtest_shim.StartBacktestRequest is external_backtest_canon.StartBacktestRequest
-    assert external_backtest_shim.SubmitDecisionsRequest is external_backtest_canon.SubmitDecisionsRequest
-    assert external_backtest_shim.TradingActionItem is external_backtest_canon.TradingActionItem
-    assert algo_shim.AlgoBlocks is algo_canon.AlgoBlocks
-    assert algo_shim.ChatRequest is algo_canon.ChatRequest
-    assert algo_shim.ExecuteRequest is algo_canon.ExecuteRequest
-
-
 def test_external_backtest_router_route_contract_unchanged():
     assert _route_triples(external_backtest_canon.router) == EXPECTED_EXTERNAL_BACKTEST_ROUTES
 
@@ -280,10 +244,6 @@ def test_canonical_backtesting_routers_use_canonical_services():
 
 def test_leaderboard_canonical_module_imports():
     assert leaderboard_canon.router.__class__.__name__ == "APIRouter"
-
-
-def test_leaderboard_shim_reexports_same_router_object():
-    assert leaderboard_shim.router is leaderboard_canon.router
 
 
 def test_leaderboard_router_route_contract_unchanged():
@@ -441,13 +401,6 @@ def test_no_circular_imports():
         "import dashboard.backend.api.routers.external_backtest\n"
         "import dashboard.backend.api.routers.algo\n"
         "import dashboard.backend.api.routers.leaderboard\n"
-        "import dashboard.backend.api.agents\n"
-        "import dashboard.backend.api.agent_versions\n"
-        "import dashboard.backend.api.runs\n"
-        "import dashboard.backend.api.environments\n"
-        "import dashboard.backend.api.external_backtest\n"
-        "import dashboard.backend.api.algo\n"
-        "import dashboard.backend.api.leaderboard\n"
         "import dashboard.backend.api.router\n"
         "import dashboard.backend.api.protocol_auth\n"
         "print('ok')\n"

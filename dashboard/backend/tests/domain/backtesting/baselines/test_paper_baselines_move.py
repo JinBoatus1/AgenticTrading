@@ -59,16 +59,8 @@ def calc():
 
 
 # ---------------------------------------------------------------------------
-# Canonical import + shim identity
+# Canonical surface
 # ---------------------------------------------------------------------------
-
-def test_shim_reexports_same_objects():
-    import dashboard.backend.paper_baselines as shim
-
-    assert shim.PaperTradingBaselineCalculator is PaperTradingBaselineCalculator
-    assert shim.create_paper_baselines_if_not_exists is create_paper_baselines_if_not_exists
-    assert shim.DJIA_SYMBOLS is DJIA_SYMBOLS
-
 
 def test_djia_symbols_unchanged():
     assert len(DJIA_SYMBOLS) == 30

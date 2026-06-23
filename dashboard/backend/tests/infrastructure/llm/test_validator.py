@@ -126,20 +126,6 @@ def test_actions_to_executable_filters_hold_and_low_conf():
 
 
 # ---------------------------------------------------------------------------
-# Compatibility identity
-# ---------------------------------------------------------------------------
-
-def test_shim_reexports_same_objects():
-    import dashboard.backend.llm_validator as shim
-
-    assert shim.validate_llm_response is validate_llm_response
-    assert shim.DJIA_30 is DJIA_30
-    assert shim.LLMTradingDecision is LLMTradingDecision
-    assert shim.SAFE_TRADING_PROMPT is validator_mod.SAFE_TRADING_PROMPT
-    assert shim.BUY_AND_HOLD_PROMPT is validator_mod.BUY_AND_HOLD_PROMPT
-
-
-# ---------------------------------------------------------------------------
 # Exact prompt preservation (whitespace-sensitive)
 # ---------------------------------------------------------------------------
 

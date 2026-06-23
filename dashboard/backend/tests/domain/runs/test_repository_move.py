@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from dashboard.backend import run_store as shim
 from dashboard.backend.domain.runs import repository
 from dashboard.backend.domain.runs.repository import RunStore
 
@@ -42,12 +41,10 @@ def _make_run(store, **overrides):
 
 
 # ---------------------------------------------------------------------------
-# Identity / re-export
+# Canonical identity
 # ---------------------------------------------------------------------------
 
-def test_shim_reexports_same_objects():
-    assert shim.RunStore is repository.RunStore
-    assert shim.run_store is repository.run_store
+def test_canonical_module_identity():
     assert repository.RunStore.__module__ == "dashboard.backend.domain.runs.repository"
 
 

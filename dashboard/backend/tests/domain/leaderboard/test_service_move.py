@@ -1,9 +1,8 @@
-"""Phase 3C3 — leaderboard service move + characterization.
+"""Phase 3C3 — leaderboard service characterization.
 
-Verifies the leaderboard service/baselines moved to the canonical
-``dashboard.backend.domain.leaderboard`` package while the old modules remain
-re-export shims, and characterizes ranking, tie ordering, result schema, metric
-preservation, and the contest-window helpers against isolated storage.
+Verifies the canonical ``dashboard.backend.domain.leaderboard`` package and
+characterizes ranking, tie ordering, result schema, metric preservation, and the
+contest-window helpers against isolated storage.
 """
 
 import ast
@@ -11,12 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from dashboard.backend import services as _services  # noqa: F401
 from dashboard.backend.database import BacktestDatabase
 from dashboard.backend.domain.leaderboard import baselines as canon_baselines
 from dashboard.backend.domain.leaderboard import service as canon_service
-from dashboard.backend.engines import leaderboard_baselines as baselines_shim
-from dashboard.backend.services import leaderboard_service as service_shim
 
 _PUBLIC_SERVICE = [
     "LEADERBOARD_MODE",
@@ -29,7 +25,7 @@ _PUBLIC_BASELINES = ["fetch_hourly_bars", "compute_equity_curve", "calc_metrics"
 
 
 # ---------------------------------------------------------------------------
-# Canonical imports + old-path identity
+# Canonical imports + wiring
 # ---------------------------------------------------------------------------
 
 def test_canonical_modules_import():
@@ -39,17 +35,10 @@ def test_canonical_modules_import():
     assert canon_baselines.calc_metrics.__module__ == (
         "dashboard.backend.domain.leaderboard.baselines"
     )
-
-
-def test_service_shim_reexports_identical_objects():
     for name in _PUBLIC_SERVICE:
-        assert getattr(service_shim, name) is getattr(canon_service, name), name
-
-
-def test_baselines_shim_reexports_identical_objects():
+        assert hasattr(canon_service, name), name
     for name in _PUBLIC_BASELINES:
-        assert getattr(baselines_shim, name) is getattr(canon_baselines, name), name
-    assert baselines_shim.INITIAL_CAPITAL == canon_baselines.INITIAL_CAPITAL
+        assert hasattr(canon_baselines, name), name
 
 
 def test_service_wires_canonical_baselines():

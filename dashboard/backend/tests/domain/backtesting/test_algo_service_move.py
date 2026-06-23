@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-from dashboard.backend import algo_service as shim
 from dashboard.backend.domain.backtesting import algo_service as svc
 
 _PUBLIC = [
@@ -29,21 +28,15 @@ _PUBLIC = [
 
 
 # ---------------------------------------------------------------------------
-# Canonical import + shim identity
+# Canonical import
 # ---------------------------------------------------------------------------
 
 def test_canonical_module_imports():
     assert svc.process_chat.__module__ == (
         "dashboard.backend.domain.backtesting.algo_service"
     )
-
-
-def test_shim_reexports_identical_objects():
     for name in _PUBLIC:
-        assert getattr(shim, name) is getattr(svc, name), name
-    assert shim.DEFAULT_BLOCKS is svc.DEFAULT_BLOCKS
-    assert shim.BLOCK_LABELS is svc.BLOCK_LABELS
-    assert shim.LLM_MODEL == svc.LLM_MODEL
+        assert callable(getattr(svc, name)), name
 
 
 # ---------------------------------------------------------------------------

@@ -8,21 +8,13 @@ canonical environment module.
 import ast
 from pathlib import Path
 
-from dashboard.backend import environments as shim
 from dashboard.backend.domain.runs import environment as canon
 from dashboard.backend.domain.runs import service
 
 
 # ---------------------------------------------------------------------------
-# Identity / re-export
+# Canonical wiring
 # ---------------------------------------------------------------------------
-
-def test_shim_reexports_same_objects():
-    assert shim.ENVIRONMENTS is canon.ENVIRONMENTS
-    assert shim.list_environments is canon.list_environments
-    assert shim.get_environment is canon.get_environment
-    assert shim.default_environment_id is canon.default_environment_id
-
 
 def test_service_uses_canonical_environment():
     assert service.get_environment is canon.get_environment

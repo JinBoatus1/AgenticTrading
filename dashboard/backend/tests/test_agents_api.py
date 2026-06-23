@@ -8,13 +8,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dashboard.backend.app import app
-from dashboard.backend.agent_store import AgentStore
+from dashboard.backend.domain.agents.repository import AgentStore
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    import dashboard.backend.agent_store as agent_store_module
-    import dashboard.backend.api.agents as agents_api
+    import dashboard.backend.domain.agents.repository as agent_store_module
+    import dashboard.backend.api.routers.agents as agents_api
     import dashboard.backend.database as db_module
 
     db_path = tmp_path / "test.db"

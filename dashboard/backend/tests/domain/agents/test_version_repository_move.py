@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from dashboard.backend import agent_version_store as shim
 from dashboard.backend.domain.agents import version_repository
 from dashboard.backend.domain.agents.version_repository import (
     VALID_EXECUTION_MODES,
@@ -24,14 +23,10 @@ def store(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Identity / re-export / constants
+# Canonical identity / constants
 # ---------------------------------------------------------------------------
 
-def test_shim_reexports_same_objects():
-    assert shim.AgentVersionStore is version_repository.AgentVersionStore
-    assert shim.agent_version_store is version_repository.agent_version_store
-    assert shim.VALID_EXECUTION_MODES is version_repository.VALID_EXECUTION_MODES
-    assert shim.VALID_VERIFICATION_LEVELS is version_repository.VALID_VERIFICATION_LEVELS
+def test_canonical_module_identity():
     assert version_repository.AgentVersionStore.__module__ == (
         "dashboard.backend.domain.agents.version_repository"
     )

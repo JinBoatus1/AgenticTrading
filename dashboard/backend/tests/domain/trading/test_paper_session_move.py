@@ -29,17 +29,6 @@ def _imported_modules(path: Path):
 
 
 # ---------------------------------------------------------------------------
-# Canonical import + shim identity
-# ---------------------------------------------------------------------------
-
-def test_shim_reexports_same_objects():
-    import dashboard.backend.paper_trading as shim
-
-    assert shim.PaperTradingSession is PaperTradingSession
-    assert shim.create_paper_trading_session is create_paper_trading_session
-
-
-# ---------------------------------------------------------------------------
 # Session creation + stored fields
 # ---------------------------------------------------------------------------
 

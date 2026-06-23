@@ -45,9 +45,9 @@ if not __package__:
 
 from dashboard.backend.paths import CREDENTIALS_DIR
 from dashboard.backend.database import db
-import dashboard.backend.token_cost as token_cost
+import dashboard.backend.infrastructure.llm.token_cost as token_cost
 from dashboard.backend.baseline_generator import generate_baselines
-from dashboard.backend.llm_validator import create_safe_prompt, create_prompt, validate_llm_response, LLMTradingDecision, TOP_10_STOCKS
+from dashboard.backend.infrastructure.llm.validator import create_safe_prompt, create_prompt, validate_llm_response, LLMTradingDecision, TOP_10_STOCKS
 
 # Optional: LLM integration. Phase 2C2 moved the Anthropic SDK import, the
 # default model name, and the LLM request/parse workflow into the canonical

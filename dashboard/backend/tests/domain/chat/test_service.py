@@ -197,21 +197,6 @@ def test_system_prompt_exact():
 
 
 # ---------------------------------------------------------------------------
-# Compatibility identity
-# ---------------------------------------------------------------------------
-
-def test_shim_reexports_same_objects():
-    import dashboard.backend.services.agent_chat_service as shim
-
-    assert shim.chat_with_agent is chat_with_agent
-    assert shim.reset_agent_conversation is reset_agent_conversation
-    assert shim.conversation_history is conversation_history
-    assert shim.SYSTEM_PROMPT is SYSTEM_PROMPT
-    assert shim.get_claude_client is get_claude_client
-    assert shim.require_env is chat_service.require_env
-
-
-# ---------------------------------------------------------------------------
 # Import safety (clean subprocess, secrets removed)
 # ---------------------------------------------------------------------------
 
@@ -223,8 +208,6 @@ def test_chat_service_imports_without_secrets():
             os.environ.pop(var, None)
         import dashboard.backend.domain.chat.service as svc
         assert svc._claude_client is None, "client must not be constructed at import"
-        # The shim must also import cleanly without secrets.
-        import dashboard.backend.services.agent_chat_service  # noqa: F401
         print("import-safe")
         """
     )

@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-from dashboard.backend import external_backtest_service as shim
 from dashboard.backend.database import BacktestDatabase
 from dashboard.backend.domain.backtesting import external_run_service as svc
 
@@ -35,21 +34,15 @@ _PUBLIC = [
 
 
 # ---------------------------------------------------------------------------
-# Canonical import + shim identity
+# Canonical import + wiring
 # ---------------------------------------------------------------------------
 
 def test_canonical_module_imports():
     assert svc.ExternalBacktestSession.__module__ == (
         "dashboard.backend.domain.backtesting.external_run_service"
     )
-
-
-def test_shim_reexports_identical_objects():
     for name in _PUBLIC:
-        assert getattr(shim, name) is getattr(svc, name), name
-    # The mutable session registry must be the *same* object through the shim.
-    assert shim._sessions is svc._sessions
-    assert shim.DECISION_TIMEOUT_SECONDS == svc.DECISION_TIMEOUT_SECONDS
+        assert hasattr(svc, name), name
 
 
 def test_service_wires_canonical_symbols():
