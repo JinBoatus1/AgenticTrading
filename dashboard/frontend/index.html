@@ -559,18 +559,18 @@
 
     <!-- Playground -->
     <div id="playgroundView" class="page-view playground-view" style="display: none;">
-        <div class="playground-agent-header section-card compact">
+        <div class="subtab-bar playground-subtabs">
+            <button class="subtab-btn active" data-playground-tab="agents">My Agents</button>
+            <button class="subtab-btn" data-playground-tab="backtest">Backtest</button>
+            <button class="subtab-btn" data-playground-tab="paper">Paper Trading</button>
+        </div>
+        <div id="playgroundAgentHeader" class="playground-agent-header section-card compact">
             <div class="playground-agent-info">
                 <h2 id="playgroundAgentName" class="playground-agent-name">Momentum Alpha</h2>
                 <span id="playgroundAgentStatus" class="status-badge live">Live</span>
                 <span id="playgroundAgentDiscord" class="agent-discord connected">Discord connected</span>
             </div>
             <a class="discord-nav-btn discord-nav-btn-sm" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
-        </div>
-        <div class="subtab-bar playground-subtabs">
-            <button class="subtab-btn active" data-playground-tab="agents">My Agents</button>
-            <button class="subtab-btn" data-playground-tab="backtest">Backtest</button>
-            <button class="subtab-btn" data-playground-tab="paper">Paper Trading</button>
         </div>
         <div id="playgroundAgentsPanel" class="playground-panel">
             <div class="page-header">
@@ -1267,7 +1267,7 @@
     <script src="market-events/marketEventRelativeTime.js"></script>
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
-    <script src="app.js?v=6"></script>
+    <script src="app.js?v=7"></script>
     <script src="js/leaderboard.js?v=11"></script>
     <script src="home-page.js"></script>
 </body>

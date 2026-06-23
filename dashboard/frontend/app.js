@@ -1914,6 +1914,10 @@ function showPlaygroundPanel(tab) {
     const agents = document.getElementById('playgroundAgentsPanel');
     const backtest = document.querySelector('.main-container');
     const paper = document.getElementById('paperTradingView');
+    const agentHeader = document.getElementById('playgroundAgentHeader');
+
+    // The agent/session header only applies to Backtest and Paper Trading.
+    if (agentHeader) agentHeader.style.display = tab === 'agents' ? 'none' : 'flex';
 
     if (agents) agents.style.display = tab === 'agents' ? 'block' : 'none';
     if (backtest) backtest.style.display = tab === 'backtest' ? 'grid' : 'none';
