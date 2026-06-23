@@ -7,24 +7,22 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from app import app
-from agent_store import AgentStore
+from dashboard.backend.app import app
+from dashboard.backend.agent_store import AgentStore
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    import agent_store as agent_store_module
-    import api.agents as agents_api
-    import database as db_module
+    import dashboard.backend.agent_store as agent_store_module
+    import dashboard.backend.api.agents as agents_api
+    import dashboard.backend.database as db_module
 
     db_path = tmp_path / "test.db"
     test_agents = AgentStore(db_path=db_path)
     test_db = db_module.BacktestDatabase(db_path=db_path)
     monkeypatch.setattr(agent_store_module, "agent_store", test_agents)
-    monkeypatch.setattr(agents_api, "agent_store", test_agents)
-    monkeypatch.setattr(agents_api, "db", test_db)
+    monkeypatch.setattr(agents_api.agent_service, "agents", test_agents)
+    monkeypatch.setattr(agents_api.agent_service, "db", test_db)
     monkeypatch.setattr(db_module, "db", test_db)
     return TestClient(app)
 
@@ -79,7 +77,7 @@ def test_import_session_from_backtest_runs(client):
     browser_session = str(uuid.uuid4())
     headers = {"X-Session-Id": browser_session}
 
-    import database as db_module
+    import dashboard.backend.database as db_module
 
     db_module.db.insert_run(
         run_id="ext_test_import",

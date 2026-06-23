@@ -1,0 +1,263 @@
+"""Agent lifecycle service.
+
+Canonical home (Phase 3A2) for agent and agent-version *workflows* that were
+previously implemented directly inside the FastAPI routers
+(``dashboard/backend/api/agents.py`` and ``dashboard/backend/api/agent_versions.py``).
+
+The service coordinates the agent and agent-version repositories plus run
+statistics. It is framework-agnostic: it must NOT import FastAPI routers, app.py,
+scripts, or frontend code. Routers stay responsible for HTTP concerns (request
+parsing, status codes) and translate the small domain exceptions defined here into
+``HTTPException`` with the exact same messages as before.
+
+Behavior (SQL, schemas, ownership rules, API-key handling, version semantics) is
+preserved exactly; only the call site moved.
+"""
+
+from typing import Any, Dict, List, Optional, Tuple
+
+from dashboard.backend.domain.agents.repository import agent_store
+from dashboard.backend.domain.agents.version_repository import (
+    VALID_EXECUTION_MODES,
+    VALID_VERIFICATION_LEVELS,
+    agent_version_store,
+)
+from dashboard.backend.database import db
+
+
+class AgentServiceError(Exception):
+    """Base class for agent-service domain errors."""
+
+
+class AgentNotFoundError(AgentServiceError):
+    """Raised when an agent does not exist."""
+
+
+class AgentAccessDeniedError(AgentServiceError):
+    """Raised when the caller does not own / cannot access an agent."""
+
+
+class NoExternalRunsError(AgentServiceError):
+    """Raised when importing a session that has no external backtest runs."""
+
+
+class InvalidVersionFieldError(AgentServiceError):
+    """Raised when an agent-version field is outside its allowed set."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+
+class AgentService:
+    """Coordinate agent + agent-version repositories and run statistics."""
+
+    def __init__(self, *, agents=agent_store, versions=agent_version_store, database=db):
+        self.agents = agents
+        self.versions = versions
+        self.db = database
+
+    # ------------------------------------------------------------------
+    # Run statistics
+    # ------------------------------------------------------------------
+
+    def _external_runs(self, session_id: str) -> List[Dict[str, Any]]:
+        runs = self.db.get_runs_by_session(session_id) or []
+        return [r for r in runs if str(r.get("run_id", "")).startswith("ext_")]
+
+    def agent_with_stats(self, agent: Dict[str, Any]) -> Dict[str, Any]:
+        ext_runs = self._external_runs(agent["session_id"])
+        latest = None
+        if ext_runs:
+            latest = sorted(ext_runs, key=lambda r: r.get("created_at") or "", reverse=True)[0]
+        result = dict(agent)
+        result["run_count"] = len(ext_runs)
+        result["latest_run"] = latest
+        result["runs"] = sorted(
+            ext_runs,
+            key=lambda r: r.get("created_at") or "",
+            reverse=True,
+        )
+        result["total_llm_calls"] = sum(int(r.get("llm_calls") or 0) for r in ext_runs)
+        result["total_input_tokens"] = sum(int(r.get("input_tokens") or 0) for r in ext_runs)
+        result["total_output_tokens"] = sum(int(r.get("output_tokens") or 0) for r in ext_runs)
+        result["total_est_cost_usd"] = round(
+            sum(float(r.get("est_cost_usd") or 0) for r in ext_runs), 6
+        )
+        return result
+
+    def list_external_runs(self, session_id: str) -> List[Dict[str, Any]]:
+        ext_runs = self._external_runs(session_id)
+        ext_runs.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+        return ext_runs
+
+    # ------------------------------------------------------------------
+    # Access / ownership
+    # ------------------------------------------------------------------
+
+    def require_access(
+        self,
+        agent_id: str,
+        *,
+        user_id: Optional[int] = None,
+        browser_session: Optional[str] = None,
+        trading_session: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        agent = self.agents.get_agent(agent_id)
+        if not agent:
+            raise AgentNotFoundError()
+        if self.agents.owns_agent(
+            agent,
+            owner_user_id=user_id,
+            owner_browser_session=browser_session,
+        ):
+            return agent
+        if trading_session and agent.get("session_id") == trading_session:
+            return agent
+        raise AgentAccessDeniedError()
+
+    # ------------------------------------------------------------------
+    # Agent CRUD / workflows
+    # ------------------------------------------------------------------
+
+    def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        return self.agents.get_agent(agent_id)
+
+    def create_agent(
+        self,
+        *,
+        name: str,
+        model_name: str,
+        owner_user_id: Optional[int],
+        owner_browser_session: Optional[str],
+    ) -> Dict[str, Any]:
+        return self.agents.create_agent(
+            name=name,
+            model_name=model_name,
+            owner_user_id=owner_user_id,
+            owner_browser_session=owner_browser_session,
+        )
+
+    def list_agents_with_stats(
+        self,
+        *,
+        owner_user_id: Optional[int],
+        owner_browser_session: Optional[str],
+        trading_session_id: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        agents = self.agents.list_agents(
+            owner_user_id=owner_user_id,
+            owner_browser_session=owner_browser_session,
+            trading_session_id=trading_session_id,
+        )
+        return [self.agent_with_stats(a) for a in agents]
+
+    def claim_account_agents(
+        self,
+        *,
+        browser_session: str,
+        user_id: int,
+    ) -> Tuple[int, List[Dict[str, Any]]]:
+        claimed = self.agents.claim_browser_agents_to_user(browser_session, user_id)
+        agents = self.agents.list_agents(owner_user_id=user_id)
+        return claimed, [self.agent_with_stats(a) for a in agents]
+
+    def import_session(
+        self,
+        *,
+        session_id: str,
+        user_id: Optional[int],
+        name: Optional[str],
+        model_name: Optional[str],
+    ) -> Tuple[Dict[str, Any], bool]:
+        """Register the current trading session as an agent.
+
+        Returns ``(agent, imported)`` where ``imported`` is True when the agent
+        did not already exist for this session.
+        """
+        ext_runs = self._external_runs(session_id)
+        if not ext_runs:
+            raise NoExternalRunsError()
+        latest = sorted(ext_runs, key=lambda r: r.get("created_at") or "", reverse=True)[0]
+        resolved_name = (name or latest.get("agent_name") or "external-agent").strip()
+        resolved_model = (model_name or latest.get("llm_model") or "local-model").strip()
+
+        existing = self.agents.get_agent_by_session(session_id)
+        agent = self.agents.register_or_get_agent(
+            session_id=session_id,
+            name=resolved_name,
+            model_name=resolved_model,
+            owner_user_id=user_id,
+            owner_browser_session=session_id,
+        )
+        return agent, existing is None
+
+    def resolve_api_key(self, api_key: str) -> Optional[Dict[str, Any]]:
+        return self.agents.resolve_api_key(api_key)
+
+    def delete_agent(self, agent_id: str) -> bool:
+        return self.agents.delete_agent(agent_id)
+
+    def rotate_api_key(self, agent_id: str) -> Optional[str]:
+        return self.agents.rotate_api_key(agent_id)
+
+    def activate_agent(
+        self,
+        agent_id: str,
+        *,
+        user_id: Optional[int] = None,
+        browser_session: Optional[str] = None,
+    ) -> None:
+        self.agents.claim_agent(
+            agent_id,
+            owner_user_id=user_id,
+            owner_browser_session=browser_session,
+        )
+
+    # ------------------------------------------------------------------
+    # Agent versions
+    # ------------------------------------------------------------------
+
+    def create_version(
+        self,
+        *,
+        agent_id: str,
+        version: str,
+        execution_mode: str,
+        architecture: Optional[str],
+        model_backbones: List[str],
+        decision_frequency: str,
+        code_commit: Optional[str],
+        prompt_hash: Optional[str],
+        config_hash: Optional[str],
+        prompt: Optional[str],
+        config: Optional[Dict[str, Any]],
+        verification_level: str,
+    ) -> Dict[str, Any]:
+        if execution_mode not in VALID_EXECUTION_MODES:
+            raise InvalidVersionFieldError(f"Invalid execution_mode: {execution_mode}")
+        if verification_level not in VALID_VERIFICATION_LEVELS:
+            raise InvalidVersionFieldError(f"Invalid verification_level: {verification_level}")
+        return self.versions.create_version(
+            agent_id=agent_id,
+            version=version,
+            execution_mode=execution_mode,
+            architecture=architecture,
+            model_backbones=model_backbones,
+            decision_frequency=decision_frequency,
+            code_commit=code_commit,
+            prompt_hash=prompt_hash,
+            config_hash=config_hash,
+            prompt=prompt,
+            config=config,
+            verification_level=verification_level,
+        )
+
+    def list_versions(self, agent_id: str) -> List[Dict[str, Any]]:
+        return self.versions.list_versions(agent_id)
+
+    def get_version(self, agent_version_id: str) -> Optional[Dict[str, Any]]:
+        return self.versions.get_version(agent_version_id)
+
+
+agent_service = AgentService()

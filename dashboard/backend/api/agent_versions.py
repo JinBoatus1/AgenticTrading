@@ -5,10 +5,9 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from dashboard.backend.domain.agents.version_repository import (
-    VALID_EXECUTION_MODES,
-    VALID_VERIFICATION_LEVELS,
-    agent_version_store,
+from dashboard.backend.domain.agents.service import (
+    InvalidVersionFieldError,
+    agent_service,
 )
 from dashboard.backend.api.protocol_auth import require_agent_access
 
@@ -41,25 +40,23 @@ async def create_agent_version(
     require_agent_access(
         agent_id, request=request, x_api_key=x_api_key, authorization=authorization
     )
-    if body.execution_mode not in VALID_EXECUTION_MODES:
-        raise HTTPException(status_code=400, detail=f"Invalid execution_mode: {body.execution_mode}")
-    if body.verification_level not in VALID_VERIFICATION_LEVELS:
-        raise HTTPException(status_code=400, detail=f"Invalid verification_level: {body.verification_level}")
-
-    version = agent_version_store.create_version(
-        agent_id=agent_id,
-        version=body.version.strip(),
-        execution_mode=body.execution_mode,
-        architecture=body.architecture,
-        model_backbones=body.model_backbones,
-        decision_frequency=body.decision_frequency,
-        code_commit=body.code_commit,
-        prompt_hash=body.prompt_hash,
-        config_hash=body.config_hash,
-        prompt=body.prompt,
-        config=body.config,
-        verification_level=body.verification_level,
-    )
+    try:
+        version = agent_service.create_version(
+            agent_id=agent_id,
+            version=body.version.strip(),
+            execution_mode=body.execution_mode,
+            architecture=body.architecture,
+            model_backbones=body.model_backbones,
+            decision_frequency=body.decision_frequency,
+            code_commit=body.code_commit,
+            prompt_hash=body.prompt_hash,
+            config_hash=body.config_hash,
+            prompt=body.prompt,
+            config=body.config,
+            verification_level=body.verification_level,
+        )
+    except InvalidVersionFieldError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"agent_version": version}
 
 
@@ -74,7 +71,7 @@ async def list_agent_versions(
     require_agent_access(
         agent_id, request=request, x_api_key=x_api_key, authorization=authorization
     )
-    return {"agent_id": agent_id, "versions": agent_version_store.list_versions(agent_id)}
+    return {"agent_id": agent_id, "versions": agent_service.list_versions(agent_id)}
 
 
 @router.get("/agent-versions/{agent_version_id}")
@@ -85,7 +82,7 @@ async def get_agent_version(
     authorization: Optional[str] = Header(default=None),
 ):
     """Fetch a single immutable agent version."""
-    version = agent_version_store.get_version(agent_version_id)
+    version = agent_service.get_version(agent_version_id)
     if not version:
         raise HTTPException(status_code=404, detail="Agent version not found")
     require_agent_access(

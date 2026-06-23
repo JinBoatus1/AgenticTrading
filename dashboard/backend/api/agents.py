@@ -1,13 +1,17 @@
 """Registered external agents — persistent sessions and API keys."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from dashboard.backend.domain.agents.repository import agent_store
+from dashboard.backend.domain.agents.service import (
+    AgentAccessDeniedError,
+    AgentNotFoundError,
+    NoExternalRunsError,
+    agent_service,
+)
 from dashboard.backend.api.auth import _extract_bearer_token
-from dashboard.backend.database import db
 
 router = APIRouter(prefix="/v1/agents", tags=["agents"])
 
@@ -51,42 +55,17 @@ def _require_owner_context(request: Request, authorization: Optional[str]) -> Di
 
 
 def _require_agent_access(agent_id: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
-    agent = agent_store.get_agent(agent_id)
-    if not agent:
+    try:
+        return agent_service.require_access(
+            agent_id,
+            user_id=ctx.get("user_id"),
+            browser_session=ctx.get("browser_session"),
+            trading_session=ctx.get("trading_session"),
+        )
+    except AgentNotFoundError:
         raise HTTPException(status_code=404, detail="Agent not found")
-    if agent_store.owns_agent(
-        agent,
-        owner_user_id=ctx.get("user_id"),
-        owner_browser_session=ctx.get("browser_session"),
-    ):
-        return agent
-    trading = ctx.get("trading_session")
-    if trading and agent.get("session_id") == trading:
-        return agent
-    raise HTTPException(status_code=403, detail="Not your agent")
-
-
-def _agent_with_stats(agent: Dict[str, Any]) -> Dict[str, Any]:
-    runs = db.get_runs_by_session(agent["session_id"]) or []
-    ext_runs = [r for r in runs if str(r.get("run_id", "")).startswith("ext_")]
-    latest = None
-    if ext_runs:
-        latest = sorted(ext_runs, key=lambda r: r.get("created_at") or "", reverse=True)[0]
-    result = dict(agent)
-    result["run_count"] = len(ext_runs)
-    result["latest_run"] = latest
-    result["runs"] = sorted(
-        ext_runs,
-        key=lambda r: r.get("created_at") or "",
-        reverse=True,
-    )
-    result["total_llm_calls"] = sum(int(r.get("llm_calls") or 0) for r in ext_runs)
-    result["total_input_tokens"] = sum(int(r.get("input_tokens") or 0) for r in ext_runs)
-    result["total_output_tokens"] = sum(int(r.get("output_tokens") or 0) for r in ext_runs)
-    result["total_est_cost_usd"] = round(
-        sum(float(r.get("est_cost_usd") or 0) for r in ext_runs), 6
-    )
-    return result
+    except AgentAccessDeniedError:
+        raise HTTPException(status_code=403, detail="Not your agent")
 
 
 @router.post("")
@@ -97,14 +76,14 @@ async def create_agent(
 ):
     """Register an external agent. Returns session_id and api_key (shown once)."""
     ctx = _require_owner_context(request, authorization)
-    agent = agent_store.create_agent(
+    agent = agent_service.create_agent(
         name=body.name.strip(),
         model_name=body.model_name.strip() or "local-model",
         owner_user_id=ctx["user_id"],
         owner_browser_session=ctx["browser_session"],
     )
     return {
-        "agent": _agent_with_stats(agent),
+        "agent": agent_service.agent_with_stats(agent),
         "session_id": agent["session_id"],
         "api_key": agent.pop("api_key"),
         "client_hint": (
@@ -124,12 +103,12 @@ async def list_agents(
     if not ctx["user_id"] and not ctx["browser_session"]:
         return {"agents": []}
 
-    agents = agent_store.list_agents(
+    agents = agent_service.list_agents_with_stats(
         owner_user_id=ctx["user_id"],
         owner_browser_session=ctx["browser_session"],
         trading_session_id=ctx.get("trading_session"),
     )
-    return {"agents": [_agent_with_stats(a) for a in agents]}
+    return {"agents": agents}
 
 
 @router.post("/claim-account")
@@ -143,12 +122,11 @@ async def claim_account_agents(
         raise HTTPException(status_code=401, detail="Log in to claim agents")
     if not ctx["browser_session"]:
         raise HTTPException(status_code=400, detail="Missing browser session")
-    claimed = agent_store.claim_browser_agents_to_user(
-        ctx["browser_session"],
-        ctx["user_id"],
+    claimed, agents = agent_service.claim_account_agents(
+        browser_session=ctx["browser_session"],
+        user_id=ctx["user_id"],
     )
-    agents = agent_store.list_agents(owner_user_id=ctx["user_id"])
-    return {"claimed": claimed, "agents": [_agent_with_stats(a) for a in agents]}
+    return {"claimed": claimed, "agents": agents}
 
 
 class ImportSessionBody(BaseModel):
@@ -165,35 +143,18 @@ async def import_session_agent(
     """Register the current trading session as an agent (for CLI runs without prior signup)."""
     ctx = _require_owner_context(request, authorization)
     session_id = ctx["browser_session"]
-    runs = db.get_runs_by_session(session_id) or []
-    ext_runs = [r for r in runs if str(r.get("run_id", "")).startswith("ext_")]
-    if not ext_runs:
+    try:
+        agent, imported = agent_service.import_session(
+            session_id=session_id,
+            user_id=ctx["user_id"],
+            name=body.name,
+            model_name=body.model_name,
+        )
+    except NoExternalRunsError:
         raise HTTPException(status_code=404, detail="No external backtest runs for this session")
 
-    latest = sorted(ext_runs, key=lambda r: r.get("created_at") or "", reverse=True)[0]
-    name = (body.name or latest.get("agent_name") or "external-agent").strip()
-    model_name = (body.model_name or latest.get("llm_model") or "local-model").strip()
-
-    existing = agent_store.get_agent_by_session(session_id)
-    if existing:
-        agent = agent_store.register_or_get_agent(
-            session_id=session_id,
-            name=name,
-            model_name=model_name,
-            owner_user_id=ctx["user_id"],
-            owner_browser_session=session_id,
-        )
-        return {"agent": _agent_with_stats(agent), "imported": False}
-
-    agent = agent_store.register_or_get_agent(
-        session_id=session_id,
-        name=name,
-        model_name=model_name,
-        owner_user_id=ctx["user_id"],
-        owner_browser_session=session_id,
-    )
-    result = {"agent": _agent_with_stats(agent), "imported": True}
-    if agent.get("api_key"):
+    result = {"agent": agent_service.agent_with_stats(agent), "imported": imported}
+    if imported and agent.get("api_key"):
         result["api_key"] = agent["api_key"]
     return result
 
@@ -201,7 +162,7 @@ async def import_session_agent(
 @router.get("/resolve")
 async def resolve_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
     """Resolve a registered agent API key to its trading session (for CLI clients)."""
-    agent = agent_store.resolve_api_key(x_api_key or "")
+    agent = agent_service.resolve_api_key(x_api_key or "")
     if not agent:
         raise HTTPException(status_code=401, detail="Invalid API key")
     return {
@@ -221,12 +182,8 @@ async def list_agent_runs(
     """List external backtest runs for an agent."""
     ctx = _require_owner_context(request, authorization)
     agent = _require_agent_access(agent_id, ctx)
-    runs = db.get_runs_by_session(agent["session_id"]) or []
-    ext_runs = [
-        r for r in runs if str(r.get("run_id", "")).startswith("ext_")
-    ]
-    ext_runs.sort(key=lambda r: r.get("created_at") or "", reverse=True)
-    return {"runs": ext_runs}
+    runs = agent_service.list_external_runs(agent["session_id"])
+    return {"runs": runs}
 
 
 @router.get("/{agent_id}")
@@ -237,7 +194,7 @@ async def get_agent(
 ):
     ctx = _require_owner_context(request, authorization)
     agent = _require_agent_access(agent_id, ctx)
-    return {"agent": _agent_with_stats(agent)}
+    return {"agent": agent_service.agent_with_stats(agent)}
 
 
 @router.delete("/{agent_id}")
@@ -248,7 +205,7 @@ async def delete_agent(
 ):
     ctx = _require_owner_context(request, authorization)
     _require_agent_access(agent_id, ctx)
-    agent_store.delete_agent(agent_id)
+    agent_service.delete_agent(agent_id)
     return {"status": "deleted", "agent_id": agent_id}
 
 
@@ -261,12 +218,12 @@ async def rotate_agent_api_key(
     """Generate a new API key for an agent. The previous key stops working immediately."""
     ctx = _require_owner_context(request, authorization)
     _require_agent_access(agent_id, ctx)
-    api_key = agent_store.rotate_api_key(agent_id)
+    api_key = agent_service.rotate_api_key(agent_id)
     if not api_key:
         raise HTTPException(status_code=404, detail="Agent not found")
-    agent = agent_store.get_agent(agent_id)
+    agent = agent_service.get_agent(agent_id)
     return {
-        "agent": _agent_with_stats(agent),
+        "agent": agent_service.agent_with_stats(agent),
         "api_key": api_key,
     }
 
@@ -280,10 +237,10 @@ async def activate_agent(
     """Return session info for switching the dashboard to this agent."""
     ctx = _require_owner_context(request, authorization)
     agent = _require_agent_access(agent_id, ctx)
-    agent_store.claim_agent(
+    agent_service.activate_agent(
         agent_id,
-        owner_user_id=ctx.get("user_id"),
-        owner_browser_session=ctx.get("browser_session"),
+        user_id=ctx.get("user_id"),
+        browser_session=ctx.get("browser_session"),
     )
     return {
         "agent_id": agent["agent_id"],

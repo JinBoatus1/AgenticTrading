@@ -71,17 +71,17 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(db_module, "db", test_db)
     monkeypatch.setattr(ebs, "db", test_db)
     monkeypatch.setattr(run_service, "db", test_db)
-    monkeypatch.setattr(agents_api, "db", test_db)
+    monkeypatch.setattr(agents_api.agent_service, "db", test_db)
 
     # Agent store
     monkeypatch.setattr(agent_store_module, "agent_store", test_agents)
     monkeypatch.setattr(ebs, "agent_store", test_agents)
-    monkeypatch.setattr(agents_api, "agent_store", test_agents)
+    monkeypatch.setattr(agents_api.agent_service, "agents", test_agents)
     monkeypatch.setattr(protocol_auth, "agent_store", test_agents)
 
     # Version store
     monkeypatch.setattr(version_module, "agent_version_store", test_versions)
-    monkeypatch.setattr(versions_api, "agent_version_store", test_versions)
+    monkeypatch.setattr(versions_api.agent_service, "versions", test_versions)
     monkeypatch.setattr(runs_api, "agent_version_store", test_versions)
 
     # Run store
