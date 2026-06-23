@@ -320,7 +320,11 @@ def _imported_modules(path: Path):
 
 
 def test_app_uses_canonical_broker_adapter():
-    mods = _imported_modules(_BACKEND / "app.py")
+    # Phase 3C5C: the paper routes moved to the canonical router, which is now
+    # the runtime consumer of the broker adapter.
+    mods = _imported_modules(
+        _BACKEND / "api" / "routers" / "paper_trading.py"
+    )
     assert "dashboard.backend.infrastructure.brokers.alpaca_paper" in mods
 
 

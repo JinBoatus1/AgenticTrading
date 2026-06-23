@@ -126,7 +126,11 @@ def test_get_metrics_computes_return_and_drawdown():
 # ---------------------------------------------------------------------------
 
 def test_app_uses_canonical_paper_session():
-    mods = _imported_modules(_BACKEND / "app.py")
+    # Phase 3C5C: the paper routes moved to the canonical router, which is now
+    # the runtime consumer of the session helper.
+    mods = _imported_modules(
+        _BACKEND / "api" / "routers" / "paper_trading.py"
+    )
     assert "dashboard.backend.domain.trading.paper_session" in mods
 
 

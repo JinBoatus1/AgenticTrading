@@ -29,10 +29,12 @@ from dashboard.backend.api.routers import algo as algo_canon
 from dashboard.backend.api.routers import environments as environments_canon
 from dashboard.backend.api.routers import external_backtest as external_backtest_canon
 from dashboard.backend.api.routers import leaderboard as leaderboard_canon
+from dashboard.backend.api.routers import paper_trading as paper_trading_canon
 from dashboard.backend.api.routers import runs as runs_canon
 from dashboard.backend.app import app
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+_APP_FILE = Path(__file__).resolve().parents[1] / "app.py"
 
 # (method, full path, endpoint name) — the contract that must not change.
 EXPECTED_AGENT_ROUTES = {
@@ -96,6 +98,17 @@ EXPECTED_ALGO_ROUTES = {
 
 EXPECTED_LEADERBOARD_ROUTES = {
     ("GET", "/v1/leaderboard", "api_get_leaderboard"),
+}
+
+# Paper Trading routes are registered directly on the app (no /api prefix);
+# external paths must stay exactly /paper/...
+EXPECTED_PAPER_ROUTES = {
+    ("GET", "/paper/account", "get_paper_account"),
+    ("GET", "/paper/positions", "get_paper_positions"),
+    ("GET", "/paper/trades", "get_paper_trades"),
+    ("GET", "/paper/portfolio-history", "get_paper_portfolio_history"),
+    ("POST", "/paper/start-session", "start_paper_session"),
+    ("GET", "/paper/baselines", "get_paper_baselines"),
 }
 
 
@@ -280,6 +293,86 @@ def test_leaderboard_router_route_contract_unchanged():
 def test_canonical_leaderboard_router_uses_canonical_service():
     modules = _all_imported_modules(leaderboard_canon.__file__)
     assert "dashboard.backend.domain.leaderboard.service" in modules
+
+
+# ---------------------------------------------------------------------------
+# Paper Trading router move (Phase 3C5C)
+# ---------------------------------------------------------------------------
+
+def test_paper_canonical_module_imports():
+    assert paper_trading_canon.router.__class__.__name__ == "APIRouter"
+
+
+def test_paper_router_prefix_and_route_contract_unchanged():
+    assert paper_trading_canon.router.prefix == "/paper"
+    assert _route_triples(paper_trading_canon.router) == EXPECTED_PAPER_ROUTES
+
+
+def test_paper_routes_registered_exactly_once_in_app():
+    counts = {}
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        for method in route.methods:
+            if method == "HEAD":
+                continue
+            counts[(method, route.path, route.name)] = (
+                counts.get((method, route.path, route.name), 0) + 1
+            )
+    for triple in EXPECTED_PAPER_ROUTES:
+        assert counts.get(triple) == 1, (triple, counts.get(triple))
+
+
+def test_paper_routes_keep_external_paths_without_api_prefix():
+    paper_paths = {
+        (m, p)
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        for m in route.methods
+        if m != "HEAD"
+        for p in [route.path]
+        if p.startswith("/paper")
+    }
+    expected = {(m, p) for (m, p, _) in EXPECTED_PAPER_ROUTES}
+    assert paper_paths == expected
+    # None of the paper routes should have leaked under the /api prefix.
+    api_paper = {
+        route.path
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.path.startswith("/api/paper")
+    }
+    assert api_paper == set()
+
+
+def test_canonical_paper_router_uses_canonical_modules():
+    modules = _all_imported_modules(paper_trading_canon.__file__)
+    assert "dashboard.backend.infrastructure.brokers.alpaca_paper" in modules
+    assert "dashboard.backend.domain.trading.paper_session" in modules
+
+
+def test_app_no_longer_defines_paper_routes():
+    src = _APP_FILE.read_text(encoding="utf-8")
+    # No inline paper route decorators or handler bodies remain.
+    assert '"/paper/' not in src
+    assert "async def get_paper_account" not in src
+    assert "async def get_paper_positions" not in src
+    assert "async def get_paper_trades" not in src
+    assert "async def get_paper_portfolio_history" not in src
+    assert "async def start_paper_session" not in src
+    assert "async def get_paper_baselines" not in src
+    # app must register the canonical router instead.
+    assert "paper_trading_router" in src
+
+
+def test_app_imports_canonical_paper_router():
+    src = Path(_APP_FILE).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    modules = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    assert "dashboard.backend.api.routers.paper_trading" in modules
 
 
 def test_each_endpoint_registered_exactly_once_in_app():
