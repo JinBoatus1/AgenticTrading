@@ -17,6 +17,7 @@ from paths import CONFIG_DIR, DASHBOARD_DIR, FRONTEND_DIR, REPO_ROOT, SCRIPTS_DI
 from market_data import get_market_quotes
 from middleware import SessionMiddleware, get_session_id_from_request
 from api.router import api_router
+from api.v2.errors import ApiError, api_error_handler
 from paper_trading import AlpacaPaperTradingClient, create_paper_trading_session
 from paper_baselines import create_paper_baselines_if_not_exists
 from baselines_endpoint import get_baselines_from_db
@@ -89,6 +90,9 @@ app = FastAPI(
     description="Backend API for backtesting and paper trading equity curves",
     version="1.0.0"
 )
+
+# Uniform error envelope for the typed /api/v2 surface (spec §5.4)
+app.add_exception_handler(ApiError, api_error_handler)
 
 # Enable CORS for frontend
 app.add_middleware(
