@@ -14,7 +14,7 @@ import pytest
 from dashboard.backend import run_service as shim
 from dashboard.backend.domain.runs import repository, service
 from dashboard.backend.domain.runs.repository import RunStore
-from dashboard.backend.protocol import ProtocolError
+from dashboard.backend.domain.runs.protocol import ProtocolError
 
 _PUBLIC_FUNCS = [
     "create_run", "run_view", "run_status", "get_next_step", "get_step",

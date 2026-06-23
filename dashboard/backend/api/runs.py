@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field
 import dashboard.backend.domain.runs.service as run_service
 from dashboard.backend.api.protocol_auth import resolve_agent_by_key
 from dashboard.backend.domain.agents.version_repository import agent_version_store
-from dashboard.backend.environments import default_environment_id
-from dashboard.backend.protocol import DecisionIn, ProtocolError
+from dashboard.backend.domain.runs.environment import default_environment_id
+from dashboard.backend.domain.runs.protocol import DecisionIn, ProtocolError
 from dashboard.backend.domain.runs.repository import run_store
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
