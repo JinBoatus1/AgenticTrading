@@ -8,8 +8,8 @@ from fastapi import APIRouter
 
 from api.v2.errors import ERROR_CODES
 from api.v2.models import (
-    SCHEMA_VERSION, UNIVERSE, UNIVERSE_KEY, ContextEnvelope, DecisionRequest,
-    ResultEnvelope, SubmitAck,
+    SCHEMA_VERSION, UNIVERSE, UNIVERSE_KEY, ActionItem, ContextEnvelope,
+    DecisionRequest, ResultEnvelope, SubmitAck,
 )
 from auth_scopes import SCOPES
 
@@ -33,6 +33,7 @@ def build_schema() -> Dict[str, Any]:
         "schemas": {
             "context": ContextEnvelope.model_json_schema(),
             "decision": DecisionRequest.model_json_schema(),
+            "action": ActionItem.model_json_schema(),
             "submit_ack": SubmitAck.model_json_schema(),
             "result": ResultEnvelope.model_json_schema(),
         },

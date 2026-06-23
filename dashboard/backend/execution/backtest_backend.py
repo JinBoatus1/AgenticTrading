@@ -11,9 +11,7 @@ import json
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
-from pydantic import ValidationError
-
-from api.v2.models import SCHEMA_VERSION, UNIVERSE_KEY, ActionItem
+from api.v2.models import SCHEMA_VERSION
 from database import db
 from execution.base import ExecutionBackend
 from llm_validator import DJIA_30
@@ -127,33 +125,22 @@ class BacktestBackend(ExecutionBackend):
     # -- decisions ---------------------------------------------------------
 
     def apply_decisions(self, actions: List[Dict[str, Any]]) -> Dict[str, Any]:
-        valid: List[Dict[str, Any]] = []
-        rejected: List[Dict[str, str]] = []
-        for raw in actions:
-            try:
-                item = ActionItem(**raw)
-                valid.append(item.model_dump())
-            except ValidationError as exc:
-                msg = exc.errors()[0].get("msg", "validation_failed")
-                reason = "universe_violation" if "universe_violation" in msg else "validation_failed"
-                rejected.append({"symbol": str(raw.get("symbol", "?")), "reason": reason})
-
-        result = self.session.submit_decisions({"actions": valid})
+        # Actions arrive pre-validated from the v2 boundary (validate_actions);
+        # this backend executes them and reports execution results. Schema-level
+        # rejections are merged in by the boundary.
+        result = self.session.submit_decisions({"actions": actions})
 
         executed = [
             {"action": e.get("action"), "symbol": e.get("symbol"),
              "shares": e.get("shares"), "price": None}
             for e in (result.get("executed") or [])
         ]
-        decision_source = result.get("decision_source") or "external_agent"
-        if not valid and rejected:
-            decision_source = "validation_hold"
 
         return {
-            "accepted": bool(result.get("accepted", False)) or bool(executed) or not rejected,
+            "accepted": bool(result.get("accepted", True)),
             "executed": executed,
-            "rejected": rejected,
-            "decision_source": decision_source,
+            "rejected": [],
+            "decision_source": result.get("decision_source") or "external_agent",
             "next_step": result.get("next_step", self.session.step_index),
             "status": result.get("status", self.session.status),
             "run_id": self.run_id,

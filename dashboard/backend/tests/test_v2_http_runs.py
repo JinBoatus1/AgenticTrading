@@ -112,6 +112,43 @@ def test_cancel_then_context_reports_closed():
     assert ctx.json()["status"] == "closed"
 
 
+# -- partial execution (spec §5.3): invalid actions dropped with reasons ----
+
+def test_mixed_payload_executes_valid_and_rejects_invalid():
+    key, sid, _ = _agent("partial-agent")
+    _register_run("run_partial_http", sid)
+    h = {"X-API-Key": key}
+    r = client.post("/api/v2/runs/run_partial_http/decisions", headers=h, json={
+        "idempotency_key": "mix-1",
+        "actions": [
+            {"action": "buy", "symbol": "AAPL", "confidence": 0.7,
+             "reasoning": "valid momentum play", "position_size": 3},
+            {"action": "buy", "symbol": "ZZZ", "confidence": 0.7,
+             "reasoning": "not in the universe", "position_size": 3},
+        ],
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert any(e["symbol"] == "AAPL" for e in body["executed"])
+    assert any(rj["reason"] == "universe_violation" for rj in body["rejected"])
+
+
+def test_all_invalid_payload_auto_holds():
+    key, sid, _ = _agent("allbad-agent")
+    _register_run("run_allbad_http", sid)
+    h = {"X-API-Key": key}
+    r = client.post("/api/v2/runs/run_allbad_http/decisions", headers=h, json={
+        "idempotency_key": "bad-1",
+        "actions": [{"action": "buy", "symbol": "ZZZ", "confidence": 0.7,
+                     "reasoning": "not in the universe", "position_size": 3}],
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["executed"] == []
+    assert body["decision_source"] == "validation_hold"
+    assert any(rj["reason"] == "universe_violation" for rj in body["rejected"])
+
+
 # -- N1: decisions log reads through the backend interface ------------------
 
 def test_decisions_log_returns_recorded_decisions():

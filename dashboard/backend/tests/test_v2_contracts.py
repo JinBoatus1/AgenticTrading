@@ -40,6 +40,25 @@ def test_decision_request_requires_idempotency_key():
         DecisionRequest(actions=[])
 
 
+def test_validate_actions_splits_valid_and_invalid():
+    from api.v2.models import validate_actions
+    valid, rejected = validate_actions([
+        {"action": "buy", "symbol": "AAPL", "confidence": 0.7,
+         "reasoning": "valid reason", "position_size": 3},
+        {"action": "buy", "symbol": "ZZZ", "confidence": 0.7,
+         "reasoning": "bad symbol here", "position_size": 3},
+    ])
+    assert len(valid) == 1 and valid[0]["symbol"] == "AAPL"
+    assert rejected == [{"symbol": "ZZZ", "reason": "universe_violation"}]
+
+
+def test_decision_request_accepts_raw_actions_for_partial_rejection():
+    # actions are raw dicts so the boundary can drop invalid ones with reasons
+    # (spec §5.3) instead of 422-ing the whole submission.
+    req = DecisionRequest(idempotency_key="k", actions=[{"action": "buy", "symbol": "ZZZ"}])
+    assert req.actions == [{"action": "buy", "symbol": "ZZZ"}]
+
+
 def test_context_envelope_defaults_news_slot_present():
     env = ContextEnvelope(
         schema_version=SCHEMA_VERSION, run_id="run_1", mode="backtest",

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from llm_validator import DJIA_30
 
@@ -96,7 +96,32 @@ class ActionItem(BaseModel):
 
 class DecisionRequest(BaseModel):
     idempotency_key: str = Field(min_length=1)
-    actions: List[ActionItem]
+    # Raw action dicts (each should match ActionItem). They are validated per-item
+    # at the v2 boundary via validate_actions() so that a single malformed action is
+    # dropped *with a reason* (spec §5.3 partial execution) rather than 422-ing the
+    # whole submission. The action shape stays discoverable via GET /api/v2/schema.
+    actions: List[Dict[str, Any]]
+
+
+def validate_actions(
+    raw_actions: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
+    """Split raw actions into (valid ActionItem dicts, rejected {symbol, reason}).
+
+    Realizes spec §5.3: schema-invalid actions are dropped with a reason instead of
+    failing the whole request. Keeping this at the boundary means every backend
+    receives only valid actions and the rejected list is uniform across backends.
+    """
+    valid: List[Dict[str, Any]] = []
+    rejected: List[Dict[str, str]] = []
+    for raw in raw_actions:
+        try:
+            valid.append(ActionItem(**raw).model_dump())
+        except ValidationError as exc:
+            msg = exc.errors()[0].get("msg", "validation_failed")
+            reason = "universe_violation" if "universe_violation" in msg else "validation_failed"
+            rejected.append({"symbol": str(raw.get("symbol", "?")), "reason": reason})
+    return valid, rejected
 
 
 # --- Submit ack ------------------------------------------------------------

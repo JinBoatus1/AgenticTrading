@@ -16,7 +16,9 @@ from pydantic import BaseModel, Field
 
 import external_backtest_service as ext
 from api.v2.errors import ApiError
-from api.v2.models import DecisionRequest, RunManifest, SCHEMA_VERSION, UNIVERSE_KEY
+from api.v2.models import (
+    DecisionRequest, RunManifest, SCHEMA_VERSION, UNIVERSE_KEY, validate_actions,
+)
 from auth_scopes import require_scope
 from database import db
 from execution.backtest_backend import BacktestBackend
@@ -58,13 +60,20 @@ def _context_for(run_id: str, session_id: str) -> Dict[str, Any]:
 
 
 def _submit_for(run_id: str, session_id: str, idem_key: str,
-                actions: List[Dict[str, Any]]) -> Dict[str, Any]:
+                raw_actions: List[Dict[str, Any]]) -> Dict[str, Any]:
     backend = _require_run(run_id, session_id)
     step = backend.current_step_index()
     existing = db.get_idempotency(run_id, step, idem_key)
     if existing is not None:
         return existing
-    ack = backend.apply_decisions(actions)
+    # Partial execution (spec §5.3): drop schema-invalid actions with reasons,
+    # execute the rest. If all are invalid, the step auto-holds (validation_hold).
+    valid, rejected = validate_actions(raw_actions)
+    ack = backend.apply_decisions(valid)
+    if rejected:
+        ack["rejected"] = list(ack.get("rejected") or []) + rejected
+        if not valid:
+            ack["decision_source"] = "validation_hold"
     db.put_idempotency(run_id, step, idem_key, ack)
     return ack
 
@@ -137,8 +146,7 @@ async def submit_decision(run_id: str, body: DecisionRequest, response: Response
     """submit_decision — idempotent per (run_id, idempotency_key); a replay
     returns the original ack even after the run has advanced to a later step."""
     enforce(agent["agent_id"], response)
-    actions = [a.model_dump() for a in body.actions]
-    return _submit_for(run_id, agent["session_id"], body.idempotency_key, actions)
+    return _submit_for(run_id, agent["session_id"], body.idempotency_key, body.actions)
 
 
 @router.get("/{run_id}/result")

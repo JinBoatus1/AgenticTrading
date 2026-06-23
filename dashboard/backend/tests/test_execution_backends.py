@@ -94,10 +94,11 @@ def test_news_sentiment_fail_closed_when_loader_raises(monkeypatch):
     assert sentiment == {} and overview is None
 
 
-def test_apply_decisions_splits_valid_and_invalid_actions():
-    # Schema-invalid actions are dropped with a reason; valid ones execute.
+def test_apply_decisions_executes_pre_validated_actions():
+    # Per-action validation now happens at the v2 boundary (validate_actions);
+    # the backend receives only valid actions and reports execution results.
     backend = BacktestBackend.__new__(BacktestBackend)
-    backend.run_id = "run_split"
+    backend.run_id = "run_exec"
 
     class _StubSession:
         step_index = 1
@@ -114,12 +115,10 @@ def test_apply_decisions_splits_valid_and_invalid_actions():
     ack = backend.apply_decisions([
         {"action": "buy", "symbol": "AAPL", "confidence": 0.7,
          "reasoning": "valid action here", "position_size": 3},
-        {"action": "buy", "symbol": "ZZZ", "confidence": 0.7,
-         "reasoning": "bad symbol here", "position_size": 3},
     ])
     SubmitAck.model_validate(ack)
     assert any(e["symbol"] == "AAPL" for e in ack["executed"])
-    assert any(r["reason"] == "universe_violation" for r in ack["rejected"])
+    assert ack["rejected"] == []
 
 
 def test_cancel_makes_context_report_closed(monkeypatch):
