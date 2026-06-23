@@ -1,0 +1,88 @@
+"""Deterministic rule-based reference trading agent.
+
+Extracted (Phase 2C1) from ``PortfolioManager.make_trading_decision`` in
+``dashboard/scripts/backtest_hourly_agent.py``. This is pure, deterministic,
+domain-level decision logic over an explicit portfolio-state snapshot plus the
+current positions/cash. The legacy method now delegates here.
+
+Behavior is byte-for-byte identical to the original method. In particular:
+
+* position sizing, BUY/SELL thresholds, reason strings, and the action schema
+  are unchanged;
+* symbols are iterated in ``portfolio_state["market_signals"]`` insertion order;
+* a symbol is skipped when ``pd.isna([rsi, sma20]).any()`` (missing/None/NaN
+  ``rsi`` or ``sma20``);
+* BUY requires no existing position, ``rsi < 30`` and ``price < sma20``; size is
+  ``int(total_equity * 0.02 / price)``, only emitted when ``shares_to_buy > 0``
+  and ``shares_to_buy * price <= cash``;
+* SELL (an ``elif``, so mutually exclusive with BUY) requires an existing
+  position and (``rsi > 70`` or (``sma50`` truthy and ``price > sma50 * 1.02``));
+  it sells the full held quantity;
+* the return value is ``{"actions": [...]}`` and inputs are not mutated.
+
+No thresholds, formulas, strings, or default quantities are changed. The LLM
+decision workflow is intentionally NOT extracted here.
+
+This module is domain-only: it must not import Anthropic, Alpaca, the database,
+FastAPI, API routers, or scripts.
+"""
+
+from typing import Dict, List
+
+import pandas as pd
+
+
+def make_rule_based_decision(
+    *,
+    portfolio_state: Dict,
+    positions: Dict,
+    cash: float,
+) -> Dict:
+    """Produce rule-based trading actions for the given portfolio state.
+
+    ``portfolio_state`` must provide ``total_equity`` and ``market_signals`` (a
+    mapping of symbol -> indicator dict). ``positions`` and ``cash`` reflect the
+    current holdings and available cash. Inputs are read only, never mutated.
+    Returns ``{"actions": [...]}`` with the same action dictionaries the original
+    method produced.
+    """
+    actions: List[Dict] = []
+
+    # Calculate total portfolio equity for consistent position sizing
+    total_equity = portfolio_state["total_equity"]
+
+    for symbol, signal in portfolio_state["market_signals"].items():
+        rsi = signal.get("rsi")
+        price = signal.get("price")
+        sma20 = signal.get("sma20")
+        sma50 = signal.get("sma50")
+
+        # Skip if indicators not ready
+        if pd.isna([rsi, sma20]).any():
+            continue
+
+        has_position = symbol in positions and positions[symbol] > 0
+
+        # BUY logic: RSI < 30 (oversold)
+        if not has_position and rsi < 30 and price < sma20:
+            # Size: 2% of TOTAL PORTFOLIO per trade (not just cash)
+            risk_amount = total_equity * 0.02
+            shares_to_buy = int(risk_amount / price)
+            if shares_to_buy > 0 and shares_to_buy * price <= cash:
+                actions.append({
+                    "symbol": symbol,
+                    "action": "buy",
+                    "shares": shares_to_buy,
+                    "reason": f"RSI oversold ({rsi:.0f}), price below MA"
+                })
+
+        # SELL logic: RSI > 70 (overbought) or price above SMA50
+        elif has_position and (rsi > 70 or (sma50 and price > sma50 * 1.02)):
+            actions.append({
+                "symbol": symbol,
+                "action": "sell",
+                "shares": positions[symbol],
+                "reason": f"RSI overbought ({rsi:.0f})" if rsi > 70 else "Price above MA50"
+            })
+
+    return {"actions": actions}

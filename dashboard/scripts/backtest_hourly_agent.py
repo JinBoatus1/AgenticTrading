@@ -99,6 +99,14 @@ from dashboard.backend.domain.trading.execution import (
     execute_actions as _execute_actions,
 )
 
+# Phase 2C1 extraction: the deterministic rule-based decision logic now lives in
+# dashboard.backend.domain.backtesting.reference_agent.
+# PortfolioManager.make_trading_decision stays defined below but delegates to this
+# helper; imported privately because the script's public surface is unchanged.
+from dashboard.backend.domain.backtesting.reference_agent import (
+    make_rule_based_decision as _make_rule_based_decision,
+)
+
 # ============================================================================
 # DJIA 30 Stocks
 # ============================================================================
@@ -197,46 +205,11 @@ class PortfolioManager:
         Returns:
             {"actions": [{"symbol": "AAPL", "action": "buy", "shares": 10}, ...]}
         """
-        actions = []
-        
-        # Calculate total portfolio equity for consistent position sizing
-        total_equity = portfolio_state["total_equity"]
-        
-        for symbol, signal in portfolio_state["market_signals"].items():
-            rsi = signal.get("rsi")
-            price = signal.get("price")
-            sma20 = signal.get("sma20")
-            sma50 = signal.get("sma50")
-            
-            # Skip if indicators not ready
-            if pd.isna([rsi, sma20]).any():
-                continue
-            
-            has_position = symbol in self.positions and self.positions[symbol] > 0
-            
-            # BUY logic: RSI < 30 (oversold)
-            if not has_position and rsi < 30 and price < sma20:
-                # Size: 2% of TOTAL PORTFOLIO per trade (not just cash)
-                risk_amount = total_equity * 0.02
-                shares_to_buy = int(risk_amount / price)
-                if shares_to_buy > 0 and shares_to_buy * price <= self.cash:
-                    actions.append({
-                        "symbol": symbol,
-                        "action": "buy",
-                        "shares": shares_to_buy,
-                        "reason": f"RSI oversold ({rsi:.0f}), price below MA"
-                    })
-            
-            # SELL logic: RSI > 70 (overbought) or price above SMA50
-            elif has_position and (rsi > 70 or (sma50 and price > sma50 * 1.02)):
-                actions.append({
-                    "symbol": symbol,
-                    "action": "sell",
-                    "shares": self.positions[symbol],
-                    "reason": f"RSI overbought ({rsi:.0f})" if rsi > 70 else "Price above MA50"
-                })
-        
-        return {"actions": actions}
+        return _make_rule_based_decision(
+            portfolio_state=portfolio_state,
+            positions=self.positions,
+            cash=self.cash,
+        )
     
     def make_trading_decision_with_llm(self, portfolio_state: Dict, llm_client, mode: str = "safe_trading", model: str = None) -> Dict:
         """
