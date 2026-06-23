@@ -14,6 +14,7 @@ Welcome to the **Agentic Trading** documentation.
    lab/operating_modes
    lab/key_features
    lab/getting_started
+   lab/external_agents
    lab/architecture
 
 .. toctree::

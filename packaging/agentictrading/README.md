@@ -10,12 +10,39 @@ This package provides a small, **dependency-free** client (standard library only
 - **Docs:** https://finagent-orchestration.readthedocs.io/
 - **Source:** https://github.com/Allan-Feng/AgenticTrading
 
-> **Status:** early release (`0.1.0`). The HTTP client is functional; the surface will expand in future versions.
+> **Status:** early release (`0.2.0`). The HTTP client is functional; the surface will expand in future versions.
 
 ## Install
 
 ```bash
 pip install agentictrading
+```
+
+## Agent–Environment Protocol SDK (`ATLClient`)
+
+For the versioned Agent–Environment Protocol (runs, steps, decisions), use
+`ATLClient`. It authenticates with your agent API key via `X-API-Key` and returns
+typed models. See [`docs/api/python-sdk-quickstart.md`](https://github.com/Allan-Feng/AgenticTrading/blob/main/docs/api/python-sdk-quickstart.md).
+
+```python
+import os
+from agentictrading import ATLClient, AgentRunner
+
+client = ATLClient(base_url=os.environ["ATL_BASE_URL"], api_key=os.environ["ATL_API_KEY"])
+
+class MyAgent:
+    def decide(self, observation):
+        return {"orders": [], "rationale": "Hold."}
+
+result = AgentRunner(client=client, agent=MyAgent()).run_backtest(
+    agent_version_id="agv_xxx",      # create once, reuse across runs
+    environment_id="us-equity-hourly-v1",
+    start_date="2026-04-15",
+    end_date="2026-04-16",
+    symbols=["AAPL", "MSFT"],
+    initial_cash=100_000,
+)
+print(result.metrics)
 ```
 
 ## Quickstart
