@@ -195,6 +195,9 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# Agent workspace memory (local continuity notes, not project code)
+/memory/
+
 # Memory agent database files
 FinAgents/memory/*.db
 FinAgents/memory/*.sqlite
