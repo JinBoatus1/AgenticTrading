@@ -11,7 +11,7 @@
 
 Turn the lab's current, implicit external-agent API into a **deliberate, documented, MCP-aligned API foundation** that any agent (Claude / GPT / Cursor / FinSearch) can target — register, fetch context (market + news + sentiment), submit decisions, get results — with versioning, auth/governance, and benchmark/leaderboard hooks.
 
-This is **formalize-and-unify**, not rebuild. The existing surface (`POST /api/v1/agents` → `POST /api/v1/backtest/start` → poll `…/steps/current` → `POST …/decisions`) is ~80% of the contract already; the work is to give it a typed/versioned context schema (incl. Plan 1's `news_sentiment`), a documented decision/error model, scoped + rate-limited auth, backtest/paper parity, benchmark hooks, and an MCP-ready shape.
+This is **formalize-and-unify**, not rebuild. The existing surface (`POST /api/v1/agents` → `POST /api/v1/backtest/start` → poll `…/steps/current` → `POST …/decisions`) is ~80% of the contract already; the work is to give it a typed/versioned context schema (incl. Plan 1's `news_sentiment`), a documented decision/error model, scoped + rate-limited auth, schema-level backtest/paper parity (backtest execution in v1; paper designed-for), benchmark hooks, and an MCP-ready shape.
 
 ### The hard boundary (unchanged)
 
@@ -24,7 +24,9 @@ The **agent's LLM runs client-side.** The backend serves context and validates d
 | **v1 shape / ambition** | REST is the source of truth; the surface is **MCP-shaped**; the actual MCP server is **deferred to Phase C**. | Freeze the contracts first; the later MCP server is a thin, mechanical adapter over frozen REST. |
 | **Versioning** | New **`/api/v2/*`** namespace; existing `/api/v1/*` left untouched. | The agent contract becomes its own governed, documented, independently-deprecatable surface. |
 | **Universe** | DJIA-30 stays the only tradable universe, but is a **declared, typed `universe` field** in the context + run config — not an implicit constant. | Matches Plan 1's DJIA-30 ∩ watchlist constraint; parameterizing later is a flip, not a rewrite (YAGNI). |
-| **Mode parity** | **Backtest + paper** share one contract in v1 (same schemas, different execution backend). Live is **designed-for, not wired.** | Lets Plan 3 benchmark in backtest and run identical client code against paper. Live carries real-money/regulatory weight the programme explicitly stays behind. |
+| **Mode parity** | v1 **ships backtest execution only.** The contract is defined at the **schema level** (context/decision/result) so it is mode-independent, but **paper and live execution are designed-for, not built** — see §4.2 and the design-review finding below. | Schema-level parity is what lets Plan 3 benchmark in backtest and later run identical client code against paper. Paper has **no execution path in the codebase today** (read-only Alpaca client, no order submission, no step loop), so `PaperBackend` is real new work that needs its own design pass, not a wrapper. |
+
+> **Design-review correction (2026-06-23).** The first draft framed paper parity as "wrap the existing paper client behind the same backend." Grounding against the code disproved that: `AlpacaPaperTradingClient` is read-only and there is no order-submission or step-loop path for paper. Paper trading is **wall-clock-driven**, not the agent-driven lockstep the backtest uses, so the step/`decision_deadline_at`/auto-hold lifecycle does **not** translate. Decision (per Felix): **ship Phase A (backtest) as the committed v1 deliverable; re-design paper as Phase B when we reach it.** The `ExecutionBackend` abstraction and schema-level parity stay; `PaperBackend`/`LiveBackend` become designed-for stubs.
 | **Transport** | **Polling**, SSE-ready. | Maps cleanly onto MCP's request/response tool model; the backtest loop is inherently lockstep. Optional SSE push is a later add for live dashboards. |
 | **Auth depth** | Existing `ag_` key **+ per-agent rate-limit + basic scopes**. | Pragmatic governance without an OAuth build-out; protects the backend and enables the "do agents herd?" fairness experiment. |
 
@@ -64,7 +66,7 @@ get_result      → GET    /api/v2/runs/{run_id}/result
 | `POST /api/v2/agents` | register | Create agent → `{agent_id, api_key (ag_…), session_id, scopes}` (key shown once) |
 | `GET /api/v2/agents/me` | — | Resolve caller from `X-API-Key` → identity, scopes, rate-limit status |
 | `POST /api/v2/agents/{id}/rotate-key` | — | Rotate key (exists today) |
-| `POST /api/v2/runs` | — | Start a run. Body: `mode: backtest\|paper`, `universe: djia_30`, date-range / session params, `agent_name`, `model_name`. Returns `{run_id, mode, status, decision_timeout_seconds}` |
+| `POST /api/v2/runs` | — | Start a run. Body: `mode: backtest` (paper deferred), `universe: djia_30`, date-range params, `agent_name`, `model_name`. **Mints the canonical `run_id` here** (see §4.3). Returns `{run_id, mode, status, loop, decision_timeout_seconds}` |
 | `GET /api/v2/runs/{run_id}` | — | Run status: `{status, step_index, total_steps, decision_deadline_at, mode}` |
 | `GET /api/v2/runs/{run_id}/context` | **get_context** | Typed context envelope for the current step |
 | `POST /api/v2/runs/{run_id}/decisions` | **submit_decision** | `{idempotency_key, actions:[…]}` → ack |
@@ -78,26 +80,38 @@ get_result      → GET    /api/v2/runs/{run_id}/result
 
 **MCP-shaping rule** held for every endpoint: one logical action, flat JSON in, self-contained JSON envelope out, fully described by `GET /schema`. Guarantees the Phase-C MCP façade is mechanical.
 
-### 4.2 The parity mechanism — `ExecutionBackend`
+### 4.2 The parity mechanism — `ExecutionBackend` (two distinct kinds of parity)
+
+The design separates two things the first draft conflated:
+
+- **Schema parity (delivered in v1, mode-independent):** the `ContextEnvelope`, `DecisionRequest`, and `ResultEnvelope` schemas are identical regardless of mode. This is what lets Plan 3 benchmark in backtest and later reuse *identical client code* against paper.
+- **Lifecycle parity (NOT universal — backend-specific):** the *loop semantics* differ by mode and are advertised via a `loop` field on the context envelope:
+  - `loop: "lockstep"` (backtest) — agent advances discrete steps; `decision_deadline_at` + auto-hold-on-timeout apply.
+  - `loop: "realtime"` (paper/live, **designed-for**) — wall-clock cadence; the market advances on its own; there is **no** agent-driven `advance()` and **no** auto-hold. Decisions map to live orders.
 
 `POST /api/v2/runs` reads `mode` and instantiates an `ExecutionBackend`:
 
-- `BacktestBackend` — **wraps** the existing `ExternalBacktestSession` / `build_market_snapshot` (not a rewrite).
-- `PaperBackend` — **wraps** `AlpacaPaperTradingClient`.
+- `BacktestBackend` — **wraps** the existing `ExternalBacktestSession` / `build_market_snapshot` (not a rewrite). **Built in v1.**
+- `PaperBackend` — **designed-for stub in v1.** It is *new execution code* (live Alpaca order submission, a realtime decision-cadence scheduler, live bar-fetch + indicator assembly), because no paper execution path exists today. Deferred to a Phase-B design pass.
 - `LiveBackend` — designed-for, documented stub, not built.
-
-All implement one interface:
 
 ```python
 class ExecutionBackend:
-    def build_context(self, step) -> ContextEnvelope: ...   # identical schema both modes
-    def apply_decisions(self, actions) -> ExecutionResult: ...# identical ack both modes
-    def advance(self) -> None: ...
+    loop: str  # "lockstep" | "realtime"
+    def build_context(self) -> ContextEnvelope: ...     # identical schema across backends
+    def apply_decisions(self, actions) -> ExecutionResult: ...# identical ack schema across backends
+    def advance(self) -> None: ...   # lockstep only; realtime backends no-op / wall-clock driven
     def status(self) -> RunStatus: ...
     def result(self) -> ResultEnvelope: ...
 ```
 
-Context and decision **schemas are mode-independent**; only the backend differs. This is what lets Plan 3 benchmark an agent in backtest and run identical client code against paper.
+The interface is the **seam**; only `BacktestBackend` is wired in v1. `test_v2_parity` asserts schema parity (both backends' envelopes validate against the same models), not lifecycle parity.
+
+### 4.3 Run identity — one `run_id` for the whole life
+
+**Correctness fix from design review:** today the engine uses two ids — `backtest_id` (`bt_<uuid>`, the in-memory session handle during the loop) and `run_id` (`ext_<ts>`, the persisted DB row, created only at `_finalize()`). The first draft ambiguously called both "run_id."
+
+v2 **mints one canonical `run_id` at `POST /api/v2/runs`** and uses it for the entire lifecycle: the in-memory session, every loop endpoint (`/context`, `/decisions`, `/status`, `/cancel`), the persisted row at finalize, and the leaderboard. The `bt_`/`ext_` split is removed. This is what makes idempotency keys (§5.2) well-defined during the loop — the key they reference exists from creation, not just at completion.
 
 ## 5. Data contracts (typed)
 
@@ -111,7 +125,9 @@ Keeps today's *inner* field names (`portfolio`, `current_holdings`, `recent_trad
   "run_id": "…", "mode": "backtest",
   "step_index": 0, "total_steps": 48,
   "timestamp": "2026-04-15T10:30:00+00:00",
-  "decision_deadline_at": "…", "decision_timeout_seconds": 30,
+  "loop": "lockstep",                      // lockstep (backtest) | realtime (paper/live, designed-for)
+  "decision_deadline_at": "…",             // present only when loop == "lockstep"
+  "decision_timeout_seconds": 30,          // lockstep only
   "status": "waiting_decision",            // waiting_decision | loading | completed | closed
   "universe": ["AAPL","MSFT", …],          // DJIA-30, now EXPLICIT in the contract
   "portfolio":        { "cash":…, "positions_value":…, "total_equity":…, "num_positions":… },
@@ -126,6 +142,8 @@ Keeps today's *inner* field names (`portfolio`, `current_holdings`, `recent_trad
 
 `status` values: `loading` (warming market data), `waiting_decision` (step open), `completed`, `closed`.
 
+**Field scopes (design-review clarification):** `top_signals` is the engine's *curated top-10 by |rsi−50|* (not all 30 symbols), preserved as-is. `news_sentiment` is scoped to the **full `universe`** (all 30), not the `top_signals` subset — news relevance is independent of the technical-signal ranking, and an agent may want news on a symbol it isn't currently signalled on.
+
 ### 5.2 Decision contract — `POST /api/v2/runs/{run_id}/decisions`
 
 ```jsonc
@@ -139,7 +157,7 @@ Keeps today's *inner* field names (`portfolio`, `current_holdings`, `recent_trad
 }
 ```
 
-- **Idempotency:** server keys on `(run_id, step_index, idempotency_key)`; a replay returns the *original* ack instead of double-executing.
+- **Idempotency:** server keys on `(run_id, step_index, idempotency_key)`; a replay returns the *original* ack instead of double-executing. This is well-defined because `run_id` is minted at run creation (§4.3) and is stable through the loop — it does not depend on the finalize-time id the old engine used.
 - **`reasoning`** becomes a first-class, stored, queryable field (already persists to `trades.reason`/`backtest_decisions`; formalized so the herding probe is a query, not a scrape).
 - **Security boundary unchanged:** `tool_calls`/`function_calls` → reject (`llm_validator`).
 - **Validation rules carried over** from `llm_validator`: symbol ∈ `universe`; `confidence ∈ [0,1]`; `reasoning` 5–500 chars; `position_size` 0–10000; positive-or-null stop/take prices; insufficient-cash / sell-without-position / oversized-position checks.
@@ -184,7 +202,7 @@ created → loading → waiting_decision ⇄ (submit | timeout_hold → advance)
                                                                               ↘ failed / closed
 ```
 
-`POST /api/v2/runs/{id}/cancel` → `closed`. Backtest and paper share this machine; only the `ExecutionBackend` differs. Decision timeout (`EXTERNAL_AGENT_DECISION_TIMEOUT_SECONDS`, default 30) and auto-hold-on-timeout semantics carry over from `external_backtest_service`.
+`POST /api/v2/runs/{id}/cancel` → `closed`. **This state machine is the `lockstep` (backtest) lifecycle** — `waiting_decision`, `decision_deadline_at`, and auto-hold-on-timeout (`EXTERNAL_AGENT_DECISION_TIMEOUT_SECONDS`, default 30) carry over from `external_backtest_service`. A future `realtime` (paper/live) backend has a *different* lifecycle (wall-clock cadence, no deadline/auto-hold) — designed-for, defined in the Phase-B pass (§4.2), not this one. The `created`/`completed`/`failed`/`closed` terminal states are shared; the middle differs by `loop`.
 
 ## 8. Benchmark / leaderboard hooks (what Plan 3 needs)
 
@@ -212,9 +230,10 @@ dashboard/backend/
 │   └── leaderboard.py               # GET /api/v2/leaderboard (real v2 runs vs baselines)
 ├── execution/                       # NEW package — the parity mechanism
 │   ├── __init__.py
-│   ├── base.py                      # ExecutionBackend interface
-│   ├── backtest_backend.py          # wraps existing ExternalBacktestSession (NOT a rewrite)
-│   └── paper_backend.py             # wraps AlpacaPaperTradingClient (LiveBackend = documented stub)
+│   ├── base.py                      # ExecutionBackend interface (loop: lockstep|realtime)
+│   ├── backtest_backend.py          # wraps existing ExternalBacktestSession (NOT a rewrite) — BUILT in v1
+│   └── paper_backend.py             # designed-for STUB in v1 (real new code: live orders + realtime
+│                                    #   cadence) — Phase-B design pass; LiveBackend likewise stubbed
 ├── auth_scopes.py                   # scope constants + require_scope() FastAPI dependency
 ├── rate_limit.py                    # per-agent token bucket
 ├── agent_store.py    (EXTEND: scopes column)
@@ -236,25 +255,28 @@ TDD; tests prepend the backend dir to `sys.path` per the existing pattern (`sys.
 |---|---|
 | `test_v2_contracts.py` | Models validate good payloads, reject bad (news_sentiment typing, `score ∈ [-1,1]`, decision bounds, error envelope) |
 | `test_v2_runs.py` | Lifecycle create → context → decisions → result end-to-end |
-| `test_v2_parity.py` | **Identical** context + decision schema validates for *both* backtest and paper backend |
+| `test_v2_parity.py` | **Schema** parity: the context/decision/result envelopes validate against the same models (backtest backend in v1; the test is written so a future paper backend's envelopes must also pass) |
 | `test_v2_auth.py` | Scope miss → 403, rate-limit → 429, key resolves to agent + session |
-| `test_v2_idempotency.py` | Replayed `idempotency_key` returns original ack, no double-execute |
-| `test_execution_backends.py` | Both backends conform to the `ExecutionBackend` interface |
+| `test_v2_idempotency.py` | Replayed `idempotency_key` returns original ack, no double-execute; `run_id` stable from creation |
+| `test_execution_backends.py` | `BacktestBackend` conforms to the `ExecutionBackend` interface; `loop == "lockstep"` |
 
 ## 11. Phasing
 
-- **Phase A — Formalize REST + typed context.** v2 namespace, `models.py` contract, `runs` over `BacktestBackend`, typed context incl. the `news_sentiment` slot, decision/idempotency/error model, `/schema`, v2 client example + docs. *Delivers the agent-API contract Plan 3 targets.*
-- **Phase B — Parity + governance.** `PaperBackend` behind the same contract; scopes + rate-limits; benchmark hooks (manifest, `context_ref`, real `/leaderboard`).
+- **Phase A — Formalize REST + typed context (the committed v1 deliverable; plan-ready now).** v2 namespace, `models.py` contract, `runs` over `BacktestBackend`, canonical `run_id` minted at creation (§4.3), typed context incl. the `loop` field and the `news_sentiment` slot, decision/idempotency/error model, scopes + rate-limits, `/schema`, benchmark hooks (manifest, `context_ref`, real `/leaderboard` over v2 runs), v2 client example + docs. *Delivers the agent-API contract Plan 3 targets, end-to-end, for backtest.*
+- **Phase B — Paper parity (needs its own design pass before implementation).** Design + build `PaperBackend`: live Alpaca order submission, the `realtime` loop model, a decision-cadence scheduler, live context assembly. **Not plan-ready from this spec** — it requires a focused design (see §4.2 review correction). Pulled forward into Phase A *only* the schema-level seam that makes it droppable-in later.
 - **Phase C — MCP façade (designed-for, deferred).** Thin MCP server mapping the four tools onto v2 REST; `LiveBackend`. Not built in this programme cut, but every contract above is shaped so it's mechanical.
+
+> Note: governance (scopes + rate-limits) and benchmark hooks moved **into Phase A** — they're additive over backtest and don't depend on paper. Phase B is now *only* paper execution, which is the part that needs more design.
 
 ## 12. Non-goals (the line this stays behind)
 
 - **No alpha/strategy layer.** This is measurement apparatus, not a money-maker.
-- **No live real-money execution** in v1 (designed-for only).
+- **No paper or live execution** in v1 — backtest only (`PaperBackend`/`LiveBackend` are designed-for stubs; paper has no execution path in the codebase today and is a Phase-B design pass).
 - **No loosening of the LLM safety boundary** — JSON-only decisions, no tool/web access from agent responses.
 - **No universe expansion** beyond DJIA-30 in v1 (the field is declared so it *can* expand later).
 - **No MCP server build** in v1 (REST is shaped for it; Phase C).
 - Plan 2 does **not** compute sentiment — it types the slot; Plan 1 owns the computation.
+- **No durable cross-worker run state.** In-flight runs live in process memory (today's `_sessions` dict behind a `threading.Lock`); v2 inherits this and **assumes single-worker or sticky-routed deploys**. A run does not survive a process restart, and concurrent multi-worker deploys (e.g. scaled Render) would break run affinity. This is the first thing to revisit if Plan 3 runs many agents concurrently at scale; durable run state is out of scope for v1.
 
 ## 13. Backward compatibility
 
