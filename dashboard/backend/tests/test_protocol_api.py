@@ -56,7 +56,7 @@ def client(tmp_path, monkeypatch):
     import dashboard.backend.agent_version_store as version_module
     import dashboard.backend.run_store as run_store_module
     import dashboard.backend.external_backtest_service as ebs
-    import dashboard.backend.run_service as run_service
+    import dashboard.backend.domain.runs.service as run_service
     import dashboard.backend.api.agents as agents_api
     import dashboard.backend.api.agent_versions as versions_api
     import dashboard.backend.api.runs as runs_api

@@ -18,8 +18,9 @@ CRITICAL_MODULES = [
     # Phase 3A1 moved the agent repositories into the canonical domain package.
     "domain.agents.repository",
     "domain.agents.version_repository",
-    "run_store",
-    "run_service",
+    # Phase 3B1 moved the run repository/service into the canonical domain package.
+    "domain.runs.repository",
+    "domain.runs.service",
     "users",
 ]
 
