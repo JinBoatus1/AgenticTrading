@@ -333,7 +333,9 @@ def _imported_modules(path: Path):
 
 
 def test_app_uses_canonical_quotes_import():
-    mods = _imported_modules(_BACKEND / "app.py")
+    # Phase 3D4A: the /ticker route (the runtime consumer of get_market_quotes)
+    # moved out of app.py into the canonical market router.
+    mods = _imported_modules(_BACKEND / "api" / "routers" / "market.py")
     assert "dashboard.backend.infrastructure.market_data.quotes" in mods
 
 

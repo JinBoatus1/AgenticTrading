@@ -104,3 +104,13 @@ class SessionMiddleware(BaseHTTPMiddleware):
         print(f"✅ Session: {session_id[:8]}... | Route: {path}")
         
         return await call_next(request)
+
+
+# CSP Middleware: Permit Chart.js and inline scripts (for development)
+class CSPHeaderMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        # Allow Chart.js and scripts from same origin, plus unsafe-inline for development
+        response.headers["Content-Security-Policy"] = "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src *; img-src * data:;"
+        # DO NOT override CORS headers here — let CORSMiddleware handle them
+        return response
