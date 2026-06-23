@@ -1,10 +1,15 @@
-"""Characterization tests for the canonical agent-chat service (Phase 3D3A).
+"""Characterization tests for the canonical agent-chat service.
 
-All provider calls are mocked; no real Anthropic request occurs.
+Phase 3D3A moved the service; Phase 3D3B made it import-safe (lazy client /
+execution-time credential resolution). All provider calls are mocked; no real
+Anthropic request occurs.
 """
 
 import asyncio
 import ast
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,6 +21,7 @@ from dashboard.backend.domain.chat.service import (
     chat_with_agent,
     conversation_history,
     extract_text,
+    get_claude_client,
     reset_agent_conversation,
 )
 
@@ -23,8 +29,10 @@ _BACKEND = Path(__file__).resolve().parents[3]
 
 
 @pytest.fixture(autouse=True)
-def _clear_history():
+def _reset_state(monkeypatch):
     conversation_history.clear()
+    # Ensure the lazy client is rebuilt per test and never leaks across tests.
+    monkeypatch.setattr(chat_service, "_claude_client", None, raising=False)
     yield
     conversation_history.clear()
 
@@ -48,9 +56,8 @@ def _text_response(text: str):
 
 def _install_client(monkeypatch, *, response=None, error=None):
     fake_messages = _FakeMessages(response=response, error=error)
-    monkeypatch.setattr(
-        chat_service, "claude_client", SimpleNamespace(messages=fake_messages)
-    )
+    fake_client = SimpleNamespace(messages=fake_messages)
+    monkeypatch.setattr(chat_service, "get_claude_client", lambda: fake_client)
     return fake_messages
 
 
@@ -72,6 +79,7 @@ def test_extract_text_joins_text_blocks_and_strips():
 # ---------------------------------------------------------------------------
 
 def test_chat_constructs_request_and_records_history(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-test-model")
     fake = _install_client(monkeypatch, response=_text_response("hi there"))
 
     answer = asyncio.run(chat_with_agent(user_id="u1", agent_id="a1", message="  hello  "))
@@ -79,22 +87,23 @@ def test_chat_constructs_request_and_records_history(monkeypatch):
     assert answer == "hi there"
     assert len(fake.calls) == 1
     call = fake.calls[0]
-    assert call["model"] == chat_service.ANTHROPIC_MODEL
+    assert call["model"] == "claude-test-model"
     assert call["max_tokens"] == 1200
     assert call["system"] == SYSTEM_PROMPT
-    # history passed by reference; user message cleaned (stripped)
     history = conversation_history[("u1", "a1")]
     assert history[0] == {"role": "user", "content": "hello"}
     assert history[1] == {"role": "assistant", "content": "hi there"}
 
 
 def test_chat_empty_message_raises_value_error(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-test-model")
     _install_client(monkeypatch, response=_text_response("never"))
     with pytest.raises(ValueError, match="Message cannot be empty."):
         asyncio.run(chat_with_agent(user_id="u1", agent_id="a1", message="   "))
 
 
 def test_chat_empty_answer_fallback(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-test-model")
     _install_client(monkeypatch, response=_text_response("   "))
     answer = asyncio.run(chat_with_agent(user_id="u1", agent_id="a1", message="hello"))
     assert answer == "Claude returned an empty response."
@@ -103,20 +112,30 @@ def test_chat_empty_answer_fallback(monkeypatch):
 
 
 def test_chat_provider_error_propagates_and_pops_user_message(monkeypatch):
-    boom = RuntimeError("provider down")
-    _install_client(monkeypatch, error=boom)
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-test-model")
+    _install_client(monkeypatch, error=RuntimeError("provider down"))
 
     with pytest.raises(RuntimeError, match="provider down"):
         asyncio.run(chat_with_agent(user_id="u1", agent_id="a1", message="hello"))
 
-    # The unanswered user message must not be retained.
+    assert conversation_history[("u1", "a1")] == []
+
+
+def test_chat_missing_model_fails_at_execution_and_pops_message(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+    # Patch the client so the failure point is the missing model, not the key.
+    _install_client(monkeypatch, response=_text_response("unused"))
+
+    with pytest.raises(RuntimeError, match="Missing required environment variable: ANTHROPIC_MODEL"):
+        asyncio.run(chat_with_agent(user_id="u1", agent_id="a1", message="hello"))
+
     assert conversation_history[("u1", "a1")] == []
 
 
 def test_chat_history_trimmed_to_12(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-test-model")
     _install_client(monkeypatch, response=_text_response("ok"))
     key = ("u1", "a1")
-    # Pre-fill with 12 messages so the new exchange forces trimming.
     conversation_history[key] = [
         {"role": "assistant", "content": f"m{i}"} for i in range(12)
     ]
@@ -126,6 +145,7 @@ def test_chat_history_trimmed_to_12(monkeypatch):
 
 
 def test_sessions_are_keyed_by_user_and_agent(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-test-model")
     _install_client(monkeypatch, response=_text_response("a"))
     asyncio.run(chat_with_agent(user_id="u1", agent_id="a1", message="hi"))
     asyncio.run(chat_with_agent(user_id="u2", agent_id="a1", message="hi"))
@@ -135,12 +155,32 @@ def test_sessions_are_keyed_by_user_and_agent(monkeypatch):
 
 
 def test_reset_clears_only_that_session(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-test-model")
     _install_client(monkeypatch, response=_text_response("a"))
     asyncio.run(chat_with_agent(user_id="u1", agent_id="a1", message="hi"))
     asyncio.run(chat_with_agent(user_id="u2", agent_id="a1", message="hi"))
     reset_agent_conversation(user_id="u1", agent_id="a1")
     assert ("u1", "a1") not in conversation_history
     assert ("u2", "a1") in conversation_history
+
+
+# ---------------------------------------------------------------------------
+# get_claude_client: lazy construction + missing credential
+# ---------------------------------------------------------------------------
+
+def test_get_claude_client_requires_api_key(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(chat_service, "_claude_client", None, raising=False)
+    with pytest.raises(RuntimeError, match="Missing required environment variable: ANTHROPIC_API_KEY"):
+        get_claude_client()
+
+
+def test_get_claude_client_is_cached(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(chat_service, "_claude_client", None, raising=False)
+    first = get_claude_client()
+    second = get_claude_client()
+    assert first is second  # constructed once, then reused
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +193,6 @@ def test_system_prompt_exact():
         "general information from personalized financial advice."
     )
     assert "This Discord integration is currently an early chat prototype." in SYSTEM_PROMPT
-    # .strip() applied at definition: no leading/trailing whitespace.
     assert SYSTEM_PROMPT == SYSTEM_PROMPT.strip()
 
 
@@ -168,7 +207,35 @@ def test_shim_reexports_same_objects():
     assert shim.reset_agent_conversation is reset_agent_conversation
     assert shim.conversation_history is conversation_history
     assert shim.SYSTEM_PROMPT is SYSTEM_PROMPT
-    assert shim.claude_client is chat_service.claude_client
+    assert shim.get_claude_client is get_claude_client
+    assert shim.require_env is chat_service.require_env
+
+
+# ---------------------------------------------------------------------------
+# Import safety (clean subprocess, secrets removed)
+# ---------------------------------------------------------------------------
+
+def test_chat_service_imports_without_secrets():
+    code = textwrap.dedent(
+        """
+        import os
+        for var in ("ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"):
+            os.environ.pop(var, None)
+        import dashboard.backend.domain.chat.service as svc
+        assert svc._claude_client is None, "client must not be constructed at import"
+        # The shim must also import cleanly without secrets.
+        import dashboard.backend.services.agent_chat_service  # noqa: F401
+        print("import-safe")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        cwd=str(_BACKEND.parents[1]),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "import-safe" in result.stdout
 
 
 # ---------------------------------------------------------------------------

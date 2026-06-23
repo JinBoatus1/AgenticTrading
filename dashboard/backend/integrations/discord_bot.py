@@ -25,9 +25,6 @@ def require_env(name: str) -> str:
     return value
 
 
-DISCORD_BOT_TOKEN = require_env("DISCORD_BOT_TOKEN")
-DISCORD_GUILD_ID = int(require_env("DISCORD_GUILD_ID"))
-
 # The MVP gives every user one placeholder agent.
 # Later, replace this with the user's selected agent from the database.
 DEFAULT_AGENT_ID = "default"
@@ -81,14 +78,15 @@ class AgenticTradingDiscordBot(commands.Bot):
         Guild-level synchronization makes development commands appear
         quickly. Production can later use global commands.
         """
-        guild = discord.Object(id=DISCORD_GUILD_ID)
+        guild_id = int(require_env("DISCORD_GUILD_ID"))
+        guild = discord.Object(id=guild_id)
 
         self.tree.copy_global_to(guild=guild)
         synced_commands = await self.tree.sync(guild=guild)
 
         print(
             f"Synced {len(synced_commands)} Discord command(s) "
-            f"to guild {DISCORD_GUILD_ID}."
+            f"to guild {guild_id}."
         )
 
 
@@ -190,5 +188,9 @@ async def agent(
     )
 
 
+def main() -> None:
+    bot.run(require_env("DISCORD_BOT_TOKEN"))
+
+
 if __name__ == "__main__":
-    bot.run(DISCORD_BOT_TOKEN)
+    main()

@@ -20,10 +20,22 @@ def require_env(name: str) -> str:
     return value
 
 
-ANTHROPIC_API_KEY = require_env("ANTHROPIC_API_KEY")
-ANTHROPIC_MODEL = require_env("ANTHROPIC_MODEL")
+# Lazily-constructed Anthropic client.
+#
+# Importing this module must not require credentials or build a network client;
+# the client is created on first use via ``get_claude_client`` so that import
+# stays side-effect free and test/runtime configuration is resolved on demand.
+_claude_client: AsyncAnthropic | None = None
 
-claude_client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+
+def get_claude_client() -> AsyncAnthropic:
+    """Return the shared Anthropic client, constructing it on first use."""
+    global _claude_client
+
+    if _claude_client is None:
+        _claude_client = AsyncAnthropic(api_key=require_env("ANTHROPIC_API_KEY"))
+
+    return _claude_client
 
 
 # Temporary MVP memory.
@@ -114,8 +126,11 @@ async def chat_with_agent(
         del history[:-12]
 
     try:
-        response = await claude_client.messages.create(
-            model=ANTHROPIC_MODEL,
+        model = require_env("ANTHROPIC_MODEL")
+        client = get_claude_client()
+
+        response = await client.messages.create(
+            model=model,
             max_tokens=1200,
             system=SYSTEM_PROMPT,
             messages=history,
