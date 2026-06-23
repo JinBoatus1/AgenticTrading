@@ -1,6 +1,6 @@
-"""Phase 3A3 — agent router move verification.
+"""Phase 3A3 / 3B3 — HTTP router move verification.
 
-Confirms the agent HTTP routers moved to the canonical
+Confirms the agent, run, and environment HTTP routers moved to the canonical
 ``dashboard.backend.api.routers`` package while the old modules remain thin
 re-export shims, with identical route registration and no duplicate routes.
 """
@@ -15,10 +15,14 @@ from fastapi.routing import APIRoute
 from dashboard.backend.api import agent_versions as versions_shim
 from dashboard.backend.api import agents as agents_shim
 from dashboard.backend.api import dependencies as deps
+from dashboard.backend.api import environments as environments_shim
 from dashboard.backend.api import protocol_auth
 from dashboard.backend.api import router as router_module
+from dashboard.backend.api import runs as runs_shim
 from dashboard.backend.api.routers import agent_versions as versions_canon
 from dashboard.backend.api.routers import agents as agents_canon
+from dashboard.backend.api.routers import environments as environments_canon
+from dashboard.backend.api.routers import runs as runs_canon
 from dashboard.backend.app import app
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -41,6 +45,25 @@ EXPECTED_VERSION_ROUTES = {
     ("POST", "/v1/agents/{agent_id}/versions", "create_agent_version"),
     ("GET", "/v1/agents/{agent_id}/versions", "list_agent_versions"),
     ("GET", "/v1/agent-versions/{agent_version_id}", "get_agent_version"),
+}
+
+EXPECTED_RUN_ROUTES = {
+    ("POST", "/v1/runs", "create_run"),
+    ("GET", "/v1/runs/{run_id}", "get_run"),
+    ("GET", "/v1/runs/{run_id}/status", "get_run_status"),
+    ("GET", "/v1/runs/{run_id}/steps/next", "get_next_step"),
+    ("GET", "/v1/runs/{run_id}/steps/{step_id}", "get_step"),
+    ("POST", "/v1/runs/{run_id}/steps/{step_id}/decision", "submit_step_decision"),
+    ("GET", "/v1/runs/{run_id}/steps", "list_steps"),
+    ("GET", "/v1/runs/{run_id}/decisions", "list_decisions"),
+    ("GET", "/v1/runs/{run_id}/trades", "list_trades"),
+    ("GET", "/v1/runs/{run_id}/metrics", "get_metrics"),
+    ("GET", "/v1/runs/{run_id}/result", "get_result"),
+}
+
+EXPECTED_ENV_ROUTES = {
+    ("GET", "/v1/environments", "api_list_environments"),
+    ("GET", "/v1/environments/{environment_id}", "api_get_environment"),
 }
 
 
@@ -105,11 +128,61 @@ def test_version_router_route_contract_unchanged():
     assert _route_triples(versions_canon.router) == EXPECTED_VERSION_ROUTES
 
 
+def test_run_router_route_contract_unchanged():
+    assert _route_triples(runs_canon.router) == EXPECTED_RUN_ROUTES
+
+
+def test_environment_router_route_contract_unchanged():
+    assert _route_triples(environments_canon.router) == EXPECTED_ENV_ROUTES
+
+
 def test_router_prefixes_and_tags_unchanged():
     assert agents_canon.router.prefix == "/v1/agents"
     assert agents_canon.router.tags == ["agents"]
     assert versions_canon.router.prefix == "/v1"
     assert versions_canon.router.tags == ["agent-versions"]
+    assert runs_canon.router.prefix == "/v1/runs"
+    assert runs_canon.router.tags == ["runs"]
+    assert environments_canon.router.prefix == "/v1/environments"
+    assert environments_canon.router.tags == ["environments"]
+
+
+# ---------------------------------------------------------------------------
+# Run / Environment router move (Phase 3B3)
+# ---------------------------------------------------------------------------
+
+def test_run_env_canonical_modules_import():
+    assert runs_canon.router.__class__.__name__ == "APIRouter"
+    assert environments_canon.router.__class__.__name__ == "APIRouter"
+
+
+def test_run_env_shims_reexport_same_router_objects():
+    assert runs_shim.router is runs_canon.router
+    assert environments_shim.router is environments_canon.router
+
+
+def _all_imported_modules(path: Path):
+    tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+    modules = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module)
+    return modules
+
+
+def test_canonical_run_router_imports_domain_modules():
+    modules = _all_imported_modules(runs_canon.__file__)
+    assert "dashboard.backend.domain.runs.service" in modules
+    assert "dashboard.backend.domain.runs.repository" in modules
+    assert "dashboard.backend.domain.runs.protocol" in modules
+    assert "dashboard.backend.domain.runs.environment" in modules
+
+
+def test_canonical_environment_router_imports_domain_module():
+    modules = _all_imported_modules(environments_canon.__file__)
+    assert "dashboard.backend.domain.runs.environment" in modules
 
 
 def test_each_endpoint_registered_exactly_once_in_app():
@@ -123,7 +196,11 @@ def test_each_endpoint_registered_exactly_once_in_app():
             counts[(method, route.path)] = counts.get((method, route.path), 0) + 1
 
     expected_full = set()
-    for method, path, _ in EXPECTED_AGENT_ROUTES | EXPECTED_VERSION_ROUTES:
+    all_routes = (
+        EXPECTED_AGENT_ROUTES | EXPECTED_VERSION_ROUTES
+        | EXPECTED_RUN_ROUTES | EXPECTED_ENV_ROUTES
+    )
+    for method, path, _ in all_routes:
         expected_full.add((method, f"/api{path}"))
 
     for key in expected_full:
@@ -144,9 +221,13 @@ def test_router_py_uses_canonical_imports():
     }
     assert "dashboard.backend.api.routers.agents" in modules
     assert "dashboard.backend.api.routers.agent_versions" in modules
+    assert "dashboard.backend.api.routers.runs" in modules
+    assert "dashboard.backend.api.routers.environments" in modules
     # Must not import the routers from the legacy shim locations.
     assert "dashboard.backend.api.agents" not in modules
     assert "dashboard.backend.api.agent_versions" not in modules
+    assert "dashboard.backend.api.runs" not in modules
+    assert "dashboard.backend.api.environments" not in modules
 
 
 # ---------------------------------------------------------------------------
@@ -157,8 +238,12 @@ def test_no_circular_imports():
     code = (
         "import dashboard.backend.api.routers.agents\n"
         "import dashboard.backend.api.routers.agent_versions\n"
+        "import dashboard.backend.api.routers.runs\n"
+        "import dashboard.backend.api.routers.environments\n"
         "import dashboard.backend.api.agents\n"
         "import dashboard.backend.api.agent_versions\n"
+        "import dashboard.backend.api.runs\n"
+        "import dashboard.backend.api.environments\n"
         "import dashboard.backend.api.router\n"
         "import dashboard.backend.api.protocol_auth\n"
         "print('ok')\n"

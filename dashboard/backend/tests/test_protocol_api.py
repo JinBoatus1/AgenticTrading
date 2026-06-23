@@ -59,7 +59,7 @@ def client(tmp_path, monkeypatch):
     import dashboard.backend.domain.runs.service as run_service
     import dashboard.backend.api.agents as agents_api
     import dashboard.backend.api.agent_versions as versions_api
-    import dashboard.backend.api.runs as runs_api
+    import dashboard.backend.api.routers.runs as runs_api
     import dashboard.backend.api.protocol_auth as protocol_auth
 
     test_db = db_module.BacktestDatabase(db_path=db_path)

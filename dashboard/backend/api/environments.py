@@ -1,22 +1,10 @@
-"""Environment discovery API."""
+"""Compatibility shim for the Environment discovery router.
 
-from fastapi import APIRouter, HTTPException
+The implementation moved (Phase 3B3) to
+``dashboard.backend.api.routers.environments``. This module re-exports the router
+so legacy imports keep working with identical behavior.
+"""
 
-from dashboard.backend.domain.runs.environment import get_environment, list_environments
+from dashboard.backend.api.routers.environments import router
 
-router = APIRouter(prefix="/v1/environments", tags=["environments"])
-
-
-@router.get("")
-async def api_list_environments():
-    """List available environments."""
-    return {"environments": list_environments()}
-
-
-@router.get("/{environment_id}")
-async def api_get_environment(environment_id: str):
-    """Fetch metadata for a single environment."""
-    env = get_environment(environment_id)
-    if not env:
-        raise HTTPException(status_code=404, detail="Environment not found")
-    return env
+__all__ = ["router"]

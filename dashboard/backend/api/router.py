@@ -4,11 +4,11 @@ from dashboard.backend.api.routers.agent_versions import router as agent_version
 from dashboard.backend.api.routers.agents import router as agents_router
 from dashboard.backend.api.algo import router as algo_router
 from dashboard.backend.api.auth import router as auth_router
-from dashboard.backend.api.environments import router as environments_router
+from dashboard.backend.api.routers.environments import router as environments_router
 from dashboard.backend.api.external_backtest import router as external_backtest_router
 from dashboard.backend.api.health import router as health_router
 from dashboard.backend.api.leaderboard import router as leaderboard_router
-from dashboard.backend.api.runs import router as runs_router
+from dashboard.backend.api.routers.runs import router as runs_router
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health_router)
