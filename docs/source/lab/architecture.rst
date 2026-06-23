@@ -47,6 +47,7 @@ API surface (summary)
 | ``GET /ticker``           | Market quote data                        |
 | ``GET /paper/*``          | Paper-trading account, positions, trades |
 | ``GET /config/defaults``  | Default UI / run configuration           |
+| ``/api/v2/*``             | Agent API (:doc:`agent_api`)             |
 +---------------------------+------------------------------------------+
 
 LLM integration example code lives in ``dashboard/backend/llm_integration_example.py`` (reference only, not wired into the main app path).

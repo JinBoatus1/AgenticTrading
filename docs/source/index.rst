@@ -15,6 +15,7 @@ Welcome to the **Agentic Trading** documentation.
    lab/key_features
    lab/getting_started
    lab/architecture
+   lab/agent_api
 
 .. toctree::
    :maxdepth: 2
