@@ -30,10 +30,10 @@ const LEADERBOARD_STYLES = {
   'Equal-Weight': { color: '#4ADE80', kind: 'strategy', dash: [10, 6] },
 };
 
-// Visual hierarchy: teams are boldest, strategy baselines secondary, market
-// indices (benchmarks) the most understated — thin, neutral, low-opacity.
-const KIND_WIDTH = { team: 2.25, strategy: 1.6, benchmark: 1.1 };
-const KIND_ALPHA = { team: 1.0, strategy: 0.7, benchmark: 0.5 };
+// Visual hierarchy: teams are boldest, provided models prominent (solid),
+// strategy baselines secondary (dashed), market indices the most understated.
+const KIND_WIDTH = { team: 2.25, model: 2.0, strategy: 1.6, benchmark: 1.1 };
+const KIND_ALPHA = { team: 1.0, model: 0.95, strategy: 0.7, benchmark: 0.5 };
 const EMPHASIS_WIDTH = 3;
 
 // Stable bright palette for actual competition teams (assigned first-seen).
@@ -42,6 +42,26 @@ const TEAM_COLOR_PALETTE = [
   '#EF4444', '#06B6D4', '#84CC16', '#F43F5E', '#8B5CF6',
 ];
 const teamColorMap = {};
+
+// Provided LLM models get their own warm, distinct palette (solid lines) so
+// they read as a separate category from rule-based strategy baselines.
+const MODEL_COLOR_PALETTE = [
+  '#FBBF24', '#FB923C', '#F472B6', '#A78BFA', '#34D399',
+];
+const modelColorMap = {};
+
+function isModelEntry(entry) {
+  return !!(entry && (entry.is_model || entry.team_badge === 'Model'));
+}
+
+function getModelColor(stableId) {
+  const key = String(stableId);
+  if (!modelColorMap[key]) {
+    const idx = Object.keys(modelColorMap).length % MODEL_COLOR_PALETTE.length;
+    modelColorMap[key] = MODEL_COLOR_PALETTE[idx];
+  }
+  return modelColorMap[key];
+}
 
 function shortName(label) {
   // Model names are already canonical/short; only guard against long team names.
@@ -66,6 +86,9 @@ function getTeamColor(stableId) {
 }
 
 function getSeriesStyle(label, entry) {
+  if (isModelEntry(entry)) {
+    return { color: getModelColor(entry?.entry_id || label), kind: 'model', dash: [] };
+  }
   const preset = LEADERBOARD_STYLES[label];
   if (preset) return { ...preset };
   return { color: getTeamColor(entry?.entry_id || label), kind: 'team', dash: [] };
@@ -73,6 +96,7 @@ function getSeriesStyle(label, entry) {
 
 function getEntryKind(entry) {
   if (entry.entry_type && entry.entry_type !== 'baseline') return 'team';
+  if (isModelEntry(entry)) return 'model';
   const label = entry.model || entry.team_name;
   const preset = LEADERBOARD_STYLES[label];
   return preset ? preset.kind : 'strategy';
@@ -489,7 +513,7 @@ function buildCustomLegend(chart) {
   const container = document.getElementById('equityCurvesLegend');
   if (!container) return;
 
-  const order = { team: 0, strategy: 1, benchmark: 2 };
+  const order = { team: 0, model: 1, strategy: 2, benchmark: 3 };
   const items = chart.data.datasets
     .map((ds, i) => ({ ds, i }))
     .sort((a, b) => (order[a.ds._style.kind] ?? 9) - (order[b.ds._style.kind] ?? 9));

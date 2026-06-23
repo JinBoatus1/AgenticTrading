@@ -44,6 +44,17 @@
       "model": "Equal-Weight",
       "strategy": "equal_weight_index",
       "symbols": []
+    },
+    {
+      "id": "claude_haiku_4_5",
+      "name": "Claude Haiku 4.5",
+      "label": "Model",
+      "model": "Claude Haiku 4.5",
+      "strategy": "llm_agent",
+      "model_id": "claude-haiku-4-5-20251001",
+      "mode": "safe_trading",
+      "symbols": [],
+      "auto_compute": false
     }
   ]
 }
