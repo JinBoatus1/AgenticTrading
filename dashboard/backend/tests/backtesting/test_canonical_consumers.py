@@ -61,12 +61,13 @@ def test_llm_agent_does_not_load_legacy_script():
     assert res["canon"] is False
 
 
-def test_external_backtest_service_loads_only_canonical_script():
+def test_external_backtest_service_loads_no_script():
     res = _import_isolated("dashboard.backend.external_backtest_service")
-    # The one allowed remaining dependency: the canonical script module (for
-    # HourlyBacktester). The flat module name must never be created.
+    # Phase 2C5: HourlyBacktester moved to the canonical engine module, so the
+    # service no longer loads ANY dashboard.scripts module (zero backend-to-scripts
+    # dependencies). The flat module name must never be created either.
     assert res["flat"] is False
-    assert res["canon"] is True
+    assert res["canon"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -78,15 +79,16 @@ def test_external_backtest_service_uses_canonical_symbols():
     from dashboard.backend.domain.backtesting.portfolio_manager import PortfolioManager
     from dashboard.backend.infrastructure.market_data.alpaca_bars import AlpacaDataLoader
     from dashboard.backend.domain.backtesting.features import TechnicalIndicators
-    from dashboard.scripts.backtest_hourly_agent import HourlyBacktester
+    from dashboard.backend.domain.backtesting.engine import HourlyBacktester
 
     assert ebs.PortfolioManager is PortfolioManager
     assert ebs.AlpacaDataLoader is AlpacaDataLoader
     assert ebs.TechnicalIndicators is TechnicalIndicators
-    # HourlyBacktester is the legacy re-exported engine class (still owned by the
-    # script, which itself re-exports the canonical PortfolioManager).
+    # Phase 2C5: HourlyBacktester is now the canonical engine class.
     assert ebs.HourlyBacktester is HourlyBacktester
-    assert ebs.HourlyBacktester.__module__ == CANON_SCRIPT
+    assert ebs.HourlyBacktester.__module__ == (
+        "dashboard.backend.domain.backtesting.engine"
+    )
     assert not hasattr(ebs, "bha")
 
 

@@ -1,0 +1,322 @@
+"""Phase 2C5 — move HourlyBacktester to the canonical engine module.
+
+Verifies the class identity/re-export, the backend->scripts import boundary (now
+zero), and that constructor, baseline, and the deterministic rule-based backtest
+behave exactly as before. No real Alpaca or Anthropic calls are made.
+"""
+
+import ast
+import os
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import pandas as pd
+import pytz
+import pytest
+
+from dashboard.backend.domain.backtesting import engine as engine_mod
+from dashboard.backend.domain.backtesting.engine import HourlyBacktester
+from dashboard.backend.domain.backtesting.metrics import (
+    calculate_max_drawdown,
+    calculate_sharpe,
+)
+from dashboard.scripts import backtest_hourly_agent as bha
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+ENGINE_MODULE = "dashboard.backend.domain.backtesting.engine"
+FLAT = "backtest_hourly_agent"
+
+
+# ---------------------------------------------------------------------------
+# Fakes / fixtures
+# ---------------------------------------------------------------------------
+
+class _FakeLoader:
+    """Stand-in for AlpacaDataLoader; returns preset bars, no network/creds."""
+
+    bars: dict = {}
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def fetch_bars(self, symbols, start_date, end_date):
+        return {s: df for s, df in self.bars.items() if s in symbols}
+
+
+class _FakeDB:
+    def __init__(self):
+        self.runs = []
+        self.equity_points = []
+
+    def insert_run(self, **kwargs):
+        self.runs.append(kwargs)
+
+    def insert_equity_points(self, run_id, points):
+        self.equity_points.append((run_id, list(points)))
+
+
+def _make_bars(symbols, n_hours=70):
+    """Deterministic OHLCV bars on tz-aware ET market-hour timestamps."""
+    et = pytz.timezone("US/Eastern")
+    timestamps = []
+    day = datetime(2026, 3, 2)  # Monday
+    while len(timestamps) < n_hours:
+        if day.weekday() < 5:  # weekdays only
+            for hour in range(10, 16):  # 10:00-15:00 ET (all market hours)
+                timestamps.append(et.localize(datetime(day.year, day.month, day.day, hour, 0)))
+        day += timedelta(days=1)
+    timestamps = timestamps[:n_hours]
+    idx = pd.DatetimeIndex(timestamps)
+
+    out = {}
+    for s_i, sym in enumerate(symbols):
+        base = 100.0 + s_i * 10.0
+        # Smooth deterministic series with mild oscillation + drift.
+        prices = [base + ((i % 7) - 3) * 0.5 + i * 0.1 for i in range(n_hours)]
+        out[sym] = pd.DataFrame(
+            {
+                "open": prices,
+                "high": [p + 1 for p in prices],
+                "low": [p - 1 for p in prices],
+                "close": prices,
+                "volume": [1000] * n_hours,
+            },
+            index=idx,
+        )
+    return out
+
+
+@pytest.fixture
+def patched_engine(monkeypatch):
+    """Patch the loader + db so the engine never touches network or the real DB."""
+    _FakeLoader.bars = _make_bars(["AAPL", "MSFT", "JPM"], n_hours=70)
+    monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+    fake_db = _FakeDB()
+    monkeypatch.setattr(engine_mod, "db", fake_db)
+    return fake_db
+
+
+# ---------------------------------------------------------------------------
+# Identity / re-export
+# ---------------------------------------------------------------------------
+
+def test_class_identity_and_module():
+    assert bha.HourlyBacktester is HourlyBacktester
+    assert HourlyBacktester.__module__ == ENGINE_MODULE
+    assert HourlyBacktester.__qualname__ == "HourlyBacktester"
+
+
+def test_no_duplicate_compat_subclass():
+    # The script must re-export the exact canonical object, not a wrapper.
+    assert bha.HourlyBacktester.__mro__[0] is HourlyBacktester
+    assert FLAT not in sys.modules  # flat module name never created by the suite
+
+
+# ---------------------------------------------------------------------------
+# Backend -> scripts boundary (zero after Phase 2C5)
+# ---------------------------------------------------------------------------
+
+def test_no_backend_source_imports_scripts():
+    backend = _REPO_ROOT / "dashboard" / "backend"
+    offenders = []
+    for path in backend.rglob("*.py"):
+        rel = str(path).replace(os.sep, "/")
+        if "/tests/" in rel:
+            continue  # boundary-test fixtures legitimately reference these names
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == FLAT or alias.name.startswith("dashboard.scripts"):
+                        offenders.append((rel, alias.name))
+            elif isinstance(node, ast.ImportFrom):
+                mod = node.module or ""
+                if mod == FLAT or mod.startswith("dashboard.scripts"):
+                    offenders.append((rel, mod))
+    assert offenders == [], f"backend->scripts imports found: {offenders}"
+
+
+def test_external_backtest_service_uses_canonical_engine():
+    import dashboard.backend.external_backtest_service as ebs
+
+    assert ebs.HourlyBacktester is HourlyBacktester
+    assert ebs.HourlyBacktester.__module__ == ENGINE_MODULE
+
+
+# ---------------------------------------------------------------------------
+# Constructor + metric delegation
+# ---------------------------------------------------------------------------
+
+def test_constructor_attributes(monkeypatch):
+    monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+    bt = HourlyBacktester("2026-03-01", "2026-04-01", "sess-1", use_llm=False, mode="safe_trading")
+    assert bt.start_date == "2026-03-01"
+    assert bt.end_date == "2026-04-01"
+    assert bt.session_id == "sess-1"
+    assert bt.mode == "safe_trading"
+    assert bt.use_llm is False
+    assert bt.llm_client is None
+    assert bt.all_data == {}
+    assert isinstance(bt.data_loader, _FakeLoader)
+
+
+def test_constructor_swaps_backwards_dates(monkeypatch):
+    monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+    bt = HourlyBacktester("2026-04-01", "2026-03-01", use_llm=False)
+    assert bt.start_date == "2026-03-01"
+    assert bt.end_date == "2026-04-01"
+
+
+def test_calc_metrics_delegate():
+    curve = [{"equity": 100000}, {"equity": 101000}, {"equity": 99000}, {"equity": 102000}]
+    assert HourlyBacktester._calc_sharpe(curve) == calculate_sharpe(curve)
+    assert HourlyBacktester._calc_max_dd(curve) == calculate_max_drawdown(curve)
+    # Legacy re-export path returns the same.
+    assert bha.HourlyBacktester._calc_sharpe(curve) == calculate_sharpe(curve)
+
+
+# ---------------------------------------------------------------------------
+# load_data + calculate_indicators
+# ---------------------------------------------------------------------------
+
+def test_load_and_calculate_indicators(patched_engine):
+    bt = HourlyBacktester("2026-03-01", "2026-04-01", use_llm=False)
+    bt.load_data()
+    assert set(bt.all_data.keys()) == {"AAPL", "MSFT", "JPM"}
+    bt.calculate_indicators()
+    for df in bt.all_data.values():
+        for col in ["rsi_14", "macd", "macd_signal", "bb_upper", "bb_lower", "sma20", "sma50"]:
+            assert col in df.columns
+
+
+# ---------------------------------------------------------------------------
+# Deterministic rule-based backtest smoke test
+# ---------------------------------------------------------------------------
+
+def _run_rule_based(fake_db):
+    bt = HourlyBacktester("2026-03-01", "2026-04-01", "smoke", use_llm=False)
+    bt.load_data()
+    bt.calculate_indicators()
+    return bt.run_agent_backtest()
+
+
+def test_run_agent_backtest_smoke(patched_engine):
+    run_id, equity_curve = _run_rule_based(patched_engine)
+
+    assert run_id.startswith("agent_")
+    assert isinstance(equity_curve, list) and len(equity_curve) == 70
+    first = equity_curve[0]
+    assert set(first.keys()) == {"timestamp", "equity", "cash", "positions_value"}
+    assert isinstance(first["timestamp"], str)  # converted to isoformat
+    assert first["equity"] > 0
+
+    # Exactly one run + equity-points insert recorded; schema preserved.
+    assert len(patched_engine.runs) == 1
+    run = patched_engine.runs[0]
+    for key in ("run_id", "session_id", "agent_name", "sharpe_ratio", "max_drawdown",
+                "num_trades", "llm_model", "llm_calls", "input_tokens", "output_tokens"):
+        assert key in run
+    assert run["agent_name"] == "Agent"
+    assert run["llm_model"] == "rule-based"  # no LLM used
+    assert run["sharpe_ratio"] == HourlyBacktester._calc_sharpe(equity_curve)
+    assert run["max_drawdown"] == HourlyBacktester._calc_max_dd(equity_curve)
+    assert patched_engine.equity_points[0][0] == run_id
+
+
+def test_run_agent_backtest_deterministic(monkeypatch):
+    bars = _make_bars(["AAPL", "MSFT", "JPM"], n_hours=70)
+
+    def _run_once():
+        _FakeLoader.bars = bars
+        monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+        monkeypatch.setattr(engine_mod, "db", _FakeDB())
+        bt = HourlyBacktester("2026-03-01", "2026-04-01", use_llm=False)
+        bt.load_data()
+        bt.calculate_indicators()
+        _, curve = bt.run_agent_backtest()
+        return [round(e["equity"], 6) for e in curve]
+
+    assert _run_once() == _run_once()
+
+
+# ---------------------------------------------------------------------------
+# Baselines (credential-free via patched generate_baselines)
+# ---------------------------------------------------------------------------
+
+def test_buyhold_baseline_schema(monkeypatch):
+    monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+    fake_db = _FakeDB()
+    monkeypatch.setattr(engine_mod, "db", fake_db)
+    fake_curve = [
+        {"timestamp": "2026-03-02T10:00:00", "equity": 100000.0, "cash": 0.0, "positions_value": 100000.0},
+        {"timestamp": "2026-03-02T11:00:00", "equity": 101000.0, "cash": 0.0, "positions_value": 101000.0},
+    ]
+    monkeypatch.setattr(engine_mod, "generate_baselines", lambda **kw: (fake_curve, []))
+
+    bt = HourlyBacktester("2026-03-01", "2026-04-01", use_llm=False)
+    bt.all_data = {"AAPL": pd.DataFrame()}  # non-empty so the method proceeds
+    run_id, history = bt.run_buyhold_baseline()
+
+    assert run_id.startswith("buyhold_")
+    assert history == fake_curve
+    assert fake_db.runs[0]["agent_name"] == "buy-and-hold"
+    assert fake_db.runs[0]["num_trades"] == 1
+
+
+def test_djia_baseline_schema(monkeypatch):
+    monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+    fake_db = _FakeDB()
+    monkeypatch.setattr(engine_mod, "db", fake_db)
+    fake_curve = [
+        {"timestamp": "2026-03-02T10:00:00", "equity": 100000.0, "cash": 0, "positions_value": 100000.0},
+    ]
+    monkeypatch.setattr(engine_mod, "generate_baselines", lambda **kw: ([], fake_curve))
+
+    bt = HourlyBacktester("2026-03-01", "2026-04-01", use_llm=False)
+    bt.all_data = {"AAPL": pd.DataFrame()}
+    run_id, history = bt.run_djia_baseline()
+
+    assert run_id.startswith("djia_index_")
+    assert history == fake_curve
+    assert fake_db.runs[0]["agent_name"] == "DJIA"
+    assert fake_db.runs[0]["num_trades"] == 0
+
+
+def test_baselines_empty_data(monkeypatch):
+    monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+    monkeypatch.setattr(engine_mod, "db", _FakeDB())
+    monkeypatch.setattr(engine_mod, "generate_baselines", lambda **kw: ([], []))
+
+    bt = HourlyBacktester("2026-03-01", "2026-04-01", use_llm=False)
+    bt.all_data = {}
+    assert bt.run_buyhold_baseline() == (None, [])
+    assert bt.run_djia_baseline() == (None, [])
+
+
+# ---------------------------------------------------------------------------
+# Custom-algo subclass compatibility (verified in its run context)
+# ---------------------------------------------------------------------------
+
+def test_custom_algo_subclasses_canonical_engine():
+    code = (
+        "import backtest_custom_algo as bca\n"
+        "from dashboard.backend.domain.backtesting.engine import HourlyBacktester\n"
+        "assert issubclass(bca.CustomAlgoBacktester, HourlyBacktester), 'not a subclass'\n"
+        "assert HourlyBacktester in bca.CustomAlgoBacktester.__mro__\n"
+        "print('OK')\n"
+    )
+    scripts_dir = _REPO_ROOT / "dashboard" / "scripts"
+    with tempfile.TemporaryDirectory(prefix="atl_engine_") as tmp:
+        env = {**os.environ, "DATABASE_PATH": os.path.join(tmp, "t.db")}
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=str(scripts_dir),
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+    assert proc.returncode == 0, f"subprocess failed:\n{proc.stderr}"
+    assert "OK" in proc.stdout

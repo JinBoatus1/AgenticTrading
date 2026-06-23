@@ -33,10 +33,7 @@ from dashboard.backend.domain.backtesting.metrics import (
 from dashboard.backend.domain.backtesting.portfolio_manager import PortfolioManager
 from dashboard.backend.infrastructure.market_data.alpaca_bars import AlpacaDataLoader
 
-# HourlyBacktester is the one symbol still owned by the legacy CLI script; import
-# it canonically (no sys.path workaround). This is the only remaining
-# backend-to-scripts dependency after Phase 2C4.
-from dashboard.scripts.backtest_hourly_agent import HourlyBacktester
+from dashboard.backend.domain.backtesting.engine import HourlyBacktester
 
 DECISION_TIMEOUT_SECONDS = int(os.getenv("EXTERNAL_AGENT_DECISION_TIMEOUT_SECONDS", "30"))
 ET_TZ = pytz.timezone("US/Eastern")

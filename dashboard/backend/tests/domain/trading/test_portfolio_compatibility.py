@@ -167,16 +167,22 @@ def test_subclass_inherits_state_methods():
     assert pm.custom_method() == "ok"
 
 
-def test_class_locations_after_phase_2c3_move():
-    # Phase 2C3: PortfolioManager now lives in the canonical backend package and
-    # is re-exported by the legacy script (same object). HourlyBacktester is still
-    # defined in the old script.
+def test_class_locations_after_phase_2c5_move():
+    # PortfolioManager (Phase 2C3) and HourlyBacktester (Phase 2C5) now both live
+    # in the canonical backend package and are re-exported by the legacy script
+    # (same object).
     from dashboard.backend.domain.backtesting.portfolio_manager import (
         PortfolioManager as CanonicalPortfolioManager,
+    )
+    from dashboard.backend.domain.backtesting.engine import (
+        HourlyBacktester as CanonicalHourlyBacktester,
     )
 
     assert bha.PortfolioManager is CanonicalPortfolioManager
     assert bha.PortfolioManager.__module__ == (
         "dashboard.backend.domain.backtesting.portfolio_manager"
     )
-    assert bha.HourlyBacktester.__module__ == bha.__name__
+    assert bha.HourlyBacktester is CanonicalHourlyBacktester
+    assert bha.HourlyBacktester.__module__ == (
+        "dashboard.backend.domain.backtesting.engine"
+    )

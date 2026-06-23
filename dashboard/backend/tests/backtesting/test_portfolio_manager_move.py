@@ -43,8 +43,15 @@ def test_no_separate_legacy_class_object():
     assert bha.PortfolioManager is CanonicalPortfolioManager
 
 
-def test_hourly_backtester_still_in_script():
-    assert bha.HourlyBacktester.__module__ == bha.__name__
+def test_hourly_backtester_moved_to_engine_in_phase_2c5():
+    # Phase 2C5 moved HourlyBacktester to the canonical engine module; the script
+    # re-exports the same class object.
+    from dashboard.backend.domain.backtesting.engine import HourlyBacktester as Canon
+
+    assert bha.HourlyBacktester is Canon
+    assert bha.HourlyBacktester.__module__ == (
+        "dashboard.backend.domain.backtesting.engine"
+    )
 
 
 # ---------------------------------------------------------------------------
