@@ -829,9 +829,8 @@ window.DEFAULT_RUNS = {};
 let chartInstance = null;
 let currentMode = "home";
 let currentPage = "home";
-let playgroundTab = "overview";
+let playgroundTab = "agents";
 let competitionTab = "leaderboard";
-let overviewChartInstance = null;
 let allRuns = [];
 let comparisonData = null;
 let defaultConfig = null;
@@ -1886,7 +1885,7 @@ function resolveInitialNavigation() {
         backtest: { page: 'playground', playgroundTab: 'backtest' },
         paper: { page: 'playground', playgroundTab: 'paper' },
         contest: { page: 'competition', competitionTab: 'leaderboard' },
-        'my-algo': { page: 'agents' },
+        'my-algo': { page: 'playground', playgroundTab: 'agents' },
     };
 
     if (legacy && legacyMap[legacy]) {
@@ -1912,11 +1911,11 @@ function showPlaygroundPanel(tab) {
     playgroundTab = tab;
     updatePlaygroundSubtabs();
 
-    const overview = document.getElementById('playgroundOverviewPanel');
+    const agents = document.getElementById('playgroundAgentsPanel');
     const backtest = document.querySelector('.main-container');
     const paper = document.getElementById('paperTradingView');
 
-    if (overview) overview.style.display = tab === 'overview' ? 'block' : 'none';
+    if (agents) agents.style.display = tab === 'agents' ? 'block' : 'none';
     if (backtest) backtest.style.display = tab === 'backtest' ? 'grid' : 'none';
     if (paper) paper.style.display = tab === 'paper' ? 'block' : 'none';
 
@@ -1928,8 +1927,8 @@ function showPlaygroundPanel(tab) {
         currentMode = 'paper';
         loadPaperTradingData();
     } else {
-        currentMode = 'overview';
-        initOverviewChart();
+        currentMode = 'agents';
+        loadAgents();
     }
 }
 
@@ -1955,6 +1954,13 @@ function showCompetitionPanel(tab) {
 
 function navigateToPage(page, options = {}) {
     console.log('Navigating to page:', page, options);
+
+    // "My Agents" now lives as a Playground subtab; redirect legacy links.
+    if (page === 'agents') {
+        page = 'playground';
+        options = { ...options, playgroundTab: options.playgroundTab || 'agents' };
+    }
+
     currentPage = page;
 
     if (options.playgroundTab) playgroundTab = options.playgroundTab;
@@ -1965,7 +1971,6 @@ function navigateToPage(page, options = {}) {
     });
 
     const homeView = document.getElementById('homeView');
-    const agentsView = document.getElementById('myAgentsView');
     const playgroundView = document.getElementById('playgroundView');
     const competitionView = document.getElementById('competitionView');
     const backtestPanel = document.querySelector('.main-container');
@@ -1978,14 +1983,13 @@ function navigateToPage(page, options = {}) {
     };
 
     hide(homeView);
-    hide(agentsView);
     hide(playgroundView);
     hide(competitionView);
     hide(backtestPanel);
     hide(paperView);
     hide(myAlgoView);
     hide(leaderboardView);
-    hide(document.getElementById('playgroundOverviewPanel'));
+    hide(document.getElementById('playgroundAgentsPanel'));
     hide(document.getElementById('competitionParticipantsPanel'));
     hide(document.getElementById('competitionAboutPanel'));
 
@@ -1995,11 +1999,7 @@ function navigateToPage(page, options = {}) {
         if (typeof onHomePageShow === 'function') onHomePageShow();
     } else {
         if (typeof onHomePageHide === 'function') onHomePageHide();
-        if (page === 'agents') {
-            currentMode = 'agents';
-            if (agentsView) agentsView.style.display = 'block';
-            loadAgents();
-        } else if (page === 'playground') {
+        if (page === 'playground') {
             if (playgroundView) playgroundView.style.display = 'block';
             showPlaygroundPanel(playgroundTab);
         } else if (page === 'competition') {
@@ -2040,43 +2040,6 @@ function closeAddAgentModal() {
     if (modal) modal.hidden = true;
 }
 
-function initOverviewChart() {
-    const canvas = document.getElementById('overviewChart');
-    if (!canvas || typeof Chart === 'undefined') return;
-    if (overviewChartInstance) return;
-
-    overviewChartInstance = new Chart(canvas.getContext('2d'), {
-        type: 'line',
-        data: {
-            labels: ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8'],
-            datasets: [{
-                label: 'Portfolio',
-                data: [100, 102, 101, 105, 108, 107, 110, 112.4],
-                borderColor: '#00bfff',
-                backgroundColor: 'rgba(0, 191, 255, 0.1)',
-                fill: true,
-                tension: 0.3,
-                pointRadius: 0,
-            }],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                x: {
-                    grid: { color: '#111827' },
-                    ticks: { color: '#9ca3af' },
-                },
-                y: {
-                    grid: { color: '#111827' },
-                    ticks: { color: '#9ca3af' },
-                },
-            },
-        },
-    });
-}
-
 function initNavigation() {
     document.querySelectorAll('.primary-nav .mode-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -2097,7 +2060,7 @@ function initNavigation() {
     });
 
     document.getElementById('homeOpenPlaygroundBtn')?.addEventListener('click', () => {
-        navigateToPage('playground', { playgroundTab: 'overview' });
+        navigateToPage('playground', { playgroundTab: 'agents' });
     });
 
     document.getElementById('homeViewCompetitionBtn')?.addEventListener('click', () => {
@@ -2105,16 +2068,16 @@ function initNavigation() {
     });
 
     document.getElementById('homeViewMarketPulseBtn')?.addEventListener('click', () => {
-        navigateToPage('playground', { playgroundTab: 'overview' });
+        navigateToPage('playground', { playgroundTab: 'agents' });
     });
 
     document.querySelectorAll('[data-home-nav]').forEach(btn => {
         btn.addEventListener('click', () => {
             const target = btn.dataset.homeNav;
             if (target === 'agents') {
-                navigateToPage('agents');
+                navigateToPage('playground', { playgroundTab: 'agents' });
             } else if (target === 'playground') {
-                navigateToPage('playground', { playgroundTab: 'overview' });
+                navigateToPage('playground', { playgroundTab: 'agents' });
             } else if (target === 'discord') {
                 const discordUrl = document.getElementById('homeConnectDiscordBtn')?.href
                     || document.getElementById('openDiscordBtn')?.href
@@ -2126,7 +2089,7 @@ function initNavigation() {
 
     document.querySelectorAll('.agent-view-playground').forEach(btn => {
         btn.addEventListener('click', () => {
-            navigateToPage('playground', { playgroundTab: 'overview' });
+            navigateToPage('playground', { playgroundTab: 'agents' });
         });
     });
 
@@ -2161,7 +2124,7 @@ function initNavigation() {
         initHomePage();
     }
     navigateToPage(initial.page, {
-        playgroundTab: initial.playgroundTab || 'overview',
+        playgroundTab: initial.playgroundTab || 'agents',
         competitionTab: initial.competitionTab || 'leaderboard',
     });
 }
@@ -2176,10 +2139,10 @@ function switchMode(mode) {
         backtest: { page: 'playground', playgroundTab: 'backtest' },
         paper: { page: 'playground', playgroundTab: 'paper' },
         contest: { page: 'competition', competitionTab: 'leaderboard' },
-        'my-algo': { page: 'agents' },
+        'my-algo': { page: 'playground', playgroundTab: 'agents' },
         home: { page: 'home' },
-        agents: { page: 'agents' },
-        playground: { page: 'playground', playgroundTab: 'overview' },
+        agents: { page: 'playground', playgroundTab: 'agents' },
+        playground: { page: 'playground', playgroundTab: 'agents' },
         competition: { page: 'competition', competitionTab: 'leaderboard' },
     };
 

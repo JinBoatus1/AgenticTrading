@@ -57,7 +57,6 @@
             <button id="navMenuToggle" class="nav-menu-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
             <nav id="primaryNav" class="mode-toggle primary-nav" aria-label="Primary">
                 <button class="mode-btn active" data-mode="home">Home</button>
-                <button class="mode-btn" data-mode="agents">My Agents</button>
                 <button class="mode-btn" data-mode="playground">Playground</button>
                 <button class="mode-btn" data-mode="competition">Competition</button>
             </nav>
@@ -498,19 +497,6 @@
         </div>
     </div>
 
-    <!-- My Agents -->
-    <div id="myAgentsView" class="page-view agents-view" style="display: none;">
-        <div class="page-header">
-            <div>
-                <h2 class="page-title">My Agents</h2>
-                <p class="page-description">Manage the agents connected to Agentic Trading Lab.</p>
-            </div>
-            <button id="addAgentBtn" class="home-btn home-btn-primary" type="button">Add Agent</button>
-        </div>
-        <div id="agentsGrid" class="agents-grid"></div>
-        <p id="agentsEmptyState" class="control-helper" hidden>No agents yet. Run a backtest with the CLI, or click <strong>Add Agent</strong> to register one.</p>
-    </div>
-
     <div id="addAgentModal" class="auth-modal" hidden>
         <div class="auth-modal-backdrop" id="addAgentModalBackdrop"></div>
         <div class="auth-modal-panel" role="dialog" aria-labelledby="addAgentModalTitle">
@@ -582,55 +568,20 @@
             <a class="discord-nav-btn discord-nav-btn-sm" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
         </div>
         <div class="subtab-bar playground-subtabs">
-            <button class="subtab-btn active" data-playground-tab="overview">Overview</button>
+            <button class="subtab-btn active" data-playground-tab="agents">My Agents</button>
             <button class="subtab-btn" data-playground-tab="backtest">Backtest</button>
             <button class="subtab-btn" data-playground-tab="paper">Paper Trading</button>
         </div>
-        <div id="playgroundOverviewPanel" class="playground-panel">
-            <div class="overview-grid">
-                <div class="section-card compact">
-                    <h3 class="section-title">PORTFOLIO SNAPSHOT</h3>
-                    <div class="metric-row">
-                        <span class="metric-label">Portfolio Value</span>
-                        <span class="metric-value" id="overviewPortfolioValue">$112,430</span>
-                    </div>
-                    <div class="metric-row">
-                        <span class="metric-label">Return</span>
-                        <span class="metric-value positive" id="overviewReturn">+12.43%</span>
-                    </div>
-                    <div class="metric-row">
-                        <span class="metric-label">Max Drawdown</span>
-                        <span class="metric-value negative" id="overviewMaxDrawdown">-4.8%</span>
-                    </div>
-                    <div class="metric-row">
-                        <span class="metric-label">Competition Rank</span>
-                        <span class="metric-value" id="overviewRank">#3 of 7</span>
-                    </div>
+        <div id="playgroundAgentsPanel" class="playground-panel">
+            <div class="page-header">
+                <div>
+                    <h2 class="page-title">My Agents</h2>
+                    <p class="page-description">Manage the agents connected to Agentic Trading Lab.</p>
                 </div>
-                <div class="section-card overview-chart-card">
-                    <h3 class="section-title">PERFORMANCE</h3>
-                    <div class="chart-container overview-chart-container">
-                        <canvas id="overviewChart"></canvas>
-                    </div>
-                </div>
-                <div class="section-card compact">
-                    <h3 class="section-title">RECENT AGENT ACTIVITY</h3>
-                    <div class="home-activity-list">
-                        <div class="home-activity-item">
-                            <span class="home-activity-time">14:35</span>
-                            <span class="home-activity-text">BUY 15 AAPL @ $150.25</span>
-                        </div>
-                        <div class="home-activity-item">
-                            <span class="home-activity-time">14:42</span>
-                            <span class="home-activity-text">SELL 8 MSFT @ $380.50</span>
-                        </div>
-                        <div class="home-activity-item">
-                            <span class="home-activity-time">14:55</span>
-                            <span class="home-activity-text">BUY 2 NVDA @ $875.10</span>
-                        </div>
-                    </div>
-                </div>
+                <button id="addAgentBtn" class="home-btn home-btn-primary" type="button">Add Agent</button>
             </div>
+            <div id="agentsGrid" class="agents-grid"></div>
+            <p id="agentsEmptyState" class="control-helper" hidden>No agents yet. Run a backtest with the CLI, or click <strong>Add Agent</strong> to register one.</p>
         </div>
     </div>
 
@@ -1316,7 +1267,7 @@
     <script src="market-events/marketEventRelativeTime.js"></script>
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
-    <script src="app.js?v=5"></script>
+    <script src="app.js?v=6"></script>
     <script src="js/leaderboard.js?v=11"></script>
     <script src="home-page.js"></script>
 </body>

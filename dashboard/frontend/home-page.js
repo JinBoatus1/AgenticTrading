@@ -635,7 +635,7 @@ function initHomePage() {
     document.getElementById('homeActivityViewAll')?.addEventListener('click', (e) => {
         e.preventDefault();
         if (typeof navigateToPage === 'function') {
-            navigateToPage('playground', { playgroundTab: 'overview' });
+            navigateToPage('playground', { playgroundTab: 'agents' });
         }
     });
 
