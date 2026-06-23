@@ -14,6 +14,8 @@ from fastapi.routing import APIRoute
 
 from dashboard.backend.api import agent_versions as versions_shim
 from dashboard.backend.api import agents as agents_shim
+from dashboard.backend.api import dependencies as deps
+from dashboard.backend.api import protocol_auth
 from dashboard.backend.api import router as router_module
 from dashboard.backend.api.routers import agent_versions as versions_canon
 from dashboard.backend.api.routers import agents as agents_canon
@@ -73,10 +75,22 @@ def test_shims_reexport_same_router_objects():
     assert agents_shim.agent_service is versions_shim.agent_service
 
 
-def test_shim_reexports_private_helpers_for_protocol_auth():
-    # protocol_auth lazily imports these from api.agents; they must remain.
-    assert agents_shim._owner_context is agents_canon._owner_context
-    assert agents_shim._require_agent_access is agents_canon._require_agent_access
+def test_shared_auth_helpers_live_in_dependencies():
+    # Phase 3A4: the shared owner-context/agent-access helpers moved to the
+    # canonical dependencies module; the agents router imports them from there.
+    assert agents_canon._owner_context is deps._owner_context
+    assert agents_canon._require_agent_access is deps._require_agent_access
+    assert agents_canon._require_owner_context is deps._require_owner_context
+
+
+def test_protocol_auth_no_longer_imports_agents_shim():
+    # protocol_auth must source the helpers from dependencies, not the old shim.
+    src = Path(protocol_auth.__file__).read_text(encoding="utf-8")
+    assert "from dashboard.backend.api.dependencies import" in src
+    assert "from dashboard.backend.api.agents import" not in src
+    # The legacy shim no longer re-exports the private helpers.
+    assert not hasattr(agents_shim, "_owner_context")
+    assert not hasattr(agents_shim, "_require_agent_access")
 
 
 # ---------------------------------------------------------------------------

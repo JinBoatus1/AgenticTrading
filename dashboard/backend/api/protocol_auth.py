@@ -36,7 +36,7 @@ def require_agent_access(
         return agent
 
     # Fall back to owner context (dashboard / browser session / logged-in user).
-    from dashboard.backend.api.agents import _owner_context, _require_agent_access
+    from dashboard.backend.api.dependencies import _owner_context, _require_agent_access
 
     ctx = _owner_context(request, authorization)
     if not ctx["user_id"] and not ctx["browser_session"] and not ctx["trading_session"]:

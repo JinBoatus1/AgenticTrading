@@ -7,18 +7,20 @@ exception messages, ownership/auth behavior, and ``AgentService`` calls are
 unchanged; only the module location moved.
 """
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from dashboard.backend.domain.agents.service import (
-    AgentAccessDeniedError,
-    AgentNotFoundError,
     NoExternalRunsError,
     agent_service,
 )
-from dashboard.backend.api.auth import _extract_bearer_token
+from dashboard.backend.api.dependencies import (
+    _owner_context,
+    _require_agent_access,
+    _require_owner_context,
+)
 
 router = APIRouter(prefix="/v1/agents", tags=["agents"])
 
@@ -26,53 +28,6 @@ router = APIRouter(prefix="/v1/agents", tags=["agents"])
 class CreateAgentBody(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     model_name: str = Field(default="local-model", max_length=100)
-
-
-def _optional_user(authorization: Optional[str]) -> Optional[dict]:
-    token = _extract_bearer_token(authorization)
-    if not token:
-        return None
-    from dashboard.backend.users import user_store
-
-    user = user_store.get_user_for_token(token)
-    return user
-
-
-def _owner_context(request: Request, authorization: Optional[str]) -> Dict[str, Any]:
-    trading_session = request.headers.get("x-session-id") or request.headers.get("X-Session-Id")
-    browser_owner = request.headers.get("x-browser-id") or request.headers.get("X-Browser-Id")
-    if not browser_owner:
-        browser_owner = trading_session
-    user = _optional_user(authorization)
-    return {
-        "user_id": user["id"] if user else None,
-        "browser_session": browser_owner.strip() if browser_owner else None,
-        "trading_session": trading_session.strip() if trading_session else None,
-    }
-
-
-def _require_owner_context(request: Request, authorization: Optional[str]) -> Dict[str, Any]:
-    ctx = _owner_context(request, authorization)
-    if not ctx["user_id"] and not ctx["browser_session"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing owner context (log in or send X-Session-Id header)",
-        )
-    return ctx
-
-
-def _require_agent_access(agent_id: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
-    try:
-        return agent_service.require_access(
-            agent_id,
-            user_id=ctx.get("user_id"),
-            browser_session=ctx.get("browser_session"),
-            trading_session=ctx.get("trading_session"),
-        )
-    except AgentNotFoundError:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    except AgentAccessDeniedError:
-        raise HTTPException(status_code=403, detail="Not your agent")
 
 
 @router.post("")
