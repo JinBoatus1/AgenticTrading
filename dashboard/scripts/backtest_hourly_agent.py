@@ -81,6 +81,16 @@ from dashboard.backend.domain.backtesting.metrics import (
 from dashboard.backend.infrastructure.llm.decision_parsing import fix_json_formatting
 from dashboard.backend.infrastructure.market_data.alpaca_bars import AlpacaDataLoader
 
+# Phase 2B2 extraction: PortfolioManager state/valuation/equity-curve logic now
+# lives in dashboard.backend.domain.trading.portfolio. PortfolioManager stays
+# defined below but delegates to these helpers; imported privately because the
+# script's public compatibility surface is unchanged.
+from dashboard.backend.domain.trading.portfolio import (
+    append_equity_record as _append_equity_record,
+    build_portfolio_state as _build_portfolio_state,
+    get_equity_curve as _get_equity_curve,
+)
+
 # ============================================================================
 # DJIA 30 Stocks
 # ============================================================================
@@ -155,57 +165,18 @@ class PortfolioManager:
     
     def get_portfolio_state(self, market_data: Dict[str, pd.Series], price_cache: Dict = None, timestamp = None) -> Dict:
         """Get current portfolio state with market indicators.
-        
+
         Uses real data for signals, forward-filled prices for valuation.
         """
-        positions_value = 0
-        position_list = []
-        
-        for symbol, shares in self.positions.items():
-            # Get current price (prefer real data, fallback to cache)
-            if symbol in market_data:
-                current_price = market_data[symbol]["close"]
-            elif price_cache and symbol in price_cache and timestamp in price_cache[symbol]:
-                current_price = price_cache[symbol][timestamp]
-            else:
-                continue  # Skip if no price available
-            
-            position_value = shares * current_price
-            positions_value += position_value
-            entry_price = self.entry_prices.get(symbol, current_price)
-            pnl_pct = ((current_price / entry_price) - 1) * 100 if entry_price > 0 else 0
-            
-            position_list.append({
-                "symbol": symbol,
-                "shares": shares,
-                "entry_price": entry_price,
-                "current_price": current_price,
-                "position_value": position_value,
-                "pnl_pct": pnl_pct
-            })
-        
-        # Get signals for all stocks (only from real data)
-        market_signals = {}
-        for symbol, row in market_data.items():
-            market_signals[symbol] = {
-                "price": row["close"],
-                "rsi": row.get("rsi_14"),
-                "macd": row.get("macd"),
-                "macd_signal": row.get("macd_signal"),
-                "sma20": row.get("sma20"),
-                "sma50": row.get("sma50"),
-                "bb_upper": row.get("bb_upper"),
-                "bb_lower": row.get("bb_lower"),
-            }
-        
-        return {
-            "cash": self.cash,
-            "positions": position_list,
-            "positions_value": positions_value,
-            "total_equity": self.cash + positions_value,
-            "market_signals": market_signals,
-        }
-    
+        return _build_portfolio_state(
+            self.cash,
+            self.positions,
+            self.entry_prices,
+            market_data,
+            price_cache,
+            timestamp,
+        )
+
     def make_trading_decision(self, portfolio_state: Dict) -> Dict:
         """
         Agent makes trading decisions based on technical indicators.
@@ -680,33 +651,21 @@ Make precise, actionable trading decisions based on the technical indicators pro
     
     def update_equity(self, market_data: Dict, price_cache: Dict = None, timestamp = None):
         """Update equity snapshot using real data or forward-filled prices.
-        
+
         Prefers real data, falls back to last-known price for smooth valuation.
         """
-        positions_value = 0
-        for symbol, shares in self.positions.items():
-            # Prefer real data, fallback to forward-filled cache
-            if symbol in market_data:
-                price = market_data[symbol]["close"]
-            elif price_cache and symbol in price_cache and timestamp in price_cache[symbol]:
-                price = price_cache[symbol][timestamp]
-            else:
-                continue  # Skip if no price available
-            
-            positions_value += shares * price
-        
-        total_equity = self.cash + positions_value
-        
-        self.equity_history.append({
-            "timestamp": timestamp,
-            "equity": total_equity,
-            "cash": self.cash,
-            "positions_value": positions_value
-        })
-    
+        _append_equity_record(
+            self.equity_history,
+            self.cash,
+            self.positions,
+            market_data,
+            price_cache,
+            timestamp,
+        )
+
     def get_equity_curve(self) -> List[Dict]:
         """Return equity history."""
-        return self.equity_history
+        return _get_equity_curve(self.equity_history)
 
 
 # ============================================================================
