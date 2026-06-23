@@ -82,6 +82,7 @@ from dashboard.backend.domain.backtesting.metrics import (
 )
 from dashboard.backend.infrastructure.llm.decision_parsing import fix_json_formatting
 from dashboard.backend.infrastructure.market_data.alpaca_bars import AlpacaDataLoader
+from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
 
 # ============================================================================
 # DJIA 30 Stocks
@@ -118,7 +119,8 @@ TOP_10 = TOP_10_STOCKS  # Import from llm_validator to keep them in sync
 
 DEFAULT_START = "2026-03-01"
 DEFAULT_END = "2026-04-13"
-INITIAL_CAPITAL = 100000
+# `INITIAL_CAPITAL` now lives in
+# dashboard.backend.domain.backtesting.constants and is re-exported above.
 TIMEFRAME = "1h"  # Hourly
 
 

@@ -6,19 +6,18 @@ strategy. This module just handles data fetching, dispatch, and metrics.
 
 from __future__ import annotations
 
-import sys
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
 import pandas as pd
 
-from engines.strategies import get_strategy
-from paths import SCRIPTS_DIR
-
-sys.path.insert(0, str(SCRIPTS_DIR))
-import backtest_hourly_agent as bha  # noqa: E402
-
-INITIAL_CAPITAL = bha.INITIAL_CAPITAL
+from dashboard.backend.engines.strategies import get_strategy
+from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
+from dashboard.backend.domain.backtesting.metrics import (
+    calculate_max_drawdown,
+    calculate_sharpe,
+)
+from dashboard.backend.infrastructure.market_data.alpaca_bars import AlpacaDataLoader
 
 
 def fetch_hourly_bars(symbols: List[str], start_date: str, end_date: str) -> Dict[str, pd.DataFrame]:
@@ -28,7 +27,7 @@ def fetch_hourly_bars(symbols: List[str], start_date: str, end_date: str) -> Dic
     (e.g. bars on ``end_date`` start after midnight). We bump it by one day so
     the Alpaca strategies cover the same last day as the Yahoo index series.
     """
-    loader = bha.AlpacaDataLoader()
+    loader = AlpacaDataLoader()
     end_inclusive = (
         datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
     ).strftime("%Y-%m-%d")
@@ -67,8 +66,8 @@ def calc_metrics(equity_curve: List[Dict[str, Any]], initial_capital: float) -> 
         "initial_equity": float(initial_eq),
         "final_equity": float(final_eq),
         "total_return": float(total_return),
-        "sharpe_ratio": float(bha.HourlyBacktester._calc_sharpe(equity_curve)),
-        "max_drawdown": float(bha.HourlyBacktester._calc_max_dd(equity_curve)),
+        "sharpe_ratio": float(calculate_sharpe(equity_curve)),
+        "max_drawdown": float(calculate_max_drawdown(equity_curve)),
     }
 
 

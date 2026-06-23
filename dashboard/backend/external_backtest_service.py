@@ -7,7 +7,6 @@ otherwise the step auto-holds (no trades).
 
 from __future__ import annotations
 
-import sys
 import os
 import uuid
 import threading
@@ -17,22 +16,29 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 import pytz
 
-import token_cost
-from agent_store import agent_store
-from database import db
-from llm_validator import (
+import dashboard.backend.token_cost as token_cost
+from dashboard.backend.agent_store import agent_store
+from dashboard.backend.database import db
+from dashboard.backend.llm_validator import (
     DJIA_30,
     actions_to_executable,
     parse_actions_payload,
 )
-from paths import SCRIPTS_DIR
+from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
+from dashboard.backend.domain.backtesting.features import TechnicalIndicators
+from dashboard.backend.domain.backtesting.metrics import (
+    calculate_max_drawdown,
+    calculate_sharpe,
+)
+from dashboard.backend.domain.backtesting.portfolio_manager import PortfolioManager
+from dashboard.backend.infrastructure.market_data.alpaca_bars import AlpacaDataLoader
 
-# Reuse backtest engine classes from the CLI script
-sys.path.insert(0, str(SCRIPTS_DIR))
-import backtest_hourly_agent as bha  # noqa: E402
+# HourlyBacktester is the one symbol still owned by the legacy CLI script; import
+# it canonically (no sys.path workaround). This is the only remaining
+# backend-to-scripts dependency after Phase 2C4.
+from dashboard.scripts.backtest_hourly_agent import HourlyBacktester
 
 DECISION_TIMEOUT_SECONDS = int(os.getenv("EXTERNAL_AGENT_DECISION_TIMEOUT_SECONDS", "30"))
-INITIAL_CAPITAL = bha.INITIAL_CAPITAL
 ET_TZ = pytz.timezone("US/Eastern")
 
 _sessions: Dict[str, "ExternalBacktestSession"] = {}
@@ -76,7 +82,7 @@ class ExternalBacktestSession:
         self.run_id: Optional[str] = None
         self.baseline_run_ids: Dict[str, str] = {}
 
-        self.manager = bha.PortfolioManager(initial_capital=INITIAL_CAPITAL)
+        self.manager = PortfolioManager(initial_capital=INITIAL_CAPITAL)
         self.all_data: Dict[str, pd.DataFrame] = {}
         self.timestamps: List[Any] = []
         self.price_cache: Dict[str, Dict[Any, float]] = {}
@@ -100,13 +106,13 @@ class ExternalBacktestSession:
     # ------------------------------------------------------------------
 
     def load_market_data(self) -> None:
-        loader = bha.AlpacaDataLoader()
+        loader = AlpacaDataLoader()
         self.all_data = loader.fetch_bars(DJIA_30, self.start_date, self.end_date)
         if not self.all_data:
             raise RuntimeError("No market data returned from Alpaca")
 
         for symbol, df in self.all_data.items():
-            self.all_data[symbol] = bha.TechnicalIndicators.calculate_indicators(df)
+            self.all_data[symbol] = TechnicalIndicators.calculate_indicators(df)
 
         self.timestamps = self._build_trading_timestamps()
         self.total_steps = len(self.timestamps)
@@ -476,8 +482,8 @@ class ExternalBacktestSession:
             initial_equity=initial_eq,
             final_equity=final_eq,
             total_return=total_return,
-            sharpe_ratio=bha.HourlyBacktester._calc_sharpe(equity_curve),
-            max_drawdown=bha.HourlyBacktester._calc_max_dd(equity_curve),
+            sharpe_ratio=calculate_sharpe(equity_curve),
+            max_drawdown=calculate_max_drawdown(equity_curve),
             num_trades=len(self.manager.trades),
             llm_model=self.model_name,
             llm_calls=self.llm_calls,
@@ -490,7 +496,7 @@ class ExternalBacktestSession:
         db.insert_decisions(self.run_id, self.decision_log)
 
         try:
-            backtester = bha.HourlyBacktester(
+            backtester = HourlyBacktester(
                 self.start_date,
                 self.end_date,
                 self.session_id,
@@ -576,6 +582,81 @@ class ExternalBacktestSession:
     def get_decisions(self) -> List[Dict[str, Any]]:
         with self._step_lock:
             return list(self.decision_log)
+
+    # ------------------------------------------------------------------
+    # Protocol adapters (read-only; used by the Agent-Environment Protocol)
+    # ------------------------------------------------------------------
+
+    def _portfolio_state_at(self, timestamp) -> Dict[str, Any]:
+        market_data = self._market_data_at(timestamp)
+        state = self.manager.get_portfolio_state(market_data, self.price_cache, timestamp)
+        state["timestamp"] = timestamp
+        return state
+
+    def protocol_portfolio(self, timestamp=None) -> Dict[str, Any]:
+        """Normalized {cash, equity, positions[]} snapshot for the protocol."""
+        if timestamp is None and self.timestamps:
+            idx = self.step_index if self.step_index < self.total_steps else self.total_steps - 1
+            idx = max(0, idx)
+            timestamp = self.timestamps[idx]
+        if timestamp is None:
+            return {
+                "cash": round(self.manager.cash, 2),
+                "equity": round(self.manager.cash, 2),
+                "positions": [],
+            }
+        state = self._portfolio_state_at(timestamp)
+        positions = [
+            {
+                "symbol": p["symbol"],
+                "quantity": p["shares"],
+                "entry_price": round(p["entry_price"], 4),
+                "current_price": round(p["current_price"], 4),
+                "market_value": round(p["position_value"], 2),
+                "unrealized_pnl_pct": round(p["pnl_pct"], 4),
+            }
+            for p in state["positions"]
+        ]
+        return {
+            "cash": round(state["cash"], 2),
+            "equity": round(state["total_equity"], 2),
+            "positions": positions,
+        }
+
+    def protocol_current_prices(self, timestamp=None) -> Dict[str, float]:
+        if timestamp is None and self.timestamps:
+            idx = max(0, min(self.step_index, self.total_steps - 1))
+            timestamp = self.timestamps[idx]
+        if timestamp is None:
+            return {}
+        state = self._portfolio_state_at(timestamp)
+        return {
+            sym: float(sig.get("price") or 0)
+            for sym, sig in state["market_signals"].items()
+        }
+
+    def executed_step_timestamp(self):
+        """Timestamp of the most recently advanced step (post-submit)."""
+        if self.step_index > 0 and self.timestamps:
+            return self.timestamps[self.step_index - 1]
+        return None
+
+    def trade_count(self) -> int:
+        return len(self.manager.trades)
+
+    def fills_since(self, baseline_count: int) -> List[Dict[str, Any]]:
+        new_trades = self.manager.trades[baseline_count:]
+        fills: List[Dict[str, Any]] = []
+        for trade in new_trades:
+            qty = int(trade.get("shares") or 0)
+            fills.append({
+                "symbol": trade.get("symbol"),
+                "side": str(trade.get("side", "")).lower(),
+                "requested_quantity": qty,
+                "filled_quantity": qty,
+                "fill_price": round(float(trade.get("price") or 0), 4),
+            })
+        return fills
 
 
 def get_decision_format() -> Dict[str, Any]:
