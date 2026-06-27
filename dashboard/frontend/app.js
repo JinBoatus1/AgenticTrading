@@ -1020,20 +1020,17 @@ document.addEventListener('DOMContentLoaded', async () => {
  */
 async function loadPerformanceMetrics() {
     try {
-        let metrics = null;
+        // Mirror the chart: show metrics for the selected run. window.SELECTED_RUN
+        // is set by loadData; resolve from session runs when called standalone.
+        let metrics = window.SELECTED_RUN || null;
 
-        try {
-            const sessionRuns = await API.get(`${API_BASE}/api/backtest/runs?t=${Date.now()}`);
-            const activeName = window.ACTIVE_AGENT?.name || localStorage.getItem(ACTIVE_AGENT_NAME_KEY);
-            const externalRuns = scopedExternalRuns(sessionRuns, activeName);
-            const myAlgoRuns = sessionRuns.filter(r => r.run_id && r.run_id.startsWith('algo_'));
-            if (externalRuns.length) {
-                metrics = resolveSelectedExternalRun(externalRuns);
-            } else if (myAlgoRuns.length) {
-                metrics = latestRun(myAlgoRuns);
+        if (!metrics) {
+            try {
+                const sessionRuns = await API.get(`${API_BASE}/api/backtest/runs?t=${Date.now()}`);
+                metrics = resolveSelectedRun(sessionRuns);
+            } catch (e) {
+                console.warn('Could not load session runs for metrics');
             }
-        } catch (e) {
-            console.warn('Could not load session runs for my algo metrics');
         }
 
         if (!metrics) {
@@ -1892,11 +1889,13 @@ async function pollBacktestStatus(btn) {
                         console.log('✅ Backtest completed:', status.message);
                         console.log(`   Found ${status.runs_count} runs`);
                         
-                        // CRITICAL: Reload data in correct order:
-                        // 1. Load all runs from /runs endpoint (populates allRuns)
-                        // 2. Load comparison data for chart display (uses allRuns run_ids)
-                        // 3. Load latest metrics for summary panel (from /runs/latest/metrics)
+                        // A fresh run should show the newest result: clear any
+                        // prior selection so resolveSelectedRun picks the latest.
                         console.log('→ Reloading backtest data...');
+                        localStorage.removeItem(SELECTED_BACKTEST_RUN_KEY);
+                        const runSelect = document.getElementById('backtestRunSelect');
+                        if (runSelect) runSelect.value = '';
+                        window.SELECTED_RUN = null;
                         await loadData();
                         
                         console.log('→ Refreshing performance metrics...');
@@ -2348,6 +2347,55 @@ function findLatestRunByAgent(runs, agentName) {
     return matched.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
 }
 
+// Baseline comparison series. They appear on the plot but are never listed or
+// selectable as standalone runs.
+const BASELINE_AGENT_NAMES = ['DJIA', 'buy-and-hold'];
+
+function isBaselineRun(run) {
+    return !!run && BASELINE_AGENT_NAMES.includes(run.agent_name);
+}
+
+function _runTime(value) {
+    return new Date(String(value || '').replace(' ', 'T')).getTime() || 0;
+}
+
+// The selected run drives the whole backtest view. Built-in and external agents
+// take the same path: prefer the explicitly clicked/selected run_id, else the
+// agent's most recent (non-baseline) run.
+function resolveSelectedRun(sessionRuns) {
+    const realRuns = (sessionRuns || []).filter(r => !isBaselineRun(r));
+    if (!realRuns.length) return null;
+    const selectedId = localStorage.getItem(SELECTED_BACKTEST_RUN_KEY);
+    if (selectedId) {
+        const match = realRuns.find(r => r.run_id === selectedId);
+        if (match) return match;
+    }
+    return latestRun(realRuns);
+}
+
+// Find the DJIA / buy-and-hold runs that belong to a given run: same session,
+// same date window, created closest in time to the run (baselines are written
+// seconds apart from the agent run).
+function resolveBaselinesForRun(run, sessionRuns) {
+    if (!run) return { djia: null, buyhold: null };
+    const anchor = _runTime(run.created_at);
+    function pick(agentName, explicitId) {
+        if (explicitId) return explicitId;
+        const candidates = (sessionRuns || []).filter(r =>
+            r.agent_name === agentName &&
+            r.start_date === run.start_date &&
+            r.end_date === run.end_date);
+        if (!candidates.length) return null;
+        candidates.sort((a, b) =>
+            Math.abs(_runTime(a.created_at) - anchor) - Math.abs(_runTime(b.created_at) - anchor));
+        return candidates[0].run_id;
+    }
+    return {
+        djia: pick('DJIA', run.baseline_djia_run_id),
+        buyhold: pick('buy-and-hold', run.baseline_buyhold_run_id),
+    };
+}
+
 /**
  * Load dashboard data from backend API
  */
@@ -2363,60 +2411,39 @@ async function loadData() {
                 console.warn('Session runs unavailable:', e.message);
             }
 
-            const myAlgoRuns = sessionRuns.filter(isMyAlgoRun);
-            const latestMyAlgo = latestRun(myAlgoRuns);
+            // Selectable runs are the agent's own runs; baselines are plotted
+            // for comparison but never listed/selected. Built-in and external
+            // agents share this path: the selected run_id drives everything.
+            const selectableRuns = sessionRuns.filter(r => !isBaselineRun(r));
+            populateBacktestRunSelector(selectableRuns);
+            const selectedRun = resolveSelectedRun(sessionRuns);
 
-            const activeName = window.ACTIVE_AGENT?.name || localStorage.getItem(ACTIVE_AGENT_NAME_KEY);
-            const scopedExternal = scopedExternalRuns(sessionRuns, activeName);
-            populateBacktestRunSelector(scopedExternal);
-            const selectedExternal = resolveSelectedExternalRun(scopedExternal);
+            window.SELECTED_RUN = selectedRun;
+            window.MY_ALGO_RUN_ID = isMyAlgoRun(selectedRun) ? selectedRun.run_id : null;
+            window.EXTERNAL_AGENT_RUN_ID = isExternalAgentRun(selectedRun) ? selectedRun.run_id : null;
 
-            if (latestMyAlgo) {
-                window.MY_ALGO_RUN_ID = latestMyAlgo.run_id;
-            } else {
-                window.MY_ALGO_RUN_ID = null;
-            }
-
-            allRuns = await API.get(`${API_BASE}/runs?t=${Date.now()}`);
-            console.log('Loaded runs:', allRuns.length);
-
-            if (allRuns.length === 0 && !latestMyAlgo && !selectedExternal) {
-                console.warn('No runs available');
+            if (!selectedRun) {
+                console.warn('No backtest runs for this session');
+                comparisonData = null;
+                displayNoMetrics();
                 return;
             }
 
-            let runIds;
-            if (selectedExternal) {
-                const baselines = resolveBaselineRunIds(selectedExternal, sessionRuns);
-                runIds = [
-                    selectedExternal.run_id,
-                    baselines.djia,
-                    baselines.buyhold,
-                ]
-                    .filter(Boolean)
-                    .join(',');
-                window.EXTERNAL_AGENT_RUN_ID = selectedExternal.run_id;
-                console.log('External agent compare IDs:', runIds, baselines);
-            } else if (latestMyAlgo) {
-                const buyhold = findLatestRunByAgent(allRuns, 'buy-and-hold');
-                const djia = findLatestRunByAgent(allRuns, 'DJIA');
-                runIds = [latestMyAlgo.run_id, djia?.run_id, buyhold?.run_id].filter(Boolean).join(',');
-                console.log('My Algo compare IDs:', runIds);
-            } else {
-                runIds = allRuns.map(r => r.run_id).join(',');
-            }
+            localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, selectedRun.run_id);
 
-            if (!runIds) {
-                console.warn('No run IDs to compare');
-                return;
-            }
+            // Plot the selected run plus its own baselines (same session/window).
+            const baselines = resolveBaselinesForRun(selectedRun, sessionRuns);
+            const runIds = [selectedRun.run_id, baselines.djia, baselines.buyhold]
+                .filter(Boolean)
+                .join(',');
+            console.log('Compare IDs for selected run:', runIds);
 
             const compareUrl = `${API_BASE}/compare?run_ids=${encodeURIComponent(runIds)}&t=${Date.now()}`;
             comparisonData = await API.get(compareUrl);
             console.log('Loaded comparison data:', comparisonData);
 
             initializeCharts();
-            await loadPerformanceMetrics();
+            displayPerformanceMetrics(selectedRun);
         }
         
     } catch (error) {
@@ -2497,7 +2524,7 @@ function initializeCharts() {
                     borderColor: color,
                     backgroundColor: 'transparent',
                     borderWidth: 2.5,
-                    tension: 0.3,
+                    tension: 0,
                     fill: false,
                     pointRadius: 0,
                     pointHoverRadius: 5,
@@ -2853,7 +2880,7 @@ async function displayEquityCurve(equityCurve) {
         backgroundColor: 'transparent',
         borderWidth: 2.5,
         fill: false,
-        tension: 0.3,
+        tension: 0,
         pointRadius: 0,
         pointHoverRadius: 5
     }];
@@ -2867,7 +2894,7 @@ async function displayEquityCurve(equityCurve) {
             backgroundColor: 'transparent',
             borderWidth: 2.5,
             fill: false,
-            tension: 0.3,
+            tension: 0,
             pointRadius: 0,
             pointHoverRadius: 5
         });

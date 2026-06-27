@@ -25,6 +25,12 @@ from dashboard.backend.domain.agents.version_repository import (
 from dashboard.backend.database import db
 
 
+# Baseline comparison series written alongside every backtest. They are plotted
+# for comparison but are not standalone agent runs, so they are excluded from
+# agent run listings.
+BASELINE_AGENT_NAMES = {"DJIA", "buy-and-hold"}
+
+
 class AgentServiceError(Exception):
     """Base class for agent-service domain errors."""
 
@@ -66,13 +72,17 @@ class AgentService:
         return [r for r in runs if str(r.get("run_id", "")).startswith("ext_")]
 
     def _session_runs(self, session_id: str) -> List[Dict[str, Any]]:
-        """Every backtest run for a session, regardless of run-id prefix.
+        """The agent's own backtest runs for a session, excluding baselines.
 
         Built-in (platform-hosted) agents are backtested through the website
         workflow (``/backtest/run``), whose runs are not ``ext_``-prefixed, so
-        their cards must surface all session runs rather than external-only ones.
+        their cards must surface session runs rather than external-only ones.
+        Each backtest also writes DJIA / buy-and-hold baseline rows in the same
+        session; those are comparison series for the plot, not standalone runs,
+        so they are filtered out of the agent's run list.
         """
-        return list(self.db.get_runs_by_session(session_id) or [])
+        runs = self.db.get_runs_by_session(session_id) or []
+        return [r for r in runs if r.get("agent_name") not in BASELINE_AGENT_NAMES]
 
     def agent_with_stats(self, agent: Dict[str, Any]) -> Dict[str, Any]:
         if (agent.get("agent_type") or "external") == "builtin":
