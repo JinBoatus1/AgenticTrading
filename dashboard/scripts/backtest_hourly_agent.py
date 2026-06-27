@@ -177,10 +177,21 @@ def main():
     parser.add_argument("--use-llm", action="store_true", default=True, help="Use LLM for trading decisions (default: True)")
     parser.add_argument("--no-llm", dest="use_llm", action="store_false", help="Disable LLM, use rule-based logic")
     parser.add_argument("--mode", default="safe_trading", choices=["safe_trading", "buy_and_hold"], help="Agent mode: 'safe_trading' (risk management) or 'buy_and_hold' (debug)")
+    parser.add_argument("--strategy-prompt-file", default=None, help="Path to a UTF-8 file with a free-form strategy prompt that REPLACES the built-in agent prompt for this run")
+    parser.add_argument("--model", default=None, help="Override the LLM model id (e.g. anthropic/claude-haiku-4-5). Defaults to the gateway-appropriate slug.")
     
     args = parser.parse_args()
     
     session_id = args.session_id
+
+    # Optional free-form strategy prompt (read from a file to avoid shell escaping).
+    strategy_prompt = None
+    if args.strategy_prompt_file:
+        try:
+            strategy_prompt = Path(args.strategy_prompt_file).read_text(encoding="utf-8").strip() or None
+        except OSError as exc:
+            print(f"⚠️  Could not read --strategy-prompt-file ({args.strategy_prompt_file}): {exc}")
+            strategy_prompt = None
     
     # Validate and swap dates if backwards
     from datetime import datetime as dt_parser
@@ -207,13 +218,23 @@ def main():
     print(f"Capital: ${INITIAL_CAPITAL:,.0f}")
     
     # Show mode
-    mode_display = args.mode.replace("_", " ").title()
+    mode_display = "Custom Prompt" if strategy_prompt else args.mode.replace("_", " ").title()
     print(f"Mode: {mode_display}")
+    if strategy_prompt:
+        print(f"Custom strategy prompt: {len(strategy_prompt)} chars")
     print(f"{'='*70}\n")
     
     # Initialize backtester (with LLM if available and enabled)
     # Note: dates are validated in __init__ if they somehow got reversed again
-    backtester = HourlyBacktester(args.start, args.end, session_id, use_llm=args.use_llm, mode=args.mode)
+    backtester = HourlyBacktester(
+        args.start,
+        args.end,
+        session_id,
+        use_llm=args.use_llm,
+        mode=args.mode,
+        strategy_prompt=strategy_prompt,
+        model=args.model,
+    )
     
     if backtester.use_llm:
         print(f"🧠 Using {LLM_MODEL_NAME} for trading decisions (Mode: {mode_display})\n")

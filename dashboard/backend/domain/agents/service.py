@@ -65,8 +65,20 @@ class AgentService:
         runs = self.db.get_runs_by_session(session_id) or []
         return [r for r in runs if str(r.get("run_id", "")).startswith("ext_")]
 
+    def _session_runs(self, session_id: str) -> List[Dict[str, Any]]:
+        """Every backtest run for a session, regardless of run-id prefix.
+
+        Built-in (platform-hosted) agents are backtested through the website
+        workflow (``/backtest/run``), whose runs are not ``ext_``-prefixed, so
+        their cards must surface all session runs rather than external-only ones.
+        """
+        return list(self.db.get_runs_by_session(session_id) or [])
+
     def agent_with_stats(self, agent: Dict[str, Any]) -> Dict[str, Any]:
-        ext_runs = self._external_runs(agent["session_id"])
+        if (agent.get("agent_type") or "external") == "builtin":
+            ext_runs = self._session_runs(agent["session_id"])
+        else:
+            ext_runs = self._external_runs(agent["session_id"])
         latest = None
         if ext_runs:
             latest = sorted(ext_runs, key=lambda r: r.get("created_at") or "", reverse=True)[0]
@@ -130,13 +142,21 @@ class AgentService:
         model_name: str,
         owner_user_id: Optional[int],
         owner_browser_session: Optional[str],
+        agent_type: str = "external",
+        description: Optional[str] = None,
     ) -> Dict[str, Any]:
         return self.agents.create_agent(
             name=name,
             model_name=model_name,
             owner_user_id=owner_user_id,
             owner_browser_session=owner_browser_session,
+            agent_type=agent_type,
+            description=description,
         )
+
+    def list_builtin_agents_with_stats(self) -> List[Dict[str, Any]]:
+        """List all built-in agents (platform-wide) enriched with run stats."""
+        return [self.agent_with_stats(a) for a in self.agents.list_builtin_agents()]
 
     def list_agents_with_stats(
         self,

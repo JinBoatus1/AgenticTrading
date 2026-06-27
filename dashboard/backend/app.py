@@ -163,6 +163,11 @@ async def serve_root():
     """Serve index.html for root path."""
     return FileResponse(frontend_path / "index.html")
 
+@app.get("/strategy", include_in_schema=False)
+async def serve_strategy_viewer():
+    """Serve the standalone strategy viewer (reads ?code=... client-side)."""
+    return FileResponse(frontend_path / "strategy.html")
+
 @app.get("/styles.css", include_in_schema=False)
 async def serve_styles():
     """Serve styles.css."""

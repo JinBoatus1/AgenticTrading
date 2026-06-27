@@ -37,6 +37,8 @@ def _public_agent(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
         "name": data["name"],
         "session_id": data["session_id"],
         "model_name": data.get("model_name") or "local-model",
+        "agent_type": data.get("agent_type") or "external",
+        "description": data.get("description"),
         "api_key_prefix": data.get("api_key_prefix") or "",
         "owner_user_id": data.get("owner_user_id"),
         "created_at": data.get("created_at"),
@@ -89,6 +91,27 @@ class AgentStore:
             ON external_agents(owner_browser_session)
             """
         )
+
+        # Lightweight migrations: add columns introduced after the original
+        # schema shipped. SQLite cannot ADD COLUMN IF NOT EXISTS, so probe first.
+        cursor.execute("PRAGMA table_info(external_agents)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        if "agent_type" not in existing_columns:
+            cursor.execute(
+                "ALTER TABLE external_agents "
+                "ADD COLUMN agent_type TEXT NOT NULL DEFAULT 'external'"
+            )
+        if "description" not in existing_columns:
+            cursor.execute(
+                "ALTER TABLE external_agents ADD COLUMN description TEXT"
+            )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_external_agents_type
+            ON external_agents(agent_type)
+            """
+        )
+
         conn.commit()
         conn.close()
 
@@ -100,6 +123,8 @@ class AgentStore:
         owner_user_id: Optional[int] = None,
         owner_browser_session: Optional[str] = None,
         session_id: Optional[str] = None,
+        agent_type: str = "external",
+        description: Optional[str] = None,
     ) -> Dict[str, Any]:
         agent_id = f"agent_{uuid.uuid4().hex[:12]}"
         session_id = session_id or str(uuid.uuid4())
@@ -114,8 +139,9 @@ class AgentStore:
             """
             INSERT INTO external_agents (
                 agent_id, name, session_id, api_key_hash, api_key_prefix,
-                model_name, owner_user_id, owner_browser_session, created_at, last_used_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                model_name, agent_type, description,
+                owner_user_id, owner_browser_session, created_at, last_used_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 agent_id,
@@ -124,6 +150,8 @@ class AgentStore:
                 api_key_hash,
                 api_key_prefix,
                 model_name.strip() or "local-model",
+                (agent_type or "external").strip() or "external",
+                (description or None),
                 owner_user_id,
                 owner_browser_session,
                 now,
@@ -230,6 +258,25 @@ class AgentStore:
                 (trading_session_id,),
             )
 
+        conn.close()
+        return [_public_agent(row) for row in rows]
+
+    def list_builtin_agents(self) -> List[Dict[str, Any]]:
+        """List every built-in (platform-hosted) agent, newest first.
+
+        Built-in agents are globally discoverable (e.g. from the Discord
+        ``/agent`` command) regardless of which account created them.
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT * FROM external_agents
+            WHERE agent_type = 'builtin'
+            ORDER BY created_at DESC
+            """
+        )
+        rows = cursor.fetchall()
         conn.close()
         return [_public_agent(row) for row in rows]
 

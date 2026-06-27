@@ -26,6 +26,7 @@ import is optional and there is no import-time network or credential access).
 """
 
 import json
+import os
 from typing import Dict, Optional
 
 from dashboard.backend.infrastructure.llm.decision_parsing import fix_json_formatting
@@ -46,6 +47,59 @@ except ImportError:
 
 # Default model name (model selection). Re-exported by the legacy script.
 LLM_MODEL_NAME = "claude-haiku-4-5-20251001"  # Change this to switch models
+
+# Same default model, but as the CommonStack gateway slug. CommonStack expects
+# ``provider/model`` ids, so when routing through CommonStack we must send the
+# gateway slug rather than the native Anthropic id (see the integration report's
+# "slug/gateway coupling" note). Pricing in token_cost.py matches "claude-haiku-4".
+COMMONSTACK_MODEL_NAME = "anthropic/claude-haiku-4-5"
+
+# CommonStack is a unified gateway exposing OpenAI/Google/xAI/DeepSeek/Qwen/
+# Anthropic models behind one key. Its Anthropic-compatible endpoint returns
+# Anthropic-shaped responses (``content[0].text`` + ``usage.{input,output}_tokens``),
+# so the existing request/parse/usage code works unchanged — we only swap the
+# client's base_url and pass a ``provider/model`` slug as the model id.
+COMMONSTACK_BASE_URL = os.getenv("COMMONSTACK_BASE_URL", "https://api.commonstack.ai")
+
+
+def make_llm_client():
+    """Create an Anthropic-compatible client for trading decisions.
+
+    Prefers CommonStack when ``COMMONSTACK_API_KEY`` is set (one key reaches all
+    leaderboard models); otherwise falls back to native Anthropic via
+    ``ANTHROPIC_API_KEY``. Returns ``None`` when the SDK or a key is unavailable,
+    so callers fall back to rule-based trading exactly as before.
+    """
+    if not HAS_ANTHROPIC or Anthropic is None:
+        return None
+    commonstack_key = os.getenv("COMMONSTACK_API_KEY")
+    if commonstack_key:
+        try:
+            return Anthropic(api_key=commonstack_key, base_url=COMMONSTACK_BASE_URL)
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"⚠️  Failed to init CommonStack client: {exc}")
+            return None
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        try:
+            return Anthropic(api_key=anthropic_key)
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"⚠️  Failed to init Anthropic client: {exc}")
+            return None
+    return None
+
+
+def default_model_name() -> str:
+    """Return the default model id matching the client ``make_llm_client`` builds.
+
+    When ``COMMONSTACK_API_KEY`` is set we route through CommonStack and must use
+    its gateway slug (``anthropic/claude-haiku-4-5``); otherwise we use the native
+    Anthropic id (``claude-haiku-4-5-20251001``). Callers can still override this
+    with an explicit model id.
+    """
+    if os.getenv("COMMONSTACK_API_KEY"):
+        return COMMONSTACK_MODEL_NAME
+    return LLM_MODEL_NAME
 
 # System prompt sent on every request. Preserved exactly from the original
 # inline string (do not "improve" it).
@@ -68,7 +122,12 @@ IMPORTANT INSTRUCTIONS:
 Make precise, actionable trading decisions based on the technical indicators provided."""
 
 
-def request_trading_decision(client, *, prompt: str, model: Optional[str] = None, max_tokens: int = 2000):
+# Per-request output-token ceiling. Defaults to 2000 (unchanged) but can be
+# lowered via env (e.g. LLM_MAX_OUTPUT_TOKENS=600) to cap spend in small demos.
+DEFAULT_MAX_OUTPUT_TOKENS = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "2000"))
+
+
+def request_trading_decision(client, *, prompt: str, model: Optional[str] = None, max_tokens: Optional[int] = None):
     """Submit the prompt to the Anthropic client and return the raw response.
 
     Mirrors the original ``llm_client.messages.create(...)`` call exactly: same
@@ -79,7 +138,7 @@ def request_trading_decision(client, *, prompt: str, model: Optional[str] = None
     """
     return client.messages.create(
         model=model or LLM_MODEL_NAME,
-        max_tokens=max_tokens,  # Reduced from 3000 (saves tokens)
+        max_tokens=max_tokens or DEFAULT_MAX_OUTPUT_TOKENS,  # Reduced from 3000 (saves tokens)
         system=SYSTEM_PROMPT,
         messages=[
             {"role": "user", "content": prompt}

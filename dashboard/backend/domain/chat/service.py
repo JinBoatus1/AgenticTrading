@@ -7,8 +7,20 @@ from typing import Any
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
+from dashboard.backend.infrastructure.llm.backtest_harness import (
+    COMMONSTACK_MODEL_NAME,
+    LLM_MODEL_NAME,
+)
+
 
 load_dotenv()
+
+
+# CommonStack is the "model we host": one key reaches frontier models behind an
+# Anthropic-compatible endpoint. When COMMONSTACK_API_KEY is set the chat client
+# routes through it (and must use the gateway slug); otherwise it falls back to
+# native Anthropic.
+COMMONSTACK_BASE_URL = os.getenv("COMMONSTACK_BASE_URL", "https://api.commonstack.ai")
 
 
 def require_env(name: str) -> str:
@@ -20,7 +32,19 @@ def require_env(name: str) -> str:
     return value
 
 
-# Lazily-constructed Anthropic client.
+def resolve_chat_model() -> str:
+    """Model id matching the client ``get_claude_client`` builds.
+
+    CommonStack expects ``provider/model`` slugs, so when routing through it we
+    use ``anthropic/claude-haiku-4-5`` (overridable via ``CHAT_MODEL``).
+    Otherwise we honor ``ANTHROPIC_MODEL`` and fall back to the native default.
+    """
+    if os.getenv("COMMONSTACK_API_KEY"):
+        return os.getenv("CHAT_MODEL", COMMONSTACK_MODEL_NAME)
+    return os.getenv("ANTHROPIC_MODEL", LLM_MODEL_NAME)
+
+
+# Lazily-constructed Anthropic-compatible client.
 #
 # Importing this module must not require credentials or build a network client;
 # the client is created on first use via ``get_claude_client`` so that import
@@ -29,11 +53,22 @@ _claude_client: AsyncAnthropic | None = None
 
 
 def get_claude_client() -> AsyncAnthropic:
-    """Return the shared Anthropic client, constructing it on first use."""
+    """Return the shared chat client, constructing it on first use.
+
+    Prefers CommonStack (the hosted gateway) when ``COMMONSTACK_API_KEY`` is set;
+    otherwise uses native Anthropic via ``ANTHROPIC_API_KEY``.
+    """
     global _claude_client
 
     if _claude_client is None:
-        _claude_client = AsyncAnthropic(api_key=require_env("ANTHROPIC_API_KEY"))
+        commonstack_key = os.getenv("COMMONSTACK_API_KEY")
+        if commonstack_key:
+            _claude_client = AsyncAnthropic(
+                api_key=commonstack_key,
+                base_url=COMMONSTACK_BASE_URL,
+            )
+        else:
+            _claude_client = AsyncAnthropic(api_key=require_env("ANTHROPIC_API_KEY"))
 
     return _claude_client
 
@@ -91,6 +126,7 @@ async def chat_with_agent(
     user_id: str,
     agent_id: str,
     message: str,
+    model: str | None = None,
 ) -> str:
     """
     Send a message to an Agentic Trading Lab agent.
@@ -126,11 +162,11 @@ async def chat_with_agent(
         del history[:-12]
 
     try:
-        model = require_env("ANTHROPIC_MODEL")
+        resolved_model = (model or "").strip() or resolve_chat_model()
         client = get_claude_client()
 
         response = await client.messages.create(
-            model=model,
+            model=resolved_model,
             max_tokens=1200,
             system=SYSTEM_PROMPT,
             messages=history,
@@ -167,3 +203,73 @@ def reset_agent_conversation(
 ) -> None:
     key = (user_id, agent_id)
     conversation_history.pop(key, None)
+
+
+# System prompt for compiling a conversation/idea into a single, self-contained
+# free-form strategy prompt. The output is fed to the backtest agent each hour;
+# the backtest engine appends the market snapshot + JSON output contract, so this
+# must NOT specify any output format.
+STRATEGY_SYNTH_SYSTEM = """You are a trading-strategy compiler for Agentic Trading Lab.
+
+Read the conversation and/or idea, then output a SINGLE, self-contained trading
+strategy prompt that an LLM trading agent will follow each market hour to trade
+DJIA stocks in a backtest.
+
+Output rules:
+- Output ONLY the strategy prompt text. No preamble, no markdown headers, no JSON.
+- Be concrete about entry rules, exit rules, position sizing, and risk, grounded
+  in the signals the agent will have: price, SMA20, SMA50, MACD, RSI, recent
+  momentum, current holdings, and cash.
+- Do NOT describe any output/JSON format; the system adds that automatically.
+- Do NOT invent data sources the agent cannot see (no live news/Twitter/APIs).
+- Keep it under ~250 words and directly actionable.
+""".strip()
+
+
+async def synthesize_strategy_prompt(
+    *,
+    user_id: str,
+    agent_id: str,
+    extra: str | None = None,
+) -> str:
+    """Compile a user's conversation (+ optional extra text) into one strategy prompt.
+
+    Uses the hosted chat model. Pulls the user's existing conversation history
+    (from prior ``chat_with_agent`` turns) and an optional ``extra`` instruction,
+    and returns a single free-form strategy prompt suitable for
+    ``POST /backtest/run`` (``strategy_prompt``) — no JSON, no formatting.
+    """
+    key = (user_id, agent_id)
+    history = list(conversation_history[key])
+
+    final_instruction = (
+        "Compile everything above into the final strategy prompt now. "
+        "Output only the strategy prompt text."
+    )
+    if extra and extra.strip():
+        final_instruction = (
+            f"Strategy idea / requirements:\n{extra.strip()}\n\n" + final_instruction
+        )
+
+    if not history and not (extra and extra.strip()):
+        raise ValueError(
+            "Nothing to compile: chat about your strategy first, or provide a description."
+        )
+
+    messages = history + [{"role": "user", "content": final_instruction}]
+
+    model = resolve_chat_model()
+    client = get_claude_client()
+
+    response = await client.messages.create(
+        model=model,
+        max_tokens=900,
+        system=STRATEGY_SYNTH_SYSTEM,
+        messages=messages,
+    )
+
+    strategy = extract_text(response).strip()
+    if not strategy:
+        raise RuntimeError("The model returned an empty strategy prompt.")
+
+    return strategy

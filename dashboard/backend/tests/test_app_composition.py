@@ -65,6 +65,7 @@ EXPECTED_FULL_CONTRACT = {
     ("GET", "/api/v1/agent-versions/{agent_version_id}"),
     ("GET", "/api/v1/agents"),
     ("POST", "/api/v1/agents"),
+    ("GET", "/api/v1/agents/builtin"),
     ("POST", "/api/v1/agents/claim-account"),
     ("POST", "/api/v1/agents/import-session"),
     ("GET", "/api/v1/agents/resolve"),

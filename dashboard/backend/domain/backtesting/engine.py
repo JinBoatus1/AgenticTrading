@@ -14,7 +14,6 @@ Baseline methods and result assembly intentionally remain here for now; they can
 be extracted in a later phase.
 """
 
-import os
 import sys
 from datetime import datetime
 from typing import Dict, List, Tuple
@@ -32,16 +31,16 @@ from dashboard.backend.domain.backtesting.metrics import (
 from dashboard.backend.domain.backtesting.portfolio_manager import PortfolioManager
 from dashboard.backend.infrastructure.market_data.alpaca_bars import AlpacaDataLoader
 from dashboard.backend.infrastructure.llm.backtest_harness import (
-    Anthropic,
     HAS_ANTHROPIC,
-    LLM_MODEL_NAME,
+    default_model_name,
+    make_llm_client,
 )
 
 
 class HourlyBacktester:
     """Runs hourly backtest with agent and baselines."""
     
-    def __init__(self, start_date: str, end_date: str, session_id: str = "legacy-demo-session", use_llm: bool = True, mode: str = "safe_trading"):
+    def __init__(self, start_date: str, end_date: str, session_id: str = "legacy-demo-session", use_llm: bool = True, mode: str = "safe_trading", strategy_prompt: str = None, model: str = None):
         # Validate and swap dates if they're in the wrong order
         from datetime import datetime as dt_parser
         try:
@@ -58,24 +57,28 @@ class HourlyBacktester:
         self.end_date = end_date
         self.session_id = session_id
         self.mode = mode  # "safe_trading" or "buy_and_hold"
+        # Optional free-form strategy that REPLACES the built-in prompt for this run.
+        self.strategy_prompt = (strategy_prompt or "").strip() or None
+        # Model id; defaults to the gateway-appropriate slug (CommonStack vs native).
+        self.model = model or default_model_name()
         self.data_loader = AlpacaDataLoader()
         self.all_data = {}
         self.use_llm = use_llm and HAS_ANTHROPIC
         self.llm_client = None
         
-        # Initialize LLM client if enabled
+        # Initialize LLM client if enabled. Prefer CommonStack (the model we host)
+        # via make_llm_client(); it falls back to native Anthropic when only
+        # ANTHROPIC_API_KEY is set, and returns None when no key/SDK is available.
         if self.use_llm:
-            api_key = os.getenv("ANTHROPIC_API_KEY")
-            if not api_key:
-                print("⚠️  ANTHROPIC_API_KEY not set. Running without LLM.")
+            self.llm_client = make_llm_client()
+            if self.llm_client is None:
+                print(
+                    "⚠️  No LLM key (COMMONSTACK_API_KEY / ANTHROPIC_API_KEY) set. "
+                    "Running without LLM."
+                )
                 self.use_llm = False
             else:
-                try:
-                    self.llm_client = Anthropic(api_key=api_key)
-                    print(f"✅ LLM initialized ({LLM_MODEL_NAME})")
-                except Exception as e:
-                    print(f"⚠️  Failed to initialize LLM: {e}")
-                    self.use_llm = False
+                print(f"✅ LLM initialized (model={self.model})")
     
     def load_data(self):
         """Fetch hourly data from Alpaca."""
@@ -181,10 +184,16 @@ class HourlyBacktester:
             
             # Make decision (LLM if available, else rule-based)
             if self.use_llm and self.llm_client:
-                decision = manager.make_trading_decision_with_llm(state, self.llm_client, mode=self.mode)
+                decision = manager.make_trading_decision_with_llm(
+                    state,
+                    self.llm_client,
+                    mode=self.mode,
+                    model=self.model,
+                    strategy_prompt=self.strategy_prompt,
+                )
                 llm_calls_count += 1  # Track that LLM was used
                 if llm_calls_count == 1:  # Set on first call
-                    llm_model = LLM_MODEL_NAME
+                    llm_model = self.model
             else:
                 decision = manager.make_trading_decision(state)
             
@@ -241,7 +250,7 @@ class HourlyBacktester:
         
         print(f"\n  ✅ Agent backtest complete")
         print(f"     • Run ID: {run_id}")
-        model_display = LLM_MODEL_NAME if llm_calls_count > 0 else "rule-based"
+        model_display = self.model if llm_calls_count > 0 else "rule-based"
         print(f"     • Model: {model_display} (✅ LLM enabled)" if llm_calls_count > 0 else f"     • Model: {model_display} (❌ fallback)")
         print(f"     • LLM Calls: {llm_calls_count}")
         print(f"     • Tokens: {manager.input_tokens:,} in / {manager.output_tokens:,} out (est. cost ${est_cost:.4f})")

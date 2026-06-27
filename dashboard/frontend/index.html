@@ -504,9 +504,9 @@
             <h2 id="addAgentModalTitle" class="auth-modal-title">Add Agent</h2>
             <p class="auth-modal-subtitle">Register an external agent to get a persistent session and API key. Log in to keep agents across devices and sessions.</p>
             <div class="add-agent-options">
-                <button id="createBuiltinAgentBtn" class="add-agent-option" type="button" disabled>
+                <button id="createBuiltinAgentBtn" class="add-agent-option" type="button">
                     <strong>Create a Built-in Agent</strong>
-                    <span>Coming soon — configure strategy blocks inside the lab</span>
+                    <span>Hosted agent powered by a frontier model — chat with it on Discord</span>
                 </button>
                 <button id="connectExternalAgentBtn" class="add-agent-option" type="button">
                     <strong>Connect an External Agent</strong>
@@ -533,6 +533,38 @@
                 </label>
                 <p id="createExternalAgentError" class="auth-error" hidden></p>
                 <button id="createExternalAgentSubmit" class="auth-submit-btn" type="submit">Create agent</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="createBuiltinAgentModal" class="auth-modal" hidden>
+        <div class="auth-modal-backdrop" id="createBuiltinAgentModalBackdrop"></div>
+        <div class="auth-modal-panel" role="dialog" aria-labelledby="createBuiltinAgentModalTitle">
+            <button id="createBuiltinAgentModalClose" class="auth-modal-close" type="button" aria-label="Close">×</button>
+            <h2 id="createBuiltinAgentModalTitle" class="auth-modal-title">Create a Built-in Agent</h2>
+            <p class="auth-modal-subtitle">A hosted agent powered by a frontier model. It appears on your agent cards here and becomes selectable from the Agentic Trading Discord server with <code>/agent</code>.</p>
+            <form id="createBuiltinAgentForm" class="auth-form">
+                <label class="auth-field">
+                    <span>Agent name</span>
+                    <input id="builtinAgentName" type="text" required maxlength="100" placeholder="Momentum Alpha" autocomplete="off">
+                </label>
+                <label class="auth-field">
+                    <span>Model</span>
+                    <select id="builtinAgentModel" class="auth-input">
+                        <option value="anthropic/claude-haiku-4-5">Claude Haiku 4.5</option>
+                        <option value="anthropic/claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                        <option value="openai/gpt-5.5">GPT-5.5</option>
+                        <option value="google/gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
+                        <option value="deepseek/deepseek-v4-pro">DeepSeek V4 Pro</option>
+                        <option value="qwen/qwen3.7-plus">Qwen3.7 Plus</option>
+                    </select>
+                </label>
+                <label class="auth-field">
+                    <span>Description (optional)</span>
+                    <input id="builtinAgentDescription" type="text" maxlength="280" placeholder="What is this agent's edge?" autocomplete="off">
+                </label>
+                <p id="createBuiltinAgentError" class="auth-error" hidden></p>
+                <button id="createBuiltinAgentSubmit" class="auth-submit-btn" type="submit">Create built-in agent</button>
             </form>
         </div>
     </div>

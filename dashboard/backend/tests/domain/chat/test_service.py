@@ -79,6 +79,8 @@ def test_extract_text_joins_text_blocks_and_strips():
 # ---------------------------------------------------------------------------
 
 def test_chat_constructs_request_and_records_history(monkeypatch):
+    # No CommonStack key → resolve_chat_model honors ANTHROPIC_MODEL.
+    monkeypatch.delenv("COMMONSTACK_API_KEY", raising=False)
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-test-model")
     fake = _install_client(monkeypatch, response=_text_response("hi there"))
 
@@ -121,15 +123,31 @@ def test_chat_provider_error_propagates_and_pops_user_message(monkeypatch):
     assert conversation_history[("u1", "a1")] == []
 
 
-def test_chat_missing_model_fails_at_execution_and_pops_message(monkeypatch):
+def test_chat_model_falls_back_to_default_when_unset(monkeypatch):
+    # New contract: a missing model no longer errors. Without CommonStack and
+    # without ANTHROPIC_MODEL, resolve_chat_model falls back to the native
+    # default (LLM_MODEL_NAME), and the turn completes + records history.
+    monkeypatch.delenv("COMMONSTACK_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
-    # Patch the client so the failure point is the missing model, not the key.
-    _install_client(monkeypatch, response=_text_response("unused"))
+    fake = _install_client(monkeypatch, response=_text_response("ok"))
 
-    with pytest.raises(RuntimeError, match="Missing required environment variable: ANTHROPIC_MODEL"):
-        asyncio.run(chat_with_agent(user_id="u1", agent_id="a1", message="hello"))
+    answer = asyncio.run(chat_with_agent(user_id="u1", agent_id="a1", message="hello"))
 
-    assert conversation_history[("u1", "a1")] == []
+    assert answer == "ok"
+    assert fake.calls[0]["model"] == chat_service.LLM_MODEL_NAME
+    history = conversation_history[("u1", "a1")]
+    assert history[-1] == {"role": "assistant", "content": "ok"}
+
+
+def test_chat_uses_commonstack_slug_when_key_present(monkeypatch):
+    # With a CommonStack key, the chat routes through the gateway slug.
+    monkeypatch.setenv("COMMONSTACK_API_KEY", "cs-test-key")
+    monkeypatch.delenv("CHAT_MODEL", raising=False)
+    fake = _install_client(monkeypatch, response=_text_response("ok"))
+
+    asyncio.run(chat_with_agent(user_id="u1", agent_id="a1", message="hello"))
+
+    assert fake.calls[0]["model"] == chat_service.COMMONSTACK_MODEL_NAME
 
 
 def test_chat_history_trimmed_to_12(monkeypatch):
@@ -169,10 +187,22 @@ def test_reset_clears_only_that_session(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_get_claude_client_requires_api_key(monkeypatch):
+    # With neither a CommonStack key nor an Anthropic key, construction fails.
+    monkeypatch.delenv("COMMONSTACK_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr(chat_service, "_claude_client", None, raising=False)
     with pytest.raises(RuntimeError, match="Missing required environment variable: ANTHROPIC_API_KEY"):
         get_claude_client()
+
+
+def test_get_claude_client_prefers_commonstack(monkeypatch):
+    # When a CommonStack key is present, the client is built without an
+    # Anthropic key (routes through the hosted gateway).
+    monkeypatch.setenv("COMMONSTACK_API_KEY", "cs-test-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(chat_service, "_claude_client", None, raising=False)
+    client = get_claude_client()
+    assert client is not None
 
 
 def test_get_claude_client_is_cached(monkeypatch):

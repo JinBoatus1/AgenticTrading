@@ -28,6 +28,8 @@ router = APIRouter(prefix="/v1/agents", tags=["agents"])
 class CreateAgentBody(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     model_name: str = Field(default="local-model", max_length=100)
+    agent_type: str = Field(default="external", max_length=20)
+    description: Optional[str] = Field(default=None, max_length=280)
 
 
 @router.post("")
@@ -36,13 +38,21 @@ async def create_agent(
     request: Request,
     authorization: Optional[str] = Header(default=None),
 ):
-    """Register an external agent. Returns session_id and api_key (shown once)."""
+    """Register an agent. Returns session_id and api_key (shown once).
+
+    ``agent_type`` is ``external`` for user-connected trading clients or
+    ``builtin`` for platform-hosted agents (which are also discoverable from
+    Discord). Any other value is normalized to ``external``.
+    """
     ctx = _require_owner_context(request, authorization)
+    agent_type = "builtin" if body.agent_type.strip().lower() == "builtin" else "external"
     agent = agent_service.create_agent(
         name=body.name.strip(),
         model_name=body.model_name.strip() or "local-model",
         owner_user_id=ctx["user_id"],
         owner_browser_session=ctx["browser_session"],
+        agent_type=agent_type,
+        description=(body.description.strip() if body.description else None),
     )
     return {
         "agent": agent_service.agent_with_stats(agent),
@@ -71,6 +81,33 @@ async def list_agents(
         trading_session_id=ctx.get("trading_session"),
     )
     return {"agents": agents}
+
+
+@router.get("/builtin")
+async def list_builtin_agents():
+    """List all platform-hosted (built-in) agents.
+
+    Public and unauthenticated: built-in agents are globally discoverable so
+    integrations like the Discord ``/agent`` command can offer them to anyone.
+    Only non-sensitive, presentational fields are returned (no API keys/owners).
+    """
+    agents = agent_service.list_builtin_agents_with_stats()
+    public = []
+    for agent in agents:
+        latest = agent.get("latest_run") or {}
+        public.append(
+            {
+                "agent_id": agent["agent_id"],
+                "name": agent["name"],
+                "model_name": agent.get("model_name") or "local-model",
+                "description": agent.get("description"),
+                "session_id": agent["session_id"],
+                "run_count": agent.get("run_count", 0),
+                "latest_return": latest.get("total_return"),
+                "latest_sharpe": latest.get("sharpe_ratio"),
+            }
+        )
+    return {"agents": public}
 
 
 @router.post("/claim-account")

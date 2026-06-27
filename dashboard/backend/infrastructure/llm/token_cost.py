@@ -25,6 +25,14 @@ CHARS_PER_TOKEN = 3.8
 # Matched by substring against the run's model name (longest/most specific first).
 # "Local" / rule-based models incur no API cost.
 _PRICING_TABLE: list[Tuple[str, float, float]] = [
+    # CommonStack-verified slugs (provider/model), rates from GET /v1/models on
+    # 2026-06-24. Listed first so the specific slug wins over generic needles.
+    ("openai/gpt-5.5", 5.0, 30.0),
+    ("google/gemini-3.1-pro", 2.0, 12.0),
+    ("anthropic/claude-sonnet-4-6", 3.0, 15.0),
+    ("deepseek/deepseek-v4-pro", 0.435, 0.87),
+    ("qwen/qwen3.7-plus", 0.40, 1.60),
+    ("x-ai/grok-4.20-reasoning", 1.25, 2.50),  # listed but unavailable on our account (no channel)
     ("claude-opus-4", 15.0, 75.0),
     ("claude-sonnet-4", 3.0, 15.0),
     ("claude-haiku-4", 1.0, 5.0),

@@ -12,6 +12,7 @@ const ACTIVE_AGENT_KEY = 'active-agent-id';
 const ACTIVE_AGENT_NAME_KEY = 'active-agent-name';
 const BROWSER_OWNER_KEY = 'browser-owner-id';
 const SELECTED_BACKTEST_RUN_KEY = 'selected-backtest-run-id';
+const DISCORD_SERVER_URL = 'https://discord.gg/9HnQ6XDG98';
 
 function initSession() {
   // Stable browser identity — never changes when switching agents
@@ -142,8 +143,21 @@ function renderAgentsGrid(agents) {
     const totalReturn = latest.total_return;
     const sharpe = latest.sharpe_ratio;
     const isActive = agent.agent_id === activeId;
+    const isBuiltin = agent.agent_type === 'builtin';
     const card = document.createElement('div');
-    card.className = 'section-card agent-card';
+    card.className = `section-card agent-card${isBuiltin ? ' agent-card-builtin' : ''}`;
+
+    const typeBadge = isBuiltin
+      ? '<span class="status-badge builtin">Built-in</span>'
+      : '<span class="agent-discord connected">External agent</span>';
+
+    const discordButton = isBuiltin
+      ? `<a class="agent-action-btn agent-action-discord" href="${DISCORD_SERVER_URL}" target="_blank" rel="noopener noreferrer">Chat on Discord</a>`
+      : '';
+    const apiKeyButton = isBuiltin
+      ? ''
+      : `<button class="agent-action-btn agent-action-secondary agent-rotate-key-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">New API key</button>`;
+
     card.innerHTML = `
       <div class="agent-card-head">
         <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
@@ -151,8 +165,9 @@ function renderAgentsGrid(agents) {
       </div>
       <div class="agent-meta">
         <span>${escapeHtml(agent.model_name || 'local-model')}</span>
-        <span class="agent-discord connected">External agent</span>
+        ${typeBadge}
       </div>
+      ${isBuiltin && agent.description ? `<p class="agent-description">${escapeHtml(agent.description)}</p>` : ''}
       <div class="agent-metrics">
         <div class="agent-metric">
           <span class="metric-label">Return</span>
@@ -170,7 +185,8 @@ function renderAgentsGrid(agents) {
       ${renderAgentRunList(agent)}
       <div class="agent-card-actions">
         <button class="agent-action-btn agent-select-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">View in Playground</button>
-        <button class="agent-action-btn agent-action-secondary agent-rotate-key-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">New API key</button>
+        ${discordButton}
+        ${apiKeyButton}
         <button class="agent-action-btn agent-action-secondary agent-delete-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">Remove</button>
       </div>
     `;
@@ -321,6 +337,57 @@ function openCreateExternalAgentModal() {
 function closeCreateExternalAgentModal() {
   const modal = document.getElementById('createExternalAgentModal');
   if (modal) modal.hidden = true;
+}
+
+function openCreateBuiltinAgentModal() {
+  closeAddAgentModal();
+  const modal = document.getElementById('createBuiltinAgentModal');
+  const errorEl = document.getElementById('createBuiltinAgentError');
+  const form = document.getElementById('createBuiltinAgentForm');
+  if (errorEl) errorEl.hidden = true;
+  if (form) form.reset();
+  if (modal) modal.hidden = false;
+}
+
+function closeCreateBuiltinAgentModal() {
+  const modal = document.getElementById('createBuiltinAgentModal');
+  if (modal) modal.hidden = true;
+}
+
+async function submitCreateBuiltinAgent(event) {
+  event.preventDefault();
+  const nameInput = document.getElementById('builtinAgentName');
+  const modelInput = document.getElementById('builtinAgentModel');
+  const descInput = document.getElementById('builtinAgentDescription');
+  const errorEl = document.getElementById('createBuiltinAgentError');
+  const submitBtn = document.getElementById('createBuiltinAgentSubmit');
+
+  const name = nameInput?.value?.trim();
+  const model_name = modelInput?.value?.trim() || 'anthropic/claude-haiku-4-5';
+  const description = descInput?.value?.trim() || null;
+  if (!name) return;
+
+  if (errorEl) errorEl.hidden = true;
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const data = await API.post(`${API_BASE}/api/v1/agents`, {
+      name,
+      model_name,
+      agent_type: 'builtin',
+      description,
+    });
+    closeCreateBuiltinAgentModal();
+    if (data.agent) applyActiveAgent(data.agent);
+    await loadAgents();
+  } catch (error) {
+    if (errorEl) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
 }
 
 function showAgentCredentials(apiKey, options = {}) {
@@ -2104,6 +2171,10 @@ function initNavigation() {
     document.getElementById('createExternalAgentModalClose')?.addEventListener('click', closeCreateExternalAgentModal);
     document.getElementById('createExternalAgentModalBackdrop')?.addEventListener('click', closeCreateExternalAgentModal);
     document.getElementById('createExternalAgentForm')?.addEventListener('submit', submitCreateExternalAgent);
+    document.getElementById('createBuiltinAgentBtn')?.addEventListener('click', openCreateBuiltinAgentModal);
+    document.getElementById('createBuiltinAgentModalClose')?.addEventListener('click', closeCreateBuiltinAgentModal);
+    document.getElementById('createBuiltinAgentModalBackdrop')?.addEventListener('click', closeCreateBuiltinAgentModal);
+    document.getElementById('createBuiltinAgentForm')?.addEventListener('submit', submitCreateBuiltinAgent);
     document.getElementById('agentCredentialsModalClose')?.addEventListener('click', closeAgentCredentialsModal);
     document.getElementById('agentCredentialsModalBackdrop')?.addEventListener('click', closeAgentCredentialsModal);
 

@@ -89,7 +89,7 @@ class PortfolioManager:
             cash=self.cash,
         )
     
-    def make_trading_decision_with_llm(self, portfolio_state: Dict, llm_client, mode: str = "safe_trading", model: str = None) -> Dict:
+    def make_trading_decision_with_llm(self, portfolio_state: Dict, llm_client, mode: str = "safe_trading", model: str = None, strategy_prompt: str = None) -> Dict:
         """
         Make trading decisions using Claude LLM with technical indicators.
         
@@ -254,7 +254,7 @@ class PortfolioManager:
                         print(f"       {symbol}: price=${signal.get('price', 'MISSING')}")
                 print()
             
-            prompt = create_prompt(market_snapshot, mode=mode)
+            prompt = create_prompt(market_snapshot, mode=mode, custom_prompt=strategy_prompt)
             
             print(f"\n🤖 Calling LLM for trading decision...")
             print(f"   Signals analyzed: {len(market_snapshot['top_signals'])} stocks")

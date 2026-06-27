@@ -72,8 +72,9 @@ def test_domain_modules_do_not_import_api_or_scripts():
 def test_create_agent_schema(store):
     agent = store.create_agent(name="My Agent", model_name="gpt-x", owner_user_id=7)
     assert set(agent.keys()) == {
-        "agent_id", "name", "session_id", "model_name", "api_key_prefix",
-        "owner_user_id", "created_at", "last_used_at", "api_key",
+        "agent_id", "name", "session_id", "model_name", "agent_type",
+        "description", "api_key_prefix", "owner_user_id", "created_at",
+        "last_used_at", "api_key",
     }
     assert agent["name"] == "My Agent"
     assert agent["model_name"] == "gpt-x"

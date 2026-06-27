@@ -20,6 +20,7 @@ EXEMPT_PATHS = {
     '/config/defaults',  # Default configuration (public, no session needed)
     '/compare',  # Public equity comparison (browser-friendly links)
     '/runs',  # Public backtest run listing
+    '/strategy',  # Public strategy viewer page (shared links, no session needed)
 }
 
 EXEMPT_EXTENSIONS = {'.js', '.css', '.png', '.jpg', '.gif', '.svg', '.woff', '.woff2', '.ttf'}

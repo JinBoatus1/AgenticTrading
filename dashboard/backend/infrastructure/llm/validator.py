@@ -611,6 +611,53 @@ Return ONLY valid JSON.
 """
 
 
+# ============================================================================
+# Custom (free-form) strategy prompt
+# ============================================================================
+# A free-form strategy from a caller REPLACES the baked-in SAFE_TRADING_PROMPT
+# strategy body, but every run still needs a fixed scaffold so it keeps working:
+# the execution context (market snapshot + valid-symbol allowlist) and the strict
+# JSON ``actions`` output contract that the backtest parser/validator/executor
+# depend on. We keep that fixed part as its own constant and CONCATENATE it after
+# the user's prompt. Only this fixed scaffold goes through str.format, so any
+# braces in the user's free-form prompt can never break formatting.
+CUSTOM_STRATEGY_OUTPUT_CONTRACT = """
+
+=== EXECUTION CONTRACT (fixed — always obey, even if it conflicts with the strategy above) ===
+Run the strategy above as a DJIA portfolio trading agent on historical hourly data.
+- Use ONLY the provided market_snapshot. No internet, tools, APIs, or code.
+- Trade ONLY symbols listed in VALID SYMBOLS.
+- Only SELL symbols that are currently owned (see current_holdings).
+- position_size must be an integer share count; use 0 for hold.
+- Output at most 10 actions.
+- Return ONLY valid JSON. No markdown, no code fences, no text outside the JSON.
+
+MARKET SNAPSHOT:
+{market_snapshot}
+
+VALID SYMBOLS:
+{valid_symbols}
+
+Return exactly this JSON shape:
+
+{{
+  "actions": [
+    {{
+      "action": "buy|sell|hold",
+      "symbol": "<DJIA symbol>",
+      "confidence": 0.75,
+      "reasoning": "<short reason grounded in the strategy and the snapshot>",
+      "position_size": 1,
+      "stop_loss_price": null,
+      "take_profit_price": null
+    }}
+  ]
+}}
+
+Return ONLY valid JSON.
+"""
+
+
 def create_safe_prompt(market_snapshot: Dict[str, Any]) -> str:
     """Create a safe prompt for LLM trading decision."""
     return SAFE_TRADING_PROMPT.format(
@@ -619,17 +666,44 @@ def create_safe_prompt(market_snapshot: Dict[str, Any]) -> str:
     )
 
 
-def create_prompt(market_snapshot: Dict[str, Any], mode: str = "safe_trading") -> str:
+def create_custom_prompt(market_snapshot: Dict[str, Any], strategy_prompt: str) -> str:
+    """Concatenate a user's free-form strategy with the fixed execution contract.
+
+    The free-form ``strategy_prompt`` is included verbatim and REPLACES the
+    hardcoded SAFE_TRADING_PROMPT strategy body. A fixed scaffold
+    (``CUSTOM_STRATEGY_OUTPUT_CONTRACT``) is appended to pin the market context,
+    the valid-symbol allowlist, and the strict JSON ``actions`` output shape, so
+    downstream parsing/validation/execution are unchanged regardless of what the
+    user wrote. Only the fixed scaffold is formatted, so user braces are safe.
+    """
+    strategy = (strategy_prompt or "").strip()
+    contract = CUSTOM_STRATEGY_OUTPUT_CONTRACT.format(
+        market_snapshot=json.dumps(market_snapshot, indent=2),
+        valid_symbols=", ".join(DJIA_30),
+    )
+    return f"=== USER STRATEGY ===\n{strategy}\n{contract}"
+
+
+def create_prompt(
+    market_snapshot: Dict[str, Any],
+    mode: str = "safe_trading",
+    custom_prompt: str | None = None,
+) -> str:
     """
     Create a prompt for LLM trading decision based on mode.
     
     Args:
         market_snapshot: Market data snapshot
         mode: "safe_trading" or "buy_and_hold"
+        custom_prompt: optional free-form strategy that REPLACES the built-in
+            strategy body for this run (the market snapshot + JSON output
+            contract are still enforced). When set, ``mode`` is ignored.
     
     Returns:
         Formatted prompt string
     """
+    if custom_prompt and custom_prompt.strip():
+        return create_custom_prompt(market_snapshot, custom_prompt)
     if mode == "buy_and_hold":
         return BUY_AND_HOLD_PROMPT.format(
             market_snapshot=json.dumps(market_snapshot, indent=2),

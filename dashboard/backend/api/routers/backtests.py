@@ -13,12 +13,14 @@ registered before ``/api/backtest/{run_id}`` and ``/runs/latest/metrics`` before
 """
 
 import threading
+from io import BytesIO
 from pathlib import Path
 from typing import List, Optional
 
 import pytz
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from dashboard.backend.database import db, DB_PATH
@@ -130,14 +132,22 @@ class ComparisonResponse(BaseModel):
 backtest_status = {"running": False, "error": None, "runs_count": 0}
 backtest_session_id = None  # Track which session owns the running backtest
 
-def run_backtest_background(start_date: str, end_date: str, session_id: str):
+def run_backtest_background(
+    start_date: str,
+    end_date: str,
+    session_id: str,
+    strategy_prompt: Optional[str] = None,
+    model: Optional[str] = None,
+):
     """Run backtest in background thread."""
     global backtest_status, backtest_session_id
-    
+
+    strategy_prompt_path = None
     try:
         import subprocess
         import sys
         import os
+        import tempfile
         
         backtest_status["running"] = True
         backtest_status["error"] = None
@@ -171,13 +181,28 @@ def run_backtest_background(start_date: str, end_date: str, session_id: str):
         else:
             print(f"✅ ANTHROPIC_API_KEY is set, LLM enabled", flush=True)
         
-        print(f"📋 Running: {python_exe} {script_path} --start {start_date} --end {end_date} --session-id {session_id} --use-llm", flush=True)
+        cmd = [
+            python_exe, str(script_path),
+            "--start", start_date, "--end", end_date,
+            "--session-id", session_id,
+            "--use-llm",  # Enable LLM for real agent trading
+        ]
+
+        # Optional free-form strategy prompt: written to a temp file (avoids
+        # shell-escaping a long prompt) and passed via --strategy-prompt-file.
+        if strategy_prompt and strategy_prompt.strip():
+            fd, strategy_prompt_path = tempfile.mkstemp(prefix="strategy_prompt_", suffix=".txt")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(strategy_prompt.strip())
+            cmd += ["--strategy-prompt-file", strategy_prompt_path]
+
+        if model and model.strip():
+            cmd += ["--model", model.strip()]
+
+        print(f"📋 Running: {' '.join(cmd)}", flush=True)
         
         result = subprocess.run(
-            [python_exe, str(script_path),
-             "--start", start_date, "--end", end_date,
-             "--session-id", session_id,
-             "--use-llm"],  # Enable LLM for real agent trading
+            cmd,
             cwd=str(DASHBOARD_DIR),
             capture_output=True,
             text=True,
@@ -209,18 +234,60 @@ def run_backtest_background(start_date: str, end_date: str, session_id: str):
         print(f"❌ Backtest exception: {e}", flush=True)
     finally:
         backtest_status["running"] = False
+        if strategy_prompt_path:
+            try:
+                import os
+                os.remove(strategy_prompt_path)
+            except OSError:
+                pass
         print(f"✋ Backtest background thread finished", flush=True)
 
+class BacktestRunRequest(BaseModel):
+    """Optional JSON body for POST /backtest/run.
+
+    All fields are optional; when present they override the query-param
+    defaults. ``strategy_prompt`` is a free-form strategy that REPLACES the
+    built-in agent prompt for this run, and ``model`` overrides the LLM model id.
+    Long prompts belong in the body (not the query string).
+    """
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    strategy_prompt: Optional[str] = None
+    model: Optional[str] = None
+
+
 @router.post("/backtest/run")
-async def run_backtest_endpoint(request: Request, start_date: str = "2026-04-15", end_date: str = "2026-04-23"):
+async def run_backtest_endpoint(
+    request: Request,
+    start_date: str = "2026-05-01",
+    end_date: str = "2026-05-07",
+    strategy_prompt: Optional[str] = None,
+    model: Optional[str] = None,
+    body: Optional[BacktestRunRequest] = None,
+):
     """
     Trigger backtest in background (non-blocking).
     
     Returns immediately with status. Check /backtest/status to monitor progress.
+
+    Accepts an optional JSON body (preferred for a long ``strategy_prompt``);
+    body fields override the equivalent query params. Backward compatible with
+    callers that pass only ``start_date``/``end_date`` as query params.
     """
+    # Body (when provided) overrides query params.
+    if body is not None:
+        start_date = body.start_date or start_date
+        end_date = body.end_date or end_date
+        strategy_prompt = body.strategy_prompt or strategy_prompt
+        model = body.model or model
+
     session_id = request.state.session_id
     print(f"📌 /backtest/run endpoint called: start_date={start_date}, end_date={end_date}", flush=True)
     print(f"   Session: {session_id[:8]}...", flush=True)
+    if strategy_prompt:
+        print(f"   Custom strategy prompt: {len(strategy_prompt)} chars", flush=True)
+    if model:
+        print(f"   Model override: {model}", flush=True)
     
     if backtest_status["running"]:
         print(f"⚠️ Backtest already running, rejecting request", flush=True)
@@ -233,7 +300,7 @@ async def run_backtest_endpoint(request: Request, start_date: str = "2026-04-15"
     print(f"🧵 Starting background thread for backtest", flush=True)
     thread = threading.Thread(
         target=run_backtest_background,
-        args=(start_date, end_date, session_id),  # Pass session_id
+        args=(start_date, end_date, session_id, strategy_prompt, model),
         daemon=True
     )
     thread.start()
@@ -450,6 +517,110 @@ async def get_equity_curve(run_id: str, request: Request):
             'num_trades': run['num_trades']
         }
     )
+
+
+@router.get("/runs/{run_id}/plot.png", include_in_schema=False)
+async def get_run_plot(run_id: str):
+    """Render an equity-curve comparison PNG (agent vs baselines) for a run.
+
+    Public endpoint: the path ends in ``.png`` so it is exempt from the session
+    middleware. Used by the Discord bot to post a chart after a backtest, and
+    usable directly as an <img> src. Returns the same agent-vs-DJIA-vs-buy&hold
+    comparison the website shows, normalized to percent return.
+    """
+    run = db.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    # Resolve baselines for this run. Prefer the explicit link columns; if they
+    # are unset, find the buy-and-hold / DJIA runs from the same session that
+    # cover the same date window (agent + baselines are written seconds apart,
+    # so a run_id timestamp match is unreliable). Pick the baseline created
+    # closest in time to the agent run.
+    def _parse_created(value: str) -> float:
+        try:
+            return datetime.fromisoformat(value).timestamp()
+        except Exception:
+            return 0.0
+
+    def _find_baseline(agent_name: str) -> Optional[str]:
+        session_id = run.get("session_id")
+        if not session_id:
+            return None
+        anchor = _parse_created(run.get("created_at") or "")
+        candidates = [
+            r for r in db.get_runs_by_session(session_id)
+            if r.get("agent_name") == agent_name
+            and r.get("start_date") == run.get("start_date")
+            and r.get("end_date") == run.get("end_date")
+            and r.get("mode") == run.get("mode")
+        ]
+        if not candidates:
+            return None
+        closest = min(candidates, key=lambda r: abs(_parse_created(r.get("created_at") or "") - anchor))
+        return closest.get("run_id")
+
+    buyhold_id = run.get("baseline_buyhold_run_id") or _find_baseline("buy-and-hold")
+    djia_id = run.get("baseline_djia_run_id") or _find_baseline("DJIA")
+
+    plan = [(run.get("agent_name") or "Agent", run_id, "#0ea5e9")]
+    if buyhold_id:
+        plan.append(("Buy & Hold", buyhold_id, "#f59e0b"))
+    if djia_id:
+        plan.append(("DJIA", djia_id, "#9aa7b8"))
+
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib.figure import Figure
+    import matplotlib.dates as mdates
+    import matplotlib.ticker as mticker
+
+    fig = Figure(figsize=(9.0, 4.8), dpi=130)
+    fig.patch.set_facecolor("#0b0f17")
+    ax = fig.add_subplot(111)
+    ax.set_facecolor("#0c121c")
+
+    plotted = 0
+    for label, rid, color in plan:
+        curve = filter_market_hours(db.get_equity_curve(rid))
+        if not curve:
+            continue
+        xs, ys = [], []
+        for point in curve:
+            try:
+                ts = datetime.fromisoformat(point["timestamp"].replace("Z", "+00:00"))
+            except Exception:
+                continue
+            xs.append(ts)
+            ys.append(point["equity"])
+        if xs:
+            ax.plot(xs, ys, label=label, color=color, linewidth=1.9)
+            plotted += 1
+
+    if plotted == 0:
+        raise HTTPException(status_code=404, detail="No equity data to plot for this run")
+
+    ax.set_title(
+        f"{run.get('agent_name') or 'Agent'}  ·  "
+        f"{run.get('start_date', '?')} → {run.get('end_date', '?')}",
+        color="#e6edf6", fontsize=12,
+    )
+    ax.set_ylabel("Portfolio value ($)", color="#8aa0b8", fontsize=10)
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
+    ax.tick_params(colors="#8aa0b8", labelsize=8)
+    for spine in ax.spines.values():
+        spine.set_color("#1f2a3a")
+    ax.grid(True, color="#16202e", linewidth=0.6)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
+    fig.autofmt_xdate(rotation=30)
+    legend = ax.legend(loc="best", fontsize=9, facecolor="#131a26", edgecolor="#1f2a3a")
+    for text in legend.get_texts():
+        text.set_color("#e6edf6")
+
+    buf = BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", facecolor=fig.get_facecolor())
+    buf.seek(0)
+    return Response(content=buf.getvalue(), media_type="image/png")
 
 
 @router.get("/compare", response_model=ComparisonResponse)

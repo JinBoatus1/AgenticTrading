@@ -13,7 +13,6 @@ web request. It records token usage / cost so cost can be shown per run.
 
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -22,9 +21,9 @@ from dashboard.backend.infrastructure.llm.validator import DJIA_30
 from dashboard.backend.domain.backtesting.features import TechnicalIndicators
 from dashboard.backend.domain.backtesting.portfolio_manager import PortfolioManager
 from dashboard.backend.infrastructure.llm.backtest_harness import (
-    Anthropic,
     HAS_ANTHROPIC,
     LLM_MODEL_NAME,
+    make_llm_client,
 )
 
 from .base import BaselineStrategy
@@ -53,15 +52,13 @@ class LLMAgentStrategy(BaselineStrategy):
         if not HAS_ANTHROPIC:
             print("⚠️  Anthropic SDK unavailable — llm_agent falls back to rule-based.")
             return None
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            print("⚠️  ANTHROPIC_API_KEY not set — llm_agent falls back to rule-based.")
-            return None
-        try:
-            return Anthropic(api_key=api_key)
-        except Exception as exc:  # pragma: no cover - defensive
-            print(f"⚠️  Failed to init Anthropic client: {exc}")
-            return None
+        client = make_llm_client()
+        if client is None:
+            print(
+                "⚠️  No LLM key (COMMONSTACK_API_KEY / ANTHROPIC_API_KEY) — "
+                "llm_agent falls back to rule-based."
+            )
+        return client
 
     def run(
         self,

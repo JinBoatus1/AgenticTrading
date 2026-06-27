@@ -49,6 +49,76 @@ def test_create_and_list_agents(client):
     assert agents[0]["agent_id"] == body["agent"]["agent_id"]
 
 
+def test_create_builtin_agent_and_public_listing(client):
+    browser_session = str(uuid.uuid4())
+    headers = {"X-Session-Id": browser_session}
+
+    created = client.post(
+        "/api/v1/agents",
+        json={
+            "name": "Momentum Alpha",
+            "model_name": "anthropic/claude-haiku-4-5",
+            "agent_type": "builtin",
+            "description": "Trend-following hosted agent",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200
+    agent = created.json()["agent"]
+    assert agent["agent_type"] == "builtin"
+    assert agent["description"] == "Trend-following hosted agent"
+
+    # The public builtin listing requires no auth/session and exposes the agent.
+    listing = client.get("/api/v1/agents/builtin")
+    assert listing.status_code == 200
+    builtin = listing.json()["agents"]
+    assert any(a["agent_id"] == agent["agent_id"] for a in builtin)
+    entry = next(a for a in builtin if a["agent_id"] == agent["agent_id"])
+    assert entry["model_name"] == "anthropic/claude-haiku-4-5"
+    assert "api_key" not in entry and "owner_user_id" not in entry
+
+
+def test_builtin_agent_card_counts_website_runs(client):
+    """Built-in agents surface all session runs, not only ext_ ones."""
+    browser_session = str(uuid.uuid4())
+    headers = {"X-Session-Id": browser_session}
+
+    created = client.post(
+        "/api/v1/agents",
+        json={"name": "WebBot", "agent_type": "builtin"},
+        headers=headers,
+    ).json()["agent"]
+
+    import dashboard.backend.database as db_module
+
+    db_module.db.insert_run(
+        run_id="run_website_1",  # NOT an ext_ run — produced by /backtest/run.
+        session_id=created["session_id"],
+        agent_name="WebBot",
+        mode="backtest",
+        start_date="2026-04-15",
+        end_date="2026-04-16",
+        initial_equity=100000,
+        final_equity=102000,
+        total_return=0.02,
+        sharpe_ratio=0.8,
+        max_drawdown=-0.01,
+        num_trades=4,
+        llm_model="anthropic/claude-haiku-4-5",
+    )
+
+    # The frontend scopes itself to the active agent's trading session, so fetch
+    # the card using that session id (matching real usage).
+    active_headers = {"X-Session-Id": created["session_id"]}
+    fetched = client.get(
+        f"/api/v1/agents/{created['agent_id']}", headers=active_headers
+    )
+    assert fetched.status_code == 200
+    enriched = fetched.json()["agent"]
+    assert enriched["run_count"] == 1
+    assert enriched["latest_run"]["run_id"] == "run_website_1"
+
+
 def test_resolve_api_key(client):
     browser_session = str(uuid.uuid4())
     headers = {"X-Session-Id": browser_session}
