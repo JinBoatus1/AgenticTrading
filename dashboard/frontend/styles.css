@@ -125,7 +125,7 @@ body {
     background-color: var(--info-color);
     padding: 2px 5px;
     border-radius: 2px;
-    text-transform: uppercase;
+    text-transform: none;
     letter-spacing: 0.4px;
 }
 
@@ -152,7 +152,7 @@ body {
 .info-label {
     color: var(--text-secondary);
     font-weight: 600;
-    text-transform: uppercase;
+    text-transform: none;
     letter-spacing: 0.3px;
 }
 
@@ -659,7 +659,7 @@ body {
     font-size: 12px;
     font-weight: 700;
     color: var(--text-primary);
-    text-transform: uppercase;
+    text-transform: none;
     letter-spacing: 0.4px;
     margin-bottom: 12px;
     border-bottom: 1px solid var(--border-color);
@@ -679,7 +679,7 @@ body {
     font-size: 11px;
     font-weight: 700;
     color: var(--text-secondary);
-    text-transform: uppercase;
+    text-transform: none;
     margin-bottom: 5px;
     letter-spacing: 0.3px;
 }
@@ -1226,7 +1226,7 @@ body {
 .info-row .info-label {
     color: var(--text-secondary);
     font-weight: 700;
-    text-transform: uppercase;
+    text-transform: none;
 }
 
 .info-row .info-value {
@@ -1271,7 +1271,7 @@ body {
     font-size: 12px;
     font-weight: 700;
     color: var(--text-primary);
-    text-transform: uppercase;
+    text-transform: none;
     letter-spacing: 0.4px;
     margin-bottom: 8px;
     border-bottom: 1px solid var(--border-color);
@@ -1282,7 +1282,7 @@ body {
     font-size: 12px;
     font-weight: 700;
     color: var(--text-primary);
-    text-transform: uppercase;
+    text-transform: none;
     letter-spacing: 0.4px;
     margin-bottom: 8px;
 }
@@ -1334,7 +1334,7 @@ body {
     font-weight: 700;
     cursor: pointer;
     transition: all 0.15s;
-    text-transform: uppercase;
+    text-transform: none;
     letter-spacing: 0.2px;
 }
 
@@ -1371,7 +1371,7 @@ body {
 .pnl-label {
     font-size: 11px;
     color: var(--text-secondary);
-    text-transform: uppercase;
+    text-transform: none;
     font-weight: 700;
     letter-spacing: 0.2px;
 }
@@ -1498,7 +1498,7 @@ body {
     text-align: left;
     color: var(--text-secondary);
     font-weight: 700;
-    text-transform: uppercase;
+    text-transform: none;
     letter-spacing: 0.2px;
 }
 
@@ -1538,7 +1538,7 @@ body {
     font-weight: 700;
     cursor: pointer;
     transition: all 0.15s;
-    text-transform: uppercase;
+    text-transform: none;
 }
 
 .view-all-btn:hover {
@@ -1596,7 +1596,7 @@ body {
     cursor: pointer;
     transition: all 0.15s;
     margin-top: 8px;
-    text-transform: uppercase;
+    text-transform: none;
 }
 
 .view-more-btn:hover {
@@ -1647,7 +1647,7 @@ body {
     cursor: pointer;
     transition: all 0.15s;
     margin-top: 6px;
-    text-transform: uppercase;
+    text-transform: none;
 }
 
 .view-details-btn:hover {
@@ -1882,7 +1882,7 @@ body {
     cursor: pointer;
     transition: all 0.15s;
     margin-bottom: 5px;
-    text-transform: uppercase;
+    text-transform: none;
 }
 
 .scenario-btn:last-child {
@@ -2078,7 +2078,7 @@ body {
 .paper-card h3 {
     font-size: 12px;
     font-weight: 700;
-    text-transform: uppercase;
+    text-transform: none;
     color: var(--text-primary);
     letter-spacing: 0.4px;
     margin-bottom: 8px;
@@ -2395,7 +2395,7 @@ body {
     font-size: 11px;
     font-weight: 600;
     color: var(--text-secondary);
-    text-transform: uppercase;
+    text-transform: none;
     letter-spacing: 0.5px;
 }
 
@@ -2781,7 +2781,7 @@ body {
     text-align: left;
     font-weight: 600;
     color: var(--text-secondary);
-    text-transform: uppercase;
+    text-transform: none;
     font-size: 11px;
     letter-spacing: 0.5px;
     white-space: nowrap;
@@ -2890,7 +2890,7 @@ body {
     border-radius: 3px;
     font-size: 11px;
     font-weight: 600;
-    text-transform: uppercase;
+    text-transform: none;
 }
 
 .status-badge.live {
@@ -3884,7 +3884,7 @@ body {
 
 .home-section-title {
     margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
-    text-transform: uppercase; color: rgba(148,163,184,0.85);
+    text-transform: none; color: rgba(148,163,184,0.85);
 }
 
 .home-link-btn {
@@ -3924,7 +3924,7 @@ body {
     gap: 24px; align-items: stretch;
 }
 .home-hero-left { display: flex; flex-direction: column; min-width: 0; position: relative; min-height: 340px; padding-bottom: 8px; }
-.home-eyebrow { margin: 0 0 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--home-accent-cyan); }
+.home-eyebrow { margin: 0 0 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: none; color: var(--home-accent-cyan); }
 .home-headline {
     margin: 0 0 12px; font-size: clamp(40px, 3.2vw, 58px); font-weight: 800;
     line-height: 0.98; letter-spacing: -0.04em; text-wrap: balance; color: var(--text-primary);
@@ -3994,7 +3994,7 @@ body {
 }
 .home-spotlight--flash { border-color: rgba(34,211,238,0.35); box-shadow: 0 0 0 1px rgba(34,211,238,0.15), 0 0 24px rgba(34,211,238,0.12); }
 .home-spotlight-header { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--home-border-subtle); }
-.home-spotlight-title { margin: 0; flex: 1; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.home-spotlight-title { margin: 0; flex: 1; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: none; }
 .home-spotlight-agent { display: flex; gap: 12px; align-items: flex-start; }
 .home-spotlight-agent-row { display: flex; align-items: center; gap: 6px; }
 .home-spotlight-agent-name { font-size: 17px; font-weight: 700; color: var(--text-primary); }
@@ -4007,7 +4007,7 @@ body {
 .home-spotlight-stat { padding: 0 10px; min-width: 0; }
 .home-spotlight-stat:not(:last-child) { border-right: 1px solid var(--home-border-subtle); }
 .home-spotlight-stat:first-child { padding-left: 0; }
-.home-spotlight-stat-label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; }
+.home-spotlight-stat-label { display: block; font-size: 10px; text-transform: none; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; }
 .home-spotlight-stat-value { font-size: 15px; font-weight: 700; color: var(--text-primary); }
 .home-spotlight-stat-value.positive { color: var(--home-positive-green); }
 .home-spotlight-rank-context { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
@@ -4023,7 +4023,7 @@ body {
     transition: background 0.25s ease, box-shadow 0.25s ease;
 }
 .home-spotlight-action-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.home-spotlight-action-label, .home-spotlight-footer-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.home-spotlight-action-label, .home-spotlight-footer-label { font-size: 10px; text-transform: none; letter-spacing: 0.05em; color: var(--text-muted); }
 .home-spotlight-action-time { font-size: 11px; color: var(--text-muted); }
 .home-spotlight-action-main { margin: 0; font-size: 15px; font-weight: 700; color: var(--text-primary); }
 .home-highlight-positive { color: var(--home-positive-green); font-weight: 700; }
@@ -4099,7 +4099,7 @@ body {
 .home-leaderboard { width: 100%; border-collapse: collapse; font-size: 12px; }
 .home-leaderboard th {
     text-align: left; font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
-    text-transform: uppercase; color: var(--text-muted); padding: 0 6px 8px; border-bottom: 1px solid var(--home-border-subtle);
+    text-transform: none; color: var(--text-muted); padding: 0 6px 8px; border-bottom: 1px solid var(--home-border-subtle);
 }
 .home-leaderboard td { padding: 8px 6px; border-bottom: 1px solid var(--home-border-subtle); color: var(--text-primary); white-space: nowrap; }
 .home-leaderboard tbody tr:last-child td { border-bottom: none; }
@@ -4239,7 +4239,7 @@ body {
 .home-live-toast-close .ui-icon { width: 14px; height: 14px; }
 .home-live-toast-close:hover { color: var(--text-primary); background: rgba(148,163,184,0.14); }
 .home-live-toast-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding-right: 28px; }
-.home-live-toast-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--home-accent-cyan); line-height: 1.3; }
+.home-live-toast-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: none; color: var(--home-accent-cyan); line-height: 1.3; }
 .home-live-toast-body { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
 .home-live-toast-icon {
     width: 30px;

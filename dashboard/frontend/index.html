@@ -57,8 +57,9 @@
             <button id="navMenuToggle" class="nav-menu-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
             <nav id="primaryNav" class="mode-toggle primary-nav" aria-label="Primary">
                 <button class="mode-btn active" data-mode="home">Home</button>
-                <button class="mode-btn" data-mode="playground">Playground</button>
+                <button class="mode-btn" data-mode="playground">My Agents</button>
                 <button class="mode-btn" data-mode="competition">Competition</button>
+                <button class="mode-btn" data-mode="community">Community</button>
             </nav>
             <a id="openDiscordBtn" class="discord-nav-btn" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
             <div id="authControls" class="auth-controls">
@@ -121,7 +122,6 @@
                     <div class="home-hero-bg" aria-hidden="true"></div>
                     <div class="home-hero-grid">
                         <div class="home-hero-left">
-                            <p class="home-eyebrow">Agentic Trading Playground</p>
                             <h2 class="home-headline">Talk to agents. Earn money.</h2>
                             <p class="home-description">Connect your financial agent, interact through Discord, and review its decisions, trades, and performance in the lab.</p>
                             <div class="home-actions">
@@ -608,7 +608,6 @@
             <div class="page-header">
                 <div>
                     <h2 class="page-title">My Agents</h2>
-                    <p class="page-description">Manage the agents connected to Agentic Trading Lab.</p>
                 </div>
                 <button id="addAgentBtn" class="home-btn home-btn-primary" type="button">Add Agent</button>
             </div>
@@ -623,7 +622,7 @@
         <aside class="left-panel">
             <!-- Backtest Setup Section -->
             <section class="control-section">
-                <h3 class="control-title">BACKTEST SETUP</h3>
+                <h3 class="control-title">Backtest Setup</h3>
                 
                 <div class="control-group">
                     <label>Period</label>
@@ -710,7 +709,7 @@
             <section class="control-section">
                 <button class="collapsible-header" id="advancedToggle">
                     <span class="toggle-icon">▶</span>
-                    <h3 class="control-title" style="display: inline; margin: 0;">ADVANCED SETTINGS</h3>
+                    <h3 class="control-title" style="display: inline; margin: 0;">Advanced Settings</h3>
                 </button>
                 
                 <div class="collapsible-content" id="advancedContent" style="display: none;">
@@ -798,7 +797,7 @@
             <div class="section-card">
                 <div class="section-header">
                     <div class="section-title-group">
-                        <h2>TRADING PERFORMANCE</h2>
+                        <h2>Trading Performance</h2>
                     </div>
                     <div class="chart-controls">
                         <select id="backtestRunSelect" class="filter-select backtest-run-select" aria-label="Select backtest run" hidden>
@@ -822,7 +821,7 @@
             <!-- Trading Log Section -->
             <div class="section-card">
                 <div class="section-header">
-                    <h2>TRADING LOG</h2>
+                    <h2>Trading Log</h2>
                     <div class="log-controls">
                         <select class="filter-select">
                             <option>All Trades</option>
@@ -888,7 +887,7 @@
         <aside class="right-panel">
             <!-- Trading Performance Summary -->
             <div class="section-card compact">
-                <h3 class="section-title">TRADING PERFORMANCE SUMMARY</h3>
+                <h3 class="section-title">Trading Performance Summary</h3>
                 
                 <div class="metric-row">
                     <span class="metric-label">Final Value</span>
@@ -912,7 +911,7 @@
 
             <!-- Performance Drivers -->
             <div class="section-card compact">
-                <h3 class="section-title">PERFORMANCE DRIVERS</h3>
+                <h3 class="section-title">Performance Drivers</h3>
                 
                 <div class="driver-item positive">
                     <span class="driver-icon">▲</span>
@@ -940,7 +939,7 @@
             <!-- Left Panel: Account Summary -->
             <aside class="paper-left-panel">
                 <div class="paper-card">
-                    <h3>ACCOUNT SUMMARY</h3>
+                    <h3>Account Summary</h3>
                     <div class="paper-metric">
                         <span class="paper-label">Portfolio Value</span>
                         <span class="paper-value" id="portfolioValue">--</span>
@@ -961,7 +960,7 @@
                 </div>
 
                 <div class="paper-card">
-                    <h3>OPEN POSITIONS</h3>
+                    <h3>Open Positions</h3>
                     <div id="positionsList" class="positions-list">
                         <div class="loading">Loading positions...</div>
                     </div>
@@ -971,7 +970,7 @@
             <!-- Center Panel: Equity Curve -->
             <section class="paper-center-panel">
                 <div class="paper-card">
-                    <h3>PORTFOLIO VALUE</h3>
+                    <h3>Portfolio Value</h3>
                     <div class="chart-container">
                         <canvas id="paperEquityChart"></canvas>
                     </div>
@@ -981,7 +980,7 @@
             <!-- Right Panel: Recent Trades -->
             <aside class="paper-right-panel">
                 <div class="paper-card">
-                    <h3>RECENT TRADES</h3>
+                    <h3>Recent Trades</h3>
                     <div id="tradesList" class="trades-list">
                         <div class="loading">Loading trades...</div>
                     </div>
@@ -1128,11 +1127,11 @@
         <div id="competitionAboutPanel" class="competition-panel" style="display: none;">
             <div class="about-grid">
                 <div class="section-card">
-                    <h3 class="section-title">COMPETITION OVERVIEW</h3>
+                    <h3 class="section-title">Competition Overview</h3>
                     <p class="about-text">SecureFinAI Contest 2026 is a live-market paper trading competition where teams deploy LLM-powered trading agents and compete on standardized performance metrics.</p>
                 </div>
                 <div class="section-card compact">
-                    <h3 class="section-title">SCHEDULE</h3>
+                    <h3 class="section-title">Schedule</h3>
                     <div class="metric-row">
                         <span class="metric-label">Registration</span>
                         <span class="metric-value">Aug 1 – Aug 31</span>
@@ -1147,7 +1146,7 @@
                     </div>
                 </div>
                 <div class="section-card compact">
-                    <h3 class="section-title">RULES</h3>
+                    <h3 class="section-title">Rules</h3>
                     <ul class="about-list">
                         <li>Paper trading only — no real capital at risk</li>
                         <li>Agents must trade within the assigned asset universe</li>
@@ -1156,7 +1155,7 @@
                     </ul>
                 </div>
                 <div class="section-card compact">
-                    <h3 class="section-title">EVALUATION METRICS</h3>
+                    <h3 class="section-title">Evaluation Metrics</h3>
                     <ul class="about-list">
                         <li>Cumulative return (rCR)</li>
                         <li>Sharpe ratio (rSR)</li>
@@ -1290,6 +1289,15 @@
                         </div>
                     </div>
                 </aside>
+            </div>
+        </div>
+    </div>
+
+    <!-- Community -->
+    <div id="communityView" class="page-view community-view" style="display: none;">
+        <div class="page-header">
+            <div>
+                <h2 class="page-title">Community</h2>
             </div>
         </div>
     </div>

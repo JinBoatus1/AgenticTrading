@@ -2043,6 +2043,7 @@ function navigateToPage(page, options = {}) {
     const homeView = document.getElementById('homeView');
     const playgroundView = document.getElementById('playgroundView');
     const competitionView = document.getElementById('competitionView');
+    const communityView = document.getElementById('communityView');
     const backtestPanel = document.querySelector('.main-container');
     const paperView = document.getElementById('paperTradingView');
     const myAlgoView = document.getElementById('myTradingAlgoView');
@@ -2055,6 +2056,7 @@ function navigateToPage(page, options = {}) {
     hide(homeView);
     hide(playgroundView);
     hide(competitionView);
+    hide(communityView);
     hide(backtestPanel);
     hide(paperView);
     hide(myAlgoView);
@@ -2075,6 +2077,8 @@ function navigateToPage(page, options = {}) {
         } else if (page === 'competition') {
             if (competitionView) competitionView.style.display = 'block';
             showCompetitionPanel(competitionTab);
+        } else if (page === 'community') {
+            if (communityView) communityView.style.display = 'block';
         }
     }
 
