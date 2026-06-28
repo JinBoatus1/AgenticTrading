@@ -4468,6 +4468,360 @@ body {
     line-height: 1.4;
 }
 
+/* ===========================================================================
+   My Portfolio — summary cards + allocation donut charts (My Agents page)
+   =========================================================================== */
+.portfolio-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.portfolio-summary-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.portfolio-summary-card:hover {
+    border-color: rgba(34, 211, 238, 0.35);
+    box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.08);
+}
+
+.portfolio-summary-icon {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 9px;
+    background: rgba(34, 211, 238, 0.1);
+    border: 1px solid rgba(34, 211, 238, 0.22);
+    color: var(--home-accent-cyan);
+}
+
+.portfolio-summary-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.portfolio-summary-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.portfolio-summary-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.portfolio-summary-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    line-height: 1.1;
+}
+
+.portfolio-summary-value.is-positive { color: var(--success-color); }
+.portfolio-summary-value.is-negative { color: var(--danger-color); }
+
+.portfolio-summary-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.portfolio-summary-sub.is-positive { color: var(--success-color); }
+.portfolio-summary-sub.is-negative { color: var(--danger-color); }
+.portfolio-summary-sub.is-muted { color: var(--text-muted); }
+
+/* Allocation charts */
+.allocation-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.allocation-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    border-radius: 10px;
+}
+
+.allocation-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.allocation-body {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.allocation-chart-wrap {
+    position: relative;
+    flex-shrink: 0;
+    width: 130px;
+    height: 130px;
+}
+
+.allocation-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    text-align: center;
+}
+
+.allocation-center-value {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+}
+
+.allocation-center-label {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.allocation-legend {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.allocation-legend-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.allocation-legend-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.allocation-legend-dot {
+    flex-shrink: 0;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+}
+
+.allocation-legend-pct {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.allocation-legend-value {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.allocation-legend-total {
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+    font-weight: 700;
+}
+
+.allocation-legend-total .allocation-legend-name,
+.allocation-legend-total .allocation-legend-pct,
+.allocation-legend-total .allocation-legend-value {
+    color: var(--text-primary);
+}
+
+/* My Agents section header + toolbar */
+.agents-section {
+    margin-top: 4px;
+}
+
+.agents-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.agents-section-head .page-title {
+    margin: 0;
+}
+
+.agent-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.agent-toolbar-select {
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.agent-toolbar-select:focus {
+    outline: none;
+    border-color: var(--info-color);
+}
+
+.agent-toolbar-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.agent-toolbar-search-icon {
+    position: absolute;
+    left: 10px;
+    width: 14px;
+    height: 14px;
+    color: var(--text-muted);
+    pointer-events: none;
+}
+
+.agent-toolbar-search input {
+    padding: 8px 12px 8px 30px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 12px;
+    width: 200px;
+}
+
+.agent-toolbar-search input::placeholder { color: var(--text-muted); }
+
+.agent-toolbar-search input:focus {
+    outline: none;
+    border-color: var(--info-color);
+}
+
+.agent-view-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.agent-view-btn {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    background: var(--bg-input);
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.agent-view-btn + .agent-view-btn {
+    border-left: 1px solid var(--border-color);
+}
+
+.agent-view-btn svg { width: 16px; height: 16px; }
+
+.agent-view-btn:hover { color: var(--text-secondary); }
+
+.agent-view-btn.active {
+    background: rgba(34, 211, 238, 0.14);
+    color: var(--home-accent-cyan);
+}
+
+/* Compact agent cards + denser grid (4–5 per row on desktop) */
+.agents-grid {
+    grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+}
+
+.agent-card--compact {
+    gap: 8px;
+    padding: 12px;
+}
+
+.agent-card--compact .agent-name {
+    font-size: 14px;
+}
+
+.agent-card--compact .agent-metric {
+    padding: 6px 8px;
+}
+
+.agent-card--compact .agent-card-actions {
+    gap: 5px;
+}
+
+.agent-card--compact .agent-action-btn {
+    padding: 5px 8px;
+    font-size: 10px;
+}
+
+/* List view — one full-width card per row */
+.agents-grid--list {
+    grid-template-columns: 1fr;
+}
+
+.agents-grid--list .agent-card--compact .agent-metrics {
+    max-width: 320px;
+}
+
+.agents-grid--list .agent-card--compact .agent-card-actions {
+    justify-content: flex-start;
+}
+
+/* Responsive */
+@media (max-width: 1100px) {
+    .portfolio-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .allocation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+    .portfolio-summary-grid { grid-template-columns: 1fr; }
+    .allocation-grid { grid-template-columns: 1fr; }
+    .agents-section-head { align-items: flex-start; }
+    .agent-toolbar-search input { width: 100%; }
+}
+
 .add-agent-options {
     display: grid;
     gap: 10px;

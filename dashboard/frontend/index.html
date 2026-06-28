@@ -605,14 +605,80 @@
             <a class="discord-nav-btn discord-nav-btn-sm" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
         </div>
         <div id="playgroundAgentsPanel" class="playground-panel">
+            <!-- My Portfolio -->
             <div class="page-header">
                 <div>
-                    <h2 class="page-title">My Agents</h2>
+                    <h2 class="page-title">My Portfolio</h2>
                 </div>
                 <button id="addAgentBtn" class="home-btn home-btn-primary" type="button">Add Agent</button>
             </div>
-            <div id="agentsGrid" class="agents-grid"></div>
-            <p id="agentsEmptyState" class="control-helper" hidden>No agents yet. Run a backtest with the CLI, or click <strong>Add Agent</strong> to register one.</p>
+
+            <!-- Summary cards (populated by portfolio.js from mock data) -->
+            <div id="portfolioSummaryGrid" class="portfolio-summary-grid"></div>
+
+            <!-- Allocation donut charts -->
+            <div class="allocation-grid">
+                <section class="section-card allocation-card">
+                    <h3 class="allocation-title">Asset Allocation</h3>
+                    <div class="allocation-body">
+                        <div class="allocation-chart-wrap">
+                            <canvas id="assetAllocationChart"></canvas>
+                            <div class="allocation-center" id="assetAllocationCenter"></div>
+                        </div>
+                        <ul class="allocation-legend" id="assetAllocationLegend"></ul>
+                    </div>
+                </section>
+                <section class="section-card allocation-card">
+                    <h3 class="allocation-title">Stock Allocation</h3>
+                    <div class="allocation-body">
+                        <div class="allocation-chart-wrap">
+                            <canvas id="stockAllocationChart"></canvas>
+                            <div class="allocation-center" id="stockAllocationCenter"></div>
+                        </div>
+                        <ul class="allocation-legend" id="stockAllocationLegend"></ul>
+                    </div>
+                </section>
+                <section class="section-card allocation-card">
+                    <h3 class="allocation-title">Crypto Allocation</h3>
+                    <div class="allocation-body">
+                        <div class="allocation-chart-wrap">
+                            <canvas id="cryptoAllocationChart"></canvas>
+                            <div class="allocation-center" id="cryptoAllocationCenter"></div>
+                        </div>
+                        <ul class="allocation-legend" id="cryptoAllocationLegend"></ul>
+                    </div>
+                </section>
+            </div>
+
+            <!-- My Agents -->
+            <div class="agents-section">
+                <div class="agents-section-head">
+                    <h2 class="page-title">My Agents</h2>
+                    <div class="agent-toolbar">
+                        <select id="agentFilterSelect" class="agent-toolbar-select" aria-label="Filter agents">
+                            <option value="all">All Agents</option>
+                            <option value="builtin">Built-in</option>
+                            <option value="external">External</option>
+                            <option value="active">Active</option>
+                            <option value="registered">Registered</option>
+                        </select>
+                        <div class="agent-toolbar-search">
+                            <svg class="agent-toolbar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                            <input id="agentSearchInput" type="search" placeholder="Search agents..." aria-label="Search agents">
+                        </div>
+                        <div class="agent-view-toggle" role="group" aria-label="View mode">
+                            <button id="agentViewGrid" class="agent-view-btn active" type="button" aria-label="Grid view" title="Grid view">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                            </button>
+                            <button id="agentViewList" class="agent-view-btn" type="button" aria-label="List view" title="List view">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="agentsGrid" class="agents-grid"></div>
+                <p id="agentsEmptyState" class="control-helper" hidden>No agents yet. Run a backtest with the CLI, or click <strong>Add Agent</strong> to register one.</p>
+            </div>
         </div>
     </div>
 
@@ -1307,6 +1373,7 @@
     <script src="market-events/marketEventRelativeTime.js"></script>
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
+    <script src="js/portfolio.js?v=1"></script>
     <script src="app.js?v=7"></script>
     <script src="js/leaderboard.js?v=11"></script>
     <script src="home-page.js"></script>

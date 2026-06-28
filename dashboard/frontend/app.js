@@ -124,6 +124,106 @@ function formatTokenCount(value) {
   return String(num);
 }
 
+// ============================================================================
+// Local mock agents — fallback used when the backend returns no agents (or is
+// unavailable). Lets the redesigned My Agents page render without a backend.
+// TODO: Replace mock agent data with backend API data later.
+// ============================================================================
+const MOCK_AGENTS = [
+  {
+    agent_id: 'mock-test-agent-2', name: 'test agent 2', agent_type: 'builtin',
+    model_name: 'anthropic/claude-haiku-4-5', run_count: 1,
+    latest_run: { total_return: 0.065, sharpe_ratio: 2.67 },
+    total_input_tokens: 41000, total_output_tokens: 21500, total_est_cost_usd: 0.085, runs: [],
+  },
+  {
+    agent_id: 'mock-test-agent', name: 'test agent', agent_type: 'builtin', is_active: true,
+    model_name: 'anthropic/claude-haiku-4-5', run_count: 1,
+    latest_run: { total_return: -0.004, sharpe_ratio: -16.84 },
+    total_input_tokens: 30000, total_output_tokens: 17500, total_est_cost_usd: 0.064, runs: [],
+  },
+  {
+    agent_id: 'mock-test', name: 'test', agent_type: 'external',
+    model_name: 'local-model', run_count: 0,
+    latest_run: {}, total_input_tokens: 0, total_output_tokens: 0, runs: [],
+  },
+  {
+    agent_id: 'mock-sdk-1', name: 'sdk-selftest-agent', agent_type: 'external',
+    model_name: 'rule-based', run_count: 1,
+    latest_run: { total_return: 0.02, sharpe_ratio: 4.25 },
+    total_input_tokens: 44800, total_output_tokens: 20000, total_est_cost_usd: 0.0, runs: [],
+  },
+  {
+    agent_id: 'mock-sdk-2', name: 'sdk-selftest-agent', agent_type: 'external',
+    model_name: 'rule-based', run_count: 1,
+    latest_run: { total_return: 0.022, sharpe_ratio: 8.89 },
+    total_input_tokens: 28400, total_output_tokens: 0, total_est_cost_usd: 0.0, runs: [],
+  },
+  {
+    agent_id: 'mock-sdk-3', name: 'sdk-selftest-agent', agent_type: 'external',
+    model_name: 'rule-based', run_count: 1,
+    latest_run: { total_return: 0.022, sharpe_ratio: 8.89 },
+    total_input_tokens: 21000, total_output_tokens: 0, total_est_cost_usd: 0.0, runs: [],
+  },
+  {
+    agent_id: 'mock-sdk-4', name: 'sdk-selftest-agent', agent_type: 'external',
+    model_name: 'rule-based', run_count: 1,
+    latest_run: { total_return: 0.012, sharpe_ratio: 8.89 },
+    total_input_tokens: 28400, total_output_tokens: 0, total_est_cost_usd: 0.0, runs: [],
+  },
+  {
+    agent_id: 'mock-protocol-demo', name: 'protocol-demo', agent_type: 'external',
+    model_name: 'rule-based-demo', run_count: 2,
+    latest_run: { total_return: 0.06, sharpe_ratio: 7.38 },
+    total_input_tokens: 0, total_output_tokens: 0, total_est_cost_usd: 0.0, runs: [],
+  },
+  {
+    agent_id: 'mock-test-2', name: 'test', agent_type: 'external',
+    model_name: 'local-model', run_count: 1,
+    latest_run: { total_return: 0.081, sharpe_ratio: 25.66 },
+    total_input_tokens: 7400, total_output_tokens: 0, total_est_cost_usd: 0.0, runs: [],
+  },
+];
+
+// Holds the most recently loaded agents so the toolbar can re-filter without refetching.
+let allAgents = [];
+let agentViewMode = 'grid';
+
+function applyAgentFilters() {
+  const filter = document.getElementById('agentFilterSelect')?.value || 'all';
+  const query = (document.getElementById('agentSearchInput')?.value || '').trim().toLowerCase();
+  const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
+
+  let list = allAgents.slice();
+  if (filter === 'builtin') {
+    list = list.filter((a) => a.agent_type === 'builtin');
+  } else if (filter === 'external') {
+    list = list.filter((a) => a.agent_type !== 'builtin');
+  } else if (filter === 'active') {
+    list = list.filter((a) => a.is_active || a.agent_id === activeId);
+  } else if (filter === 'registered') {
+    list = list.filter((a) => !(a.is_active || a.agent_id === activeId));
+  }
+
+  if (query) {
+    list = list.filter(
+      (a) =>
+        String(a.name || '').toLowerCase().includes(query) ||
+        String(a.model_name || '').toLowerCase().includes(query),
+    );
+  }
+
+  renderAgentsGrid(list);
+}
+
+function setAgentViewMode(mode) {
+  agentViewMode = mode === 'list' ? 'list' : 'grid';
+  const grid = document.getElementById('agentsGrid');
+  if (grid) grid.classList.toggle('agents-grid--list', agentViewMode === 'list');
+  document.getElementById('agentViewGrid')?.classList.toggle('active', agentViewMode === 'grid');
+  document.getElementById('agentViewList')?.classList.toggle('active', agentViewMode === 'list');
+}
+
 function renderAgentsGrid(agents) {
   const grid = document.getElementById('agentsGrid');
   const empty = document.getElementById('agentsEmptyState');
@@ -142,10 +242,10 @@ function renderAgentsGrid(agents) {
     const latest = agent.latest_run || {};
     const totalReturn = latest.total_return;
     const sharpe = latest.sharpe_ratio;
-    const isActive = agent.agent_id === activeId;
+    const isActive = agent.is_active === true || agent.agent_id === activeId;
     const isBuiltin = agent.agent_type === 'builtin';
     const card = document.createElement('div');
-    card.className = `section-card agent-card${isBuiltin ? ' agent-card-builtin' : ''}`;
+    card.className = `section-card agent-card agent-card--compact${isBuiltin ? ' agent-card-builtin' : ''}`;
 
     const typeBadge = isBuiltin
       ? '<span class="status-badge builtin">Built-in</span>'
@@ -317,10 +417,18 @@ async function loadAgents() {
       }
     }
 
-    renderAgentsGrid(agents);
+    // Fallback to local mock agents so the page renders without a backend.
+    // TODO: Replace mock agent data with backend API data later.
+    if (!agents.length) {
+      agents = MOCK_AGENTS;
+    }
+
+    allAgents = agents;
+    applyAgentFilters();
   } catch (error) {
-    console.warn('Failed to load agents:', error.message);
-    renderAgentsGrid([]);
+    console.warn('Failed to load agents, using mock data:', error.message);
+    allAgents = MOCK_AGENTS;
+    applyAgentFilters();
   }
 }
 
@@ -1998,6 +2106,7 @@ function showPlaygroundPanel(tab) {
         loadPaperTradingData();
     } else {
         currentMode = 'agents';
+        if (typeof renderPortfolio === 'function') renderPortfolio();
         loadAgents();
     }
 }
@@ -2166,6 +2275,11 @@ function initNavigation() {
             navigateToPage('playground', { playgroundTab: 'agents' });
         });
     });
+
+    document.getElementById('agentFilterSelect')?.addEventListener('change', applyAgentFilters);
+    document.getElementById('agentSearchInput')?.addEventListener('input', applyAgentFilters);
+    document.getElementById('agentViewGrid')?.addEventListener('click', () => setAgentViewMode('grid'));
+    document.getElementById('agentViewList')?.addEventListener('click', () => setAgentViewMode('list'));
 
     document.getElementById('addAgentBtn')?.addEventListener('click', openAddAgentModal);
     document.getElementById('addAgentModalClose')?.addEventListener('click', closeAddAgentModal);
