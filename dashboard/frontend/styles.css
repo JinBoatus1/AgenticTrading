@@ -4568,7 +4568,7 @@ body {
 
 .allocation-body {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 14px;
 }
 
@@ -4579,27 +4579,34 @@ body {
     height: 130px;
 }
 
-.allocation-center {
-    position: absolute;
-    inset: 0;
+.allocation-detail {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    text-align: center;
+    gap: 8px;
 }
 
-.allocation-center-value {
-    font-size: 14px;
+.allocation-total {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.allocation-total-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.allocation-total-value {
+    font-size: 17px;
     font-weight: 700;
     color: var(--text-primary);
     font-family: var(--font-mono);
-}
-
-.allocation-center-label {
-    font-size: 10px;
-    color: var(--text-muted);
+    line-height: 1.1;
 }
 
 .allocation-legend {
@@ -4650,19 +4657,6 @@ body {
     font-size: 11px;
     text-align: right;
     white-space: nowrap;
-}
-
-.allocation-legend-total {
-    margin-top: 4px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border-color);
-    font-weight: 700;
-}
-
-.allocation-legend-total .allocation-legend-name,
-.allocation-legend-total .allocation-legend-pct,
-.allocation-legend-total .allocation-legend-value {
-    color: var(--text-primary);
 }
 
 /* My Agents section header + toolbar */

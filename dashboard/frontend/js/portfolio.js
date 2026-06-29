@@ -68,14 +68,6 @@ function pfMoney(value) {
     }).format(Number(value) || 0);
 }
 
-function pfMoneyCompact(value) {
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        maximumFractionDigits: 0,
-    }).format(Number(value) || 0);
-}
-
 function pfSignedMoney(value) {
     const sign = Number(value) >= 0 ? '+' : '-';
     return `${sign}${pfMoney(Math.abs(Number(value) || 0))}`;
@@ -160,7 +152,7 @@ const pfChartInstances = {};
 function renderAllocationChart(key, data) {
     const canvas = document.getElementById(`${key}AllocationChart`);
     const legendEl = document.getElementById(`${key}AllocationLegend`);
-    const centerEl = document.getElementById(`${key}AllocationCenter`);
+    const totalEl = document.getElementById(`${key}AllocationTotal`);
     if (!canvas || typeof Chart === 'undefined') return;
 
     const labels = data.slices.map((s) => s.label);
@@ -172,7 +164,7 @@ function renderAllocationChart(key, data) {
     }
 
     pfChartInstances[key] = new Chart(canvas.getContext('2d'), {
-        type: 'doughnut',
+        type: 'pie',
         data: {
             labels,
             datasets: [
@@ -188,7 +180,6 @@ function renderAllocationChart(key, data) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            cutout: '68%',
             plugins: {
                 legend: { display: false },
                 tooltip: {
@@ -203,10 +194,10 @@ function renderAllocationChart(key, data) {
         },
     });
 
-    if (centerEl) {
-        centerEl.innerHTML = `
-            <span class="allocation-center-value">${pfMoneyCompact(data.total)}</span>
-            <span class="allocation-center-label">Total</span>`;
+    if (totalEl) {
+        totalEl.innerHTML = `
+            <span class="allocation-total-label">Total</span>
+            <span class="allocation-total-value">${pfMoney(data.total)}</span>`;
     }
 
     if (legendEl) {
@@ -223,12 +214,7 @@ function renderAllocationChart(key, data) {
             </li>`,
             )
             .join('');
-        legendEl.innerHTML = `${rows}
-            <li class="allocation-legend-row allocation-legend-total">
-                <span class="allocation-legend-name">Total</span>
-                <span class="allocation-legend-pct">100%</span>
-                <span class="allocation-legend-value">${pfMoney(data.total)}</span>
-            </li>`;
+        legendEl.innerHTML = rows;
     }
 }
 
