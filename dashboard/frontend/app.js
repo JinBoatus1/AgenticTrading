@@ -12,6 +12,7 @@ const ACTIVE_AGENT_KEY = 'active-agent-id';
 const ACTIVE_AGENT_NAME_KEY = 'active-agent-name';
 const BROWSER_OWNER_KEY = 'browser-owner-id';
 const SELECTED_BACKTEST_RUN_KEY = 'selected-backtest-run-id';
+const NAV_STATE_KEY = 'nav-state';
 const DISCORD_SERVER_URL = 'https://discord.gg/9HnQ6XDG98';
 
 function initSession() {
@@ -2049,6 +2050,22 @@ function getSelectedSymbols() {
 /**
  * Resolve page from URL for legacy deep links.
  */
+// Persist the current tab so a page refresh restores it instead of going home.
+function persistNavigation() {
+    try {
+        localStorage.setItem(
+            NAV_STATE_KEY,
+            JSON.stringify({
+                page: currentPage,
+                playgroundTab,
+                competitionTab,
+            }),
+        );
+    } catch (error) {
+        /* localStorage unavailable — ignore */
+    }
+}
+
 function resolveInitialNavigation() {
     const params = new URLSearchParams(window.location.search);
     const view = params.get('view') || params.get('mode');
@@ -2062,8 +2079,20 @@ function resolveInitialNavigation() {
         'my-algo': { page: 'playground', playgroundTab: 'agents' },
     };
 
+    // An explicit URL view/hash always wins.
     if (legacy && legacyMap[legacy]) {
         return legacyMap[legacy];
+    }
+
+    // Otherwise restore the last visited tab across refreshes.
+    try {
+        const saved = JSON.parse(localStorage.getItem(NAV_STATE_KEY) || 'null');
+        const validPages = ['home', 'playground', 'competition', 'community'];
+        if (saved && validPages.includes(saved.page)) {
+            return saved;
+        }
+    } catch (error) {
+        /* corrupt/unavailable state — fall through to home */
     }
 
     return { page: 'home' };
@@ -2109,6 +2138,8 @@ function showPlaygroundPanel(tab) {
         if (typeof renderPortfolio === 'function') renderPortfolio();
         loadAgents();
     }
+
+    persistNavigation();
 }
 
 function showCompetitionPanel(tab) {
@@ -2129,6 +2160,8 @@ function showCompetitionPanel(tab) {
     } else {
         currentMode = tab;
     }
+
+    persistNavigation();
 }
 
 function navigateToPage(page, options = {}) {
@@ -2195,6 +2228,8 @@ function navigateToPage(page, options = {}) {
     const menuToggle = document.getElementById('navMenuToggle');
     if (nav) nav.classList.remove('open');
     if (menuToggle) menuToggle.setAttribute('aria-expanded', 'false');
+
+    persistNavigation();
 }
 
 function switchPlaygroundTab(tab) {
