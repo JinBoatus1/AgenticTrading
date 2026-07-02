@@ -837,20 +837,23 @@ function clearAuthState() {
 function updateAuthUI() {
   const user = getStoredAuthUser();
   const label = document.getElementById('authUserLabel');
-  const openBtn = document.getElementById('authOpenBtn');
+  const signInBtn = document.getElementById('authSignInBtn');
+  const signUpBtn = document.getElementById('authSignUpBtn');
   const logoutBtn = document.getElementById('authLogoutBtn');
-  if (!label || !openBtn || !logoutBtn) {
+  if (!label || !signInBtn || !signUpBtn || !logoutBtn) {
     return;
   }
 
   if (user) {
     label.textContent = user.display_name || user.email;
     label.hidden = false;
-    openBtn.hidden = true;
+    signInBtn.hidden = true;
+    signUpBtn.hidden = true;
     logoutBtn.hidden = false;
   } else {
     label.hidden = true;
-    openBtn.hidden = false;
+    signInBtn.hidden = false;
+    signUpBtn.hidden = false;
     logoutBtn.hidden = true;
   }
 
@@ -867,14 +870,14 @@ function setAuthMode(mode) {
   const displayNameField = document.getElementById('authDisplayNameField');
   const displayNameInput = document.getElementById('authDisplayName');
 
-  if (title) title.textContent = mode === 'signup' ? 'Sign up' : 'Log in';
+  if (title) title.textContent = mode === 'signup' ? 'Sign up' : 'Sign in';
   if (subtitle) {
     subtitle.textContent = 'Optional — backtest and paper trading work without an account.';
   }
-  if (submitBtn) submitBtn.textContent = mode === 'signup' ? 'Create account' : 'Log in';
+  if (submitBtn) submitBtn.textContent = mode === 'signup' ? 'Create account' : 'Sign in';
   if (switchBtn) {
     switchBtn.textContent = mode === 'signup'
-      ? 'Already have an account? Log in'
+      ? 'Already have an account? Sign in'
       : 'Need an account? Sign up';
   }
   if (passwordInput) {
@@ -930,14 +933,16 @@ async function refreshAuthUser() {
 }
 
 function initAuthUI() {
-  const openBtn = document.getElementById('authOpenBtn');
+  const signInBtn = document.getElementById('authSignInBtn');
+  const signUpBtn = document.getElementById('authSignUpBtn');
   const logoutBtn = document.getElementById('authLogoutBtn');
   const closeBtn = document.getElementById('authModalClose');
   const backdrop = document.getElementById('authModalBackdrop');
   const switchBtn = document.getElementById('authSwitchBtn');
   const form = document.getElementById('authForm');
 
-  openBtn?.addEventListener('click', () => openAuthModal('login'));
+  signInBtn?.addEventListener('click', () => openAuthModal('login'));
+  signUpBtn?.addEventListener('click', () => openAuthModal('signup'));
   logoutBtn?.addEventListener('click', async () => {
     try {
       await AuthAPI.logout();
@@ -1016,6 +1021,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize session FIRST (before any API calls)
     initSession();
     initAuthUI();
+    applyInitialNavigation();
     await restoreActiveAgentSession();
     const config = loadConfigFromURL();
     window.CURRENT_CONFIG = config;
@@ -2066,6 +2072,25 @@ function persistNavigation() {
     }
 }
 
+function clearNavBootState() {
+    const html = document.documentElement;
+    html.removeAttribute('data-nav-boot');
+    html.removeAttribute('data-nav-page');
+    html.removeAttribute('data-nav-playground-tab');
+    html.removeAttribute('data-nav-competition-tab');
+}
+
+function applyInitialNavigation() {
+    const initial = resolveInitialNavigation();
+    navigateToPage(initial.page, {
+        playgroundTab: initial.playgroundTab || 'agents',
+        competitionTab: initial.competitionTab || 'leaderboard',
+    });
+    if (typeof initHomePage === 'function') {
+        initHomePage();
+    }
+}
+
 function resolveInitialNavigation() {
     const params = new URLSearchParams(window.location.search);
     const view = params.get('view') || params.get('mode');
@@ -2229,6 +2254,7 @@ function navigateToPage(page, options = {}) {
     if (nav) nav.classList.remove('open');
     if (menuToggle) menuToggle.setAttribute('aria-expanded', 'false');
 
+    clearNavBootState();
     persistNavigation();
 }
 
@@ -2346,14 +2372,6 @@ function initNavigation() {
         toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
     });
 
-    const initial = resolveInitialNavigation();
-    if (typeof initHomePage === 'function') {
-        initHomePage();
-    }
-    navigateToPage(initial.page, {
-        playgroundTab: initial.playgroundTab || 'agents',
-        competitionTab: initial.competitionTab || 'leaderboard',
-    });
 }
 
 /**
