@@ -175,3 +175,11 @@ def test_paper_trading_no_session_required(client):
     # Should not return 400 for missing header
     response = client.get('/paper/account')
     assert response.status_code != 400
+
+
+def test_app_dashboard_no_session_required(client):
+    """Dashboard HTML at /app must load without X-Session-Id (browser navigation)."""
+    response = client.get('/app')
+    assert response.status_code == 200
+    assert 'text/html' in response.headers.get('content-type', '')
+    assert 'Missing X-Session-Id' not in response.text

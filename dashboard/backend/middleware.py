@@ -13,7 +13,11 @@ import uuid
 EXEMPT_PATHS = {
     '/',
     '/index.html',
+    '/app',
+    '/app/',
+    '/app.html',
     '/favicon.ico',
+    '/favicon.svg',
     '/health',
     '/api/health',
     '/ticker',
@@ -31,7 +35,7 @@ def is_exempt(path: str) -> bool:
         return True
     if any(path.endswith(ext) for ext in EXEMPT_EXTENSIONS):
         return True
-    if path.startswith(('/static/', '/public/', '/assets/')):
+    if path.startswith(('/static/', '/public/', '/assets/', '/js/', '/market-events/', '/images/')):
         return True
     return False
 
@@ -112,6 +116,11 @@ class CSPHeaderMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         # Allow Chart.js and scripts from same origin, plus unsafe-inline for development
-        response.headers["Content-Security-Policy"] = "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src *; img-src * data:;"
+        response.headers["Content-Security-Policy"] = (
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "connect-src *; img-src * data:;"
+        )
         # DO NOT override CORS headers here — let CORSMiddleware handle them
         return response

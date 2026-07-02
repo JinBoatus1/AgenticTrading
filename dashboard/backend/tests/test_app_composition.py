@@ -45,7 +45,12 @@ EXPECTED_BACKTESTS_ROUTES = {
 
 # The complete, frozen external route contract (method, path) — no HEAD.
 EXPECTED_FULL_CONTRACT = {
+    ("GET", "/api/strategies/{code}"),
+    ("POST", "/api/strategies"),
     ("GET", "/"),
+    ("GET", "/app"),
+    ("GET", "/app/"),
+    ("GET", "/assets/{file_name}"),
     ("DELETE", "/admin/clear"),
     ("DELETE", "/admin/runs/{run_id}"),
     ("POST", "/api/algo/chat"),
@@ -105,6 +110,7 @@ EXPECTED_FULL_CONTRACT = {
     ("GET", "/compare"),
     ("GET", "/config/defaults"),
     ("GET", "/health"),
+    ("GET", "/favicon.svg"),
     ("GET", "/home-page.js"),
     ("GET", "/images/{file_name}"),
     ("GET", "/js/{file_name}"),
@@ -119,6 +125,8 @@ EXPECTED_FULL_CONTRACT = {
     ("GET", "/runs/latest/metrics"),
     ("GET", "/runs/{run_id}"),
     ("GET", "/runs/{run_id}/equity"),
+    ("GET", "/runs/{run_id}/plot.png"),
+    ("GET", "/strategy"),
     ("GET", "/styles.css"),
     ("GET", "/ticker"),
 }

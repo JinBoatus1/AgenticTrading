@@ -160,8 +160,50 @@ frontend_path = FRONTEND_DIR
 
 @app.get("/", include_in_schema=False)
 async def serve_root():
-    """Serve index.html for root path."""
+    """Serve marketing landing page."""
     return FileResponse(frontend_path / "index.html")
+
+
+@app.get("/app", include_in_schema=False)
+@app.get("/app/", include_in_schema=False)
+async def serve_app():
+    """Serve the main dashboard application."""
+    return FileResponse(frontend_path / "app.html")
+
+@app.get("/favicon.svg", include_in_schema=False)
+@app.get("/favicon.ico", include_in_schema=False)
+async def serve_favicon():
+    """Serve ATL logo as the site favicon."""
+    favicon_path = frontend_path / "images" / "atltransparent.png"
+    if not favicon_path.exists():
+        raise HTTPException(status_code=404, detail="Favicon not found")
+    return FileResponse(favicon_path, media_type="image/png")
+
+
+@app.get("/assets/{file_name}", include_in_schema=False)
+async def serve_landing_assets(file_name: str):
+    """Serve landing page Vite build assets."""
+    if "/" in file_name or "\\" in file_name:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    asset_path = (frontend_path / "assets" / file_name).resolve()
+    assets_dir = (frontend_path / "assets").resolve()
+    if not asset_path.is_file() or assets_dir not in asset_path.parents:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    ext = asset_path.suffix.lower()
+    media_types = {
+        ".js": "text/javascript",
+        ".css": "text/css",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".svg": "image/svg+xml",
+        ".woff": "font/woff",
+        ".woff2": "font/woff2",
+    }
+    return FileResponse(asset_path, media_type=media_types.get(ext, "application/octet-stream"))
+
 
 @app.get("/strategy", include_in_schema=False)
 async def serve_strategy_viewer():
