@@ -19,6 +19,47 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script type="module" crossorigin src="/assets/index-BB7gl2m6.js?v=4"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-BQNECKqk.css?v=4">
+    <style id="landing-header-patch">
+      /* Center brand; landing title = 18px (dashboard uses 23px) */
+      nav.fixed .container {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 4rem;
+      }
+      nav.fixed .container > div:first-child {
+        display: flex;
+        align-items: center;
+        flex: 1;
+        min-width: 0;
+      }
+      nav.fixed .container > div:first-child > a {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        display: inline-flex;
+        align-items: center;
+        gap: 0.625rem;
+        z-index: 2;
+        white-space: nowrap;
+      }
+      nav.fixed .container > div:first-child > a img {
+        width: 2rem !important;
+        height: 2rem !important;
+      }
+      nav.fixed .container > div:first-child > a span {
+        font-size: 1.125rem !important;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      nav.fixed .container > div:last-child {
+        flex: 0 0 auto;
+        margin-left: auto;
+        z-index: 3;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

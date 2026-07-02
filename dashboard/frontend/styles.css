@@ -64,8 +64,8 @@ body {
    ============================================================================ */
 
 .header {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     background-color: var(--bg-surface);
     padding: 16px 24px;
@@ -73,17 +73,19 @@ body {
     gap: 20px;
 }
 
+.header-brand,
 .header-left {
+    grid-column: 2;
+    justify-self: center;
     display: flex;
     align-items: center;
     gap: 12px;
-    flex: 0 0 auto;
     min-width: 0;
 }
 
 .logo-container {
-    width: 58px;
-    height: 58px;
+    width: 64px;
+    height: 64px;
     border-radius: 16px;
     overflow: hidden;
     flex: 0 0 auto;
@@ -114,7 +116,7 @@ body {
 
 .title-section h1 {
     margin: 0;
-    font-size: 21px;
+    font-size: 23px;
     font-weight: 700;
     color: var(--text-primary);
     letter-spacing: 0.3px;
@@ -166,12 +168,12 @@ body {
 }
 
 .header-right {
+    grid-column: 3;
+    justify-self: end;
     display: flex;
     align-items: center;
     gap: 12px;
-    flex: 0 0 auto;
     min-width: 0;
-    margin-left: auto;
 }
 
 .auth-controls {
@@ -1941,19 +1943,21 @@ body {
 
 @media (max-width: 900px) {
     .header {
-        flex-direction: column;
+        grid-template-columns: 1fr;
         gap: 10px;
     }
 
+    .header-brand,
     .header-left {
-        justify-content: center;
+        grid-column: 1;
+        justify-self: center;
     }
 
     .header-right {
+        grid-column: 1;
+        justify-self: center;
         flex-wrap: wrap;
         width: 100%;
-        justify-content: center;
-        margin-left: 0;
     }
 
     .header-center {
