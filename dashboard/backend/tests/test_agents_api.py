@@ -288,3 +288,41 @@ def test_leaked_session_id_cannot_take_over_agent(client):
     new_key = rotated.json()["api_key"]
     deleted = client.delete(f"/api/v1/agents/{agent_id}", headers={"X-API-Key": new_key})
     assert deleted.status_code == 200
+
+
+def test_builtin_listing_batches_run_stats_queries(client, monkeypatch):
+    """LOW #9 — the public, unauthenticated /agents/builtin listing must not
+    issue one runs-by-session query per agent (N+1): the stats lookup happens
+    in a single batched query no matter how many builtin agents exist."""
+    headers = {"X-Session-Id": str(uuid.uuid4())}
+    for i in range(3):
+        resp = client.post(
+            "/api/v1/agents",
+            json={"name": f"builtin-{i}", "agent_type": "builtin"},
+            headers={"X-Session-Id": str(uuid.uuid4())},
+        )
+        assert resp.status_code == 200, resp.text
+
+    import dashboard.backend.api.routers.agents as agents_api
+
+    svc_db = agents_api.agent_service.db
+    calls = {"per_session": 0, "batch": 0}
+    orig_single = svc_db.get_runs_by_session
+    orig_batch = svc_db.get_runs_by_sessions  # must exist — AttributeError = RED
+
+    def counting_single(session_id):
+        calls["per_session"] += 1
+        return orig_single(session_id)
+
+    def counting_batch(session_ids):
+        calls["batch"] += 1
+        return orig_batch(session_ids)
+
+    monkeypatch.setattr(svc_db, "get_runs_by_session", counting_single)
+    monkeypatch.setattr(svc_db, "get_runs_by_sessions", counting_batch)
+
+    listing = client.get("/api/v1/agents/builtin")
+    assert listing.status_code == 200
+    assert len(listing.json()["agents"]) == 3
+    assert calls["per_session"] == 0, "listing still queries per agent (N+1)"
+    assert calls["batch"] == 1, "listing must fetch all stats in one query"

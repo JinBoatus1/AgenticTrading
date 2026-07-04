@@ -67,11 +67,12 @@ class AgentService:
     # Run statistics
     # ------------------------------------------------------------------
 
-    def _external_runs(self, session_id: str) -> List[Dict[str, Any]]:
-        runs = self.db.get_runs_by_session(session_id) or []
+    @staticmethod
+    def _filter_external(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return [r for r in runs if str(r.get("run_id", "")).startswith("ext_")]
 
-    def _session_runs(self, session_id: str) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _filter_agent_session(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """The agent's own backtest runs for a session, excluding baselines.
 
         Built-in (platform-hosted) agents are backtested through the website
@@ -81,14 +82,32 @@ class AgentService:
         session; those are comparison series for the plot, not standalone runs,
         so they are filtered out of the agent's run list.
         """
-        runs = self.db.get_runs_by_session(session_id) or []
         return [r for r in runs if r.get("agent_name") not in BASELINE_AGENT_NAMES]
 
-    def agent_with_stats(self, agent: Dict[str, Any]) -> Dict[str, Any]:
+    def _external_runs(self, session_id: str) -> List[Dict[str, Any]]:
+        return self._filter_external(self.db.get_runs_by_session(session_id) or [])
+
+    def _session_runs(self, session_id: str) -> List[Dict[str, Any]]:
+        return self._filter_agent_session(self.db.get_runs_by_session(session_id) or [])
+
+    def agent_with_stats(
+        self,
+        agent: Dict[str, Any],
+        *,
+        session_runs: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Enrich an agent record with run statistics.
+
+        ``session_runs`` optionally supplies the agent session's raw
+        (unfiltered) runs so batched listings can prefetch them in one query
+        instead of one query per agent.
+        """
+        if session_runs is None:
+            session_runs = self.db.get_runs_by_session(agent["session_id"]) or []
         if (agent.get("agent_type") or "external") == "builtin":
-            ext_runs = self._session_runs(agent["session_id"])
+            ext_runs = self._filter_agent_session(session_runs)
         else:
-            ext_runs = self._external_runs(agent["session_id"])
+            ext_runs = self._filter_external(session_runs)
         latest = None
         if ext_runs:
             latest = sorted(ext_runs, key=lambda r: r.get("created_at") or "", reverse=True)[0]
@@ -166,8 +185,18 @@ class AgentService:
         )
 
     def list_builtin_agents_with_stats(self) -> List[Dict[str, Any]]:
-        """List all built-in agents (platform-wide) enriched with run stats."""
-        return [self.agent_with_stats(a) for a in self.agents.list_builtin_agents()]
+        """List all built-in agents (platform-wide) enriched with run stats.
+
+        Serves the public, unauthenticated ``/agents/builtin`` listing, so the
+        per-agent run stats are prefetched with a single batched query rather
+        than one query per agent.
+        """
+        agents = self.agents.list_builtin_agents()
+        runs_by_session = self.db.get_runs_by_sessions([a["session_id"] for a in agents])
+        return [
+            self.agent_with_stats(a, session_runs=runs_by_session.get(a["session_id"], []))
+            for a in agents
+        ]
 
     def list_agents_with_stats(
         self,
