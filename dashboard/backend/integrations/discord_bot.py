@@ -17,6 +17,14 @@ from dashboard.backend.domain.chat.service import (
     reset_agent_conversation,
     synthesize_strategy_prompt,
 )
+from dashboard.backend.infrastructure.llm.token_cost import is_free_model
+
+
+def _model_override(model_name: Optional[str]) -> Optional[str]:
+    """Map a sentinel / rule-based model name (e.g. the default ``'local-model'``)
+    to ``None`` so it is treated as "no explicit model" instead of being sent to
+    the hosted-model API as a real model id. Real model ids pass through."""
+    return None if is_free_model(model_name) else model_name
 
 
 load_dotenv()
@@ -300,7 +308,10 @@ async def ask(
     discord_user_id = str(interaction.user.id)
     selected = selected_agent_for(discord_user_id)
     agent_id = selected["agent_id"] if selected else DEFAULT_AGENT_ID
-    model = selected.get("model_name") if selected else None
+    # A sentinel model_name ('local-model'/'rule-based') means "no override" —
+    # forwarding it verbatim would ask the API to call a model literally named
+    # 'local-model' and break /ask. Map it to None so the server picks a default.
+    model = _model_override(selected.get("model_name")) if selected else None
 
     try:
         answer = await chat_with_agent(
@@ -493,8 +504,11 @@ async def backtest_cmd(
 
     # 2) Kick off the backtest via the existing workflow.
     payload: dict[str, Any] = {"strategy_prompt": strategy_prompt}
-    if selected and selected.get("model_name"):
-        payload["model"] = selected["model_name"]
+    # Only override the model when the agent has a real one; a sentinel
+    # ('local-model') would otherwise mislabel the run / fail the model call.
+    model_override = _model_override(selected.get("model_name")) if selected else None
+    if model_override:
+        payload["model"] = model_override
     if start:
         payload["start_date"] = start
     if end:

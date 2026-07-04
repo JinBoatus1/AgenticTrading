@@ -34,6 +34,15 @@ def test_bot_prefix_and_intents_unchanged():
     assert bot_mod.bot.intents.value == discord.Intents.default().value
 
 
+def test_model_override_maps_sentinel_to_none():
+    # H7: a selected agent's default 'local-model' sentinel means "no override".
+    assert bot_mod._model_override("local-model") is None
+    assert bot_mod._model_override("rule-based") is None
+    assert bot_mod._model_override(None) is None
+    # A real model id passes through unchanged.
+    assert bot_mod._model_override("claude-haiku-4-5-20251001") == "claude-haiku-4-5-20251001"
+
+
 def test_consumes_canonical_chat_service():
     # The bot must call the canonical chat boundary, not Anthropic directly.
     from dashboard.backend.domain.chat.service import (

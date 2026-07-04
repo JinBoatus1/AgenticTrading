@@ -62,6 +62,19 @@ _FREE_MODEL_MARKERS = ("rule-based", "local-model", "local", "demo", "baseline",
 _DEFAULT_PRICING: Tuple[float, float] = (1.0, 5.0)
 
 
+def is_free_model(model: str | None) -> bool:
+    """True when ``model`` names no real paid LLM: a sentinel / rule-based /
+    local marker (e.g. ``'local-model'``, ``'rule-based'``) or nothing at all.
+
+    Callers use this to treat such values as "no explicit model" rather than a
+    real model id — e.g. the Discord bot must not forward the default
+    ``'local-model'`` sentinel to the hosted-model API as if it were a model."""
+    name = (model or "").strip().lower()
+    if not name:
+        return True
+    return any(marker in name for marker in _FREE_MODEL_MARKERS)
+
+
 def estimate_tokens(value: Any) -> int:
     """Estimate the number of tokens in a string or JSON-serializable object."""
     if value is None:

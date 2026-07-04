@@ -8,11 +8,26 @@ from dashboard.backend.infrastructure.llm.token_cost import (
     CHARS_PER_TOKEN,
     estimate_cost_usd,
     estimate_tokens,
+    is_free_model,
     price_for_model,
     summarize,
 )
 
 _BACKEND = Path(__file__).resolve().parents[3]
+
+
+def test_is_free_model_sentinels_and_empty():
+    # Sentinels / rule-based / local markers → free (treated as "no real model").
+    for name in ("local-model", "rule-based", "LOCAL-MODEL", " Local-Model ",
+                 "none", "baseline", "demo", None, ""):
+        assert is_free_model(name) is True, name
+
+
+def test_is_free_model_real_models():
+    # Real hosted model ids are NOT free.
+    for name in ("claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6",
+                 "openai/gpt-5.5", "gemini-3.1-pro"):
+        assert is_free_model(name) is False, name
 
 
 def test_chars_per_token_constant():
