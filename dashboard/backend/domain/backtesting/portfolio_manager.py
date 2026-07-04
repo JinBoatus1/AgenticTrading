@@ -28,7 +28,11 @@ from typing import Dict, List
 
 import pandas as pd
 
-from dashboard.backend.infrastructure.llm.validator import DJIA_30, create_prompt
+from dashboard.backend.infrastructure.llm.validator import (
+    DJIA_30,
+    MAX_ORDER_SHARES,
+    create_prompt,
+)
 from dashboard.backend.domain.trading.portfolio import (
     append_equity_record as _append_equity_record,
     build_portfolio_state as _build_portfolio_state,
@@ -300,12 +304,23 @@ class PortfolioManager:
             # ================================================================
             actions = []
             llm_actions = decision.get("actions", [])
-            
+
             if not llm_actions:
                 print(f"   ⚠️  LLM returned no actions. Decision object: {decision}")
                 print(f"   Falling back to rule-based logic")
                 return self.make_trading_decision(portfolio_state)
-            
+
+            # The prompt contract asks for at most one action per DJIA symbol.
+            # A response with more than that is degenerate or hostile (e.g. a
+            # free-form strategy_prompt goading the model into spamming
+            # actions) — bound the work instead of iterating it all.
+            if len(llm_actions) > len(DJIA_30):
+                print(
+                    f"   ⚠️  LLM returned {len(llm_actions)} actions; "
+                    f"processing only the first {len(DJIA_30)}"
+                )
+                llm_actions = llm_actions[: len(DJIA_30)]
+
             for llm_action in llm_actions:
                 symbol = llm_action.get("symbol")
                 action_type = llm_action.get("action", "hold").lower()
@@ -328,16 +343,29 @@ class PortfolioManager:
                 price = float(signal.get("price", 0)) if signal.get("price") else 0.0
                 
                 if action_type == "buy":
-                    # Use position_size from LLM directly
-                    shares = llm_action.get("position_size", 0)
-                    
+                    # Use position_size from LLM directly. Coerce defensively:
+                    # json.loads happily yields strings, floats, Infinity and
+                    # NaN here, and an unparseable value must skip THIS action,
+                    # not throw the whole decision into the rule-based fallback.
+                    raw_size = llm_action.get("position_size", 0)
+                    try:
+                        shares = int(raw_size or 0)
+                    except (TypeError, ValueError, OverflowError):
+                        print(f"      ⚠️  BUY {symbol}: Skip (unparseable position_size {raw_size!r})")
+                        continue
+
                     # If LLM didn't provide position_size, calculate from confidence
                     if shares == 0:
                         base_risk = portfolio_state["total_equity"] * 0.02
                         risk_amount = base_risk * confidence
                         shares = int(risk_amount / price) if price > 0 else 0
-                    
-                    if shares > 0 and shares * price <= self.cash:
+
+                    if shares > MAX_ORDER_SHARES:
+                        # Same per-order ceiling validate_llm_response enforces
+                        # on the safe path; a free-form strategy_prompt must
+                        # not push an unbounded order through this loop.
+                        print(f"      ⚠️  BUY {symbol}: Skip (position_size {shares} > per-order cap {MAX_ORDER_SHARES})")
+                    elif shares > 0 and shares * price <= self.cash:
                         actions.append({
                             "symbol": symbol,
                             "action": "buy",

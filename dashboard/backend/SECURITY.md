@@ -103,6 +103,34 @@ The LLM **must** respond with JSON matching this schema:
 
 ---
 
+## Exemption: the backtest engine's LLM loop (incl. custom `strategy_prompt`)
+
+The hourly backtest engine (`domain/backtesting/portfolio_manager.py`,
+`make_trading_decision_with_llm`) — including runs driven by a user's
+free-form `strategy_prompt` ("My Trading Algo") — does **not** route parsed
+decisions through `validate_llm_response`. It predates the validator and its
+behavior is intentionally preserved byte-for-byte for backtest reproducibility.
+
+It applies these constraints inline instead:
+
+| Constraint | Enforcement |
+|------------|-------------|
+| JSON-only, no tools | Prompt scaffold pins the output contract; response is parsed as JSON only (`parse_llm_response`), never executed |
+| Symbol allowlist | Non-DJIA-30 symbols skipped |
+| Action count | Capped at one action per DJIA symbol (`len(DJIA_30)`); excess entries ignored |
+| Per-order size | `position_size > MAX_ORDER_SHARES` (10k, same constant as the validator) skipped; unparseable/non-finite sizes skipped |
+| Cash bound | Buys must fit in available cash; sells limited to held shares |
+| Confidence floor | Actions with confidence < 0.3 skipped |
+
+A custom `strategy_prompt` replaces only the *strategy* section of the prompt;
+the market snapshot, symbol allowlist, and strict JSON output contract are
+appended by fixed scaffolding (`create_custom_prompt`) and cannot be overridden
+by the user text. If you need the stricter schema validation (tool-call
+rejection, audit logging), route through `validate_llm_response` as below —
+new endpoints must not copy this exemption.
+
+---
+
 ## Integration: Adding LLM Endpoint to Backend
 
 Use `llm_integration_example.py` as a template. Here's the quick version:

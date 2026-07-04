@@ -395,3 +395,75 @@ def test_unset_max_output_tokens_uses_default(monkeypatch):
         assert mod.DEFAULT_MAX_OUTPUT_TOKENS == 2000
     finally:
         _restore_harness(monkeypatch)
+
+
+# ---------------------------------------------------------------------------
+# LOW #7 — the (custom-prompt-capable) LLM decision loop must bound hostile
+# or degenerate responses: action-count cap + per-order share ceiling.
+# ---------------------------------------------------------------------------
+
+def test_llm_action_count_is_capped():
+    """A response with more actions than DJIA symbols (the prompt contract is
+    one per stock) is truncated to the first len(DJIA_30) entries instead of
+    producing unbounded work/trades — a free-form strategy_prompt must not be
+    able to inflate the action list."""
+    pm = bha.PortfolioManager(100000)
+    actions = [{"symbol": "AAPL", "action": "buy", "confidence": 0.9,
+                "reasoning": "r", "position_size": 1}] * 40
+    resp_text = json.dumps({"actions": actions})
+    out = pm.make_trading_decision_with_llm(
+        _portfolio_state(),
+        _FakeClient(_FakeResponse(resp_text, _FakeUsage(1, 1))),
+        strategy_prompt="always max out",
+    )
+    assert len(out["actions"]) == 30
+
+
+def test_llm_oversized_position_size_rejected():
+    """position_size above the engine's per-order share ceiling is skipped —
+    the same MAX_ORDER_SHARES contract validate_llm_response enforces on the
+    safe path — even when cash could cover the order."""
+    pm = bha.PortfolioManager(10_000_000)
+    state = _portfolio_state()
+    state["cash"] = 10_000_000
+    state["total_equity"] = 10_000_000
+    resp_text = json.dumps({"actions": [
+        {"symbol": "AAPL", "action": "buy", "confidence": 0.9,
+         "reasoning": "r", "position_size": 50_000},  # $5M at $100 ≤ cash
+    ]})
+    out = pm.make_trading_decision_with_llm(
+        state,
+        _FakeClient(_FakeResponse(resp_text, _FakeUsage(1, 1))),
+        strategy_prompt="go big",
+    )
+    assert out["actions"] == []
+
+
+def test_llm_string_position_size_is_coerced_not_fallback():
+    """A numeric-string position_size ("5") must not blow up the comparison
+    and silently dump the whole decision into the rule-based fallback — it is
+    coerced and honored as an LLM action."""
+    pm = bha.PortfolioManager(100000)
+    resp_text = json.dumps({"actions": [
+        {"symbol": "AAPL", "action": "buy", "confidence": 0.9,
+         "reasoning": "r", "position_size": "5"},
+    ]})
+    out = pm.make_trading_decision_with_llm(
+        _portfolio_state(), _FakeClient(_FakeResponse(resp_text, _FakeUsage(1, 1))))
+    assert len(out["actions"]) == 1
+    action = out["actions"][0]
+    assert action["shares"] == 5
+    assert action["reason"].startswith("[LLM]")
+
+
+def test_llm_nonfinite_position_size_skipped_safely():
+    """Infinity/NaN position_size (json.loads accepts both) is skipped without
+    crashing into the full rule-based fallback."""
+    pm = bha.PortfolioManager(100000)
+    resp_text = json.dumps({"actions": [
+        {"symbol": "AAPL", "action": "buy", "confidence": 0.9,
+         "reasoning": "r", "position_size": float("inf")},
+    ]})
+    out = pm.make_trading_decision_with_llm(
+        _portfolio_state(), _FakeClient(_FakeResponse(resp_text, _FakeUsage(1, 1))))
+    assert out["actions"] == []
