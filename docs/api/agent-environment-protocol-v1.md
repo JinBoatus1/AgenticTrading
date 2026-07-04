@@ -326,13 +326,15 @@ All protocol errors use a consistent envelope (delivered as the HTTP `detail`):
 
 | HTTP | code | meaning |
 |------|------|---------|
-| 400  | `invalid_config`, `invalid_symbols`, `too_many_orders`, `run_id_mismatch`, `step_id_mismatch` | bad request |
+| 400  | `invalid_config`, `invalid_symbols`, `unsupported_environment`, `too_many_orders`, `run_id_mismatch`, `step_id_mismatch` | bad request |
 | 401  | (auth) | missing/invalid `X-API-Key` |
 | 403  | `forbidden` | run/agent belongs to a different agent |
-| 404  | `run_not_found`, `agent_version_not_found`, `unknown_step`, `unknown_environment` | not found |
+| 404  | `run_not_found`, `agent_version_not_found`, `unknown_step`, `unknown_environment`, `result_not_found` | not found |
 | 409  | `step_already_finalized`, `step_not_active`, `run_not_active`, `run_completed` | state conflict on a step/run |
 | 409  | `decision_deadline_exceeded` | decision arrived after the deadline (step auto-held) |
 | 409  | `run_not_completed` | results requested before completion |
+| 429  | `too_many_active_runs` | per-agent concurrent-run cap exceeded |
+| 500  | `run_failed` | the run's backtest failed |
 
 Every 4xx from these routes uses the envelope above (delivered as the HTTP
 `detail`), including ownership/not-found rejections.

@@ -26,5 +26,7 @@ def test_doc_error_table_documents_actually_emitted_codes():
     doc = _doc()
     # Codes the runs router / run service actually raise (via the error envelope).
     for code in ("forbidden", "run_not_found", "agent_version_not_found",
-                 "too_many_orders", "decision_deadline_exceeded"):
+                 "too_many_orders", "decision_deadline_exceeded",
+                 "unsupported_environment", "result_not_found",
+                 "too_many_active_runs", "run_failed"):
         assert f"`{code}`" in doc, code
