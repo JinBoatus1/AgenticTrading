@@ -53,3 +53,11 @@ def test_discord_dependency_is_declared():
     # CLAUDE.md must point contributors at the optional file.
     claude_md = (_REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     assert "requirements-discord.txt" in claude_md
+
+
+def test_bot_sends_per_user_id_on_strategy_post():
+    """MEDIUM #4 — the bot must send a per-Discord-user X-Browser-Id when creating
+    a strategy, else all Discord users share the bot process's single (IP) bucket
+    on the server's write rate limiter."""
+    src = _source()
+    assert '"X-Browser-Id": f"discord:{discord_user_id}"' in src

@@ -389,6 +389,10 @@ async def strategy(
                 "source": "discord",
                 "owner": f"discord:{discord_user_id}",
             },
+            # Per-user rate-limit key: without an id header the server's strategies
+            # write limiter falls back to the peer IP, so every Discord user would
+            # share this one bot process's single bucket. Key it per Discord user.
+            headers={"X-Browser-Id": f"discord:{discord_user_id}"},
         )
     except Exception as exc:
         print("Discord /strategy store failed:", repr(exc))
