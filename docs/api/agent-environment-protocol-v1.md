@@ -200,7 +200,13 @@ workers — only `POST .../decision` mutates state.
 ```
 
 `market.features` carries the per-symbol technical indicators (price, RSI,
-MACD, SMAs, Bollinger bands).
+MACD, SMAs, Bollinger bands) for **every symbol in
+`constraints.allowed_symbols`** (the run's `config.symbols`, or the full
+DJIA-30 default) that has market data at that step.
+
+`market.bars` and `market.events` are reserved for future environment types
+(raw OHLCV windows, corporate events); in `us-equity-hourly-v1` they are
+always empty — do not wait for them to populate.
 
 ---
 

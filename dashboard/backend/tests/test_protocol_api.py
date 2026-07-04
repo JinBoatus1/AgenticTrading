@@ -959,3 +959,64 @@ def test_agent_version_lookup_is_not_an_existence_oracle(client):
     # The legitimate owner still reads it fine.
     ok = client.get(f"/api/v1/agent-versions/{version_id}", headers={"X-API-Key": key})
     assert ok.status_code == 200
+
+
+def test_observation_features_cover_configured_symbols(client, monkeypatch):
+    """LOW #11 — the step observation must include features for EVERY symbol
+    the run's config declares tradeable, not a top-10-RSI sample of them (an
+    agent constrained to N symbols can't trade what it can't see)."""
+    import dashboard.backend.domain.backtesting.external_run_service as ebs
+
+    eleven = ["AAPL", "MSFT", "JPM", "V", "JNJ", "WMT", "PG", "MA", "HD", "DIS", "MCD"]
+
+    def _bars_for(symbols):
+        times = []
+        for day in ("2026-04-15", "2026-04-16"):
+            for hour in (10, 11, 12, 13, 14, 15):
+                times.append(ET.localize(pd.Timestamp(f"{day} {hour}:00")))
+        idx = pd.DatetimeIndex(times)
+        n = len(idx)
+        data = {}
+        for i, sym in enumerate(symbols):
+            closes = [100.0 + 10 * i + j * 0.5 for j in range(n)]
+            data[sym] = pd.DataFrame(
+                {
+                    "open": closes,
+                    "high": [c + 1 for c in closes],
+                    "low": [c - 1 for c in closes],
+                    "close": closes,
+                    "volume": [1_000_000] * n,
+                },
+                index=idx,
+            )
+        return data
+
+    class _ElevenLoader:
+        def fetch_bars(self, symbols, start, end):
+            return _bars_for(eleven)
+
+    monkeypatch.setattr(ebs, "AlpacaDataLoader", _ElevenLoader)
+
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    resp = client.post(
+        "/api/v1/runs",
+        json={
+            "agent_version_id": version_id,
+            "environment": {"type": "backtest", "environment_id": "us-equity-hourly-v1"},
+            "config": {
+                "start_date": "2026-04-15",
+                "end_date": "2026-04-16",
+                "symbols": eleven,
+            },
+        },
+        headers={"X-API-Key": key},
+    )
+    assert resp.status_code == 200, resp.text
+    run_id = resp.json()["run_id"]
+
+    step = _wait_for_step(client, run_id, key)
+    features = step["observation"]["market"]["features"]
+    assert set(features.keys()) == set(eleven), (
+        f"missing features for: {set(eleven) - set(features.keys())}"
+    )

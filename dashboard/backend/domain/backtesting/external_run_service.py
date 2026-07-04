@@ -84,6 +84,7 @@ class ExternalBacktestSession:
         start_date: str,
         end_date: str,
         mode: str = "safe_trading",
+        symbols: Optional[List[str]] = None,
     ):
         self.backtest_id = backtest_id
         self.session_id = session_id
@@ -92,6 +93,11 @@ class ExternalBacktestSession:
         self.start_date = start_date
         self.end_date = end_date
         self.mode = mode
+        # Declared tradeable allow-list (protocol runs' config.symbols).
+        # When set, market snapshots carry features for every one of these
+        # symbols; when None (legacy external flow), the historical top-10
+        # RSI sampling is preserved.
+        self.symbols = list(symbols) if symbols else None
 
         self.status = "loading"
         self.error: Optional[str] = None
@@ -249,7 +255,13 @@ class ExternalBacktestSession:
         }
 
         signals = portfolio_state["market_signals"]
-        if self.mode == "buy_and_hold":
+        if self.symbols:
+            # Protocol runs declare a tradeable allow-list: the agent must see
+            # features for every symbol it may trade (it can't trade what it
+            # can't see). No LLM prompt is built from this snapshot on the
+            # external path, so there is no prompt-size reason to sample.
+            symbols = [s for s in self.symbols if s in signals]
+        elif self.mode == "buy_and_hold":
             symbols = [s for s in DJIA_30 if s in signals]
         else:
             rsi_sorted = sorted(
@@ -727,6 +739,7 @@ def start_backtest(
     start_date: str,
     end_date: str,
     mode: str = "safe_trading",
+    symbols: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     backtest_id = f"bt_{uuid.uuid4().hex[:12]}"
     session = ExternalBacktestSession(
@@ -737,6 +750,7 @@ def start_backtest(
         start_date=start_date,
         end_date=end_date,
         mode=mode,
+        symbols=symbols,
     )
     session.status = "loading"
 

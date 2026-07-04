@@ -332,6 +332,9 @@ def create_run(
             start_date=start_date,
             end_date=end_date,
             mode=mode,
+            # The effective allow-list: observation features must cover every
+            # symbol constraints() advertises as tradeable (LOW #11).
+            symbols=config.get("symbols") or DJIA_30,
         )
         backtest_id = start_res["backtest_id"]
 
