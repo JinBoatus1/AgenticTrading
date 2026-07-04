@@ -456,9 +456,12 @@ def test_llm_string_position_size_is_coerced_not_fallback():
     assert action["reason"].startswith("[LLM]")
 
 
-def test_llm_nonfinite_position_size_skipped_safely():
-    """Infinity/NaN position_size (json.loads accepts both) is skipped without
-    crashing into the full rule-based fallback."""
+def test_llm_nonfinite_position_size_skipped_safely(capsys):
+    """Infinity/NaN position_size (json.loads accepts both) is skipped via the
+    explicit unparseable-size branch — not by luck of IEEE-754 comparisons —
+    and never crashes into the full rule-based fallback. (The pre-fix code
+    also happened to emit no action for inf, so the output assertion alone
+    would not pin the fix; the printed skip marker does.)"""
     pm = bha.PortfolioManager(100000)
     resp_text = json.dumps({"actions": [
         {"symbol": "AAPL", "action": "buy", "confidence": 0.9,
@@ -467,3 +470,4 @@ def test_llm_nonfinite_position_size_skipped_safely():
     out = pm.make_trading_decision_with_llm(
         _portfolio_state(), _FakeClient(_FakeResponse(resp_text, _FakeUsage(1, 1))))
     assert out["actions"] == []
+    assert "unparseable position_size" in capsys.readouterr().out

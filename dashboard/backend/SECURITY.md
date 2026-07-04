@@ -322,19 +322,19 @@ All decisions logged:
 pytest dashboard/backend/tests/test_llm_validator.py -v
 ```
 
-Output:
+Output (node IDs are shown with the full repo-root path):
 ```
-tests/test_llm_validator.py::TestValidResponses::test_valid_buy_decision PASSED
-tests/test_llm_validator.py::TestValidResponses::test_valid_sell_decision PASSED
-tests/test_llm_validator.py::TestValidResponses::test_valid_hold_decision PASSED
-tests/test_llm_validator.py::TestInvalidJSON::test_malformed_json PASSED
-tests/test_llm_validator.py::TestToolCallingRejection::test_tool_use_block_rejected PASSED
-tests/test_llm_validator.py::TestToolCallingRejection::test_tool_calls_attribute_rejected PASSED
-tests/test_llm_validator.py::TestToolCallingRejection::test_function_calls_rejected PASSED
-tests/test_llm_validator.py::TestToolCallingRejection::test_api_access_attempt_rejected PASSED
-tests/test_llm_validator.py::TestInvalidSchema::test_invalid_symbol PASSED
-tests/test_llm_validator.py::TestInvalidSchema::test_confidence_out_of_range PASSED
-tests/test_llm_validator.py::TestPortfolioConstraints::test_insufficient_cash PASSED
+dashboard/backend/tests/test_llm_validator.py::TestValidResponses::test_valid_buy_decision PASSED
+dashboard/backend/tests/test_llm_validator.py::TestValidResponses::test_valid_sell_decision PASSED
+dashboard/backend/tests/test_llm_validator.py::TestValidResponses::test_valid_hold_decision PASSED
+dashboard/backend/tests/test_llm_validator.py::TestInvalidJSON::test_malformed_json PASSED
+dashboard/backend/tests/test_llm_validator.py::TestToolCallingRejection::test_tool_use_block_rejected PASSED
+dashboard/backend/tests/test_llm_validator.py::TestToolCallingRejection::test_tool_calls_attribute_rejected PASSED
+dashboard/backend/tests/test_llm_validator.py::TestToolCallingRejection::test_function_calls_rejected PASSED
+dashboard/backend/tests/test_llm_validator.py::TestToolCallingRejection::test_api_access_attempt_rejected PASSED
+dashboard/backend/tests/test_llm_validator.py::TestInvalidSchema::test_invalid_symbol PASSED
+dashboard/backend/tests/test_llm_validator.py::TestInvalidSchema::test_confidence_out_of_range PASSED
+dashboard/backend/tests/test_llm_validator.py::TestPortfolioConstraints::test_insufficient_cash PASSED
 ... (35+ more tests)
 
 ====== 50 passed in 1.23s ======
