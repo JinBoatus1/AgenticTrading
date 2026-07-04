@@ -779,9 +779,11 @@ def test_idempotency_scoped_to_step(client):
 
 
 def test_reaper_frees_session_but_preserves_reads(client):
-    """The reaper frees a completed run's heavy engine session (market data) but
-    keeps the lightweight ProtocolRun, so step queries, next-step polling, and
-    idempotent retries keep working after eviction — no post-eviction regression.
+    """The reaper frees a completed run's heavy engine session (market data) AND
+    drops the ProtocolRun from the in-memory registry (step/idempotency state is
+    persisted to protocol_steps, so _runs no longer grows forever). Step queries,
+    next-step polling, and idempotent retries keep working after eviction via
+    DB rehydration — no post-eviction regression.
     """
     import dashboard.backend.domain.backtesting.external_run_service as ebs
     import dashboard.backend.domain.runs.service as run_service
@@ -818,10 +820,11 @@ def test_reaper_frees_session_but_preserves_reads(client):
     assert reaped >= 1
     # Heavy session freed ...
     assert ebs.get_session(bt_id) is None
-    # ... but the ProtocolRun (step maps + idempotency cache) is kept.
-    assert run_id in run_service._runs
+    # ... and the terminal ProtocolRun is dropped too: its step maps and
+    # idempotency cache are DB-backed now, so keeping it would only leak.
+    assert run_id not in run_service._runs
 
-    # 1) get_step by a known step_id still works (in-memory map preserved).
+    # 1) get_step by a known step_id still works (rehydrated from protocol_steps).
     s = client.get(
         f"/api/v1/runs/{run_id}/steps/{last_step_id}", headers={"X-API-Key": key}
     )
@@ -847,6 +850,57 @@ def test_reaper_frees_session_but_preserves_reads(client):
     ).status_code == 200
     status = client.get(f"/api/v1/runs/{run_id}/status", headers={"X-API-Key": key})
     assert status.status_code == 200 and status.json()["status"] == "completed"
+
+
+def test_step_state_survives_full_restart(client):
+    """H4 follow-up: step_id↔sequence mappings and the idempotency cache are
+    persisted (protocol_steps), so after a FULL process restart — engine
+    session gone AND the in-memory run registry empty — historical step
+    queries still answer and an idempotent decision retry replays the stored
+    result instead of failing unknown_step/run_not_active."""
+    import dashboard.backend.domain.backtesting.external_run_service as ebs
+    import dashboard.backend.domain.runs.service as run_service
+
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+
+    step = _wait_for_step(client, run_id, key)
+    assert step.get("status") == "awaiting_decision", step
+    step_id = step["step_id"]
+    idem = str(uuid.uuid4())
+    first = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step_id}/decision",
+        json={"idempotency_key": idem, "orders": []},
+        headers={"X-API-Key": key},
+    )
+    assert first.status_code == 200, first.text
+    decision_id = first.json()["decision_id"]
+
+    # Simulate a full restart: heavy engine session gone, registry empty.
+    run = run_service._runs[run_id]
+    if run.backtest_id:
+        ebs.evict_session(run.backtest_id)
+    with run_service._registry_lock:
+        run_service._runs.clear()
+
+    # Historical step lookup rehydrates from protocol_steps.
+    s = client.get(
+        f"/api/v1/runs/{run_id}/steps/{step_id}", headers={"X-API-Key": key}
+    )
+    assert s.status_code == 200, s.text
+    body = s.json()
+    assert body["sequence"] == step["sequence"]
+    assert body["status"] == "completed"
+
+    # Idempotent retry replays the stored result — same decision, no re-execution.
+    retry = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step_id}/decision",
+        json={"idempotency_key": idem, "orders": []},
+        headers={"X-API-Key": key},
+    )
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["decision_id"] == decision_id
 
 
 def test_late_decision_returns_autoheld_code(client, monkeypatch):

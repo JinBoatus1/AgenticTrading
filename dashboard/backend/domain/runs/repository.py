@@ -94,6 +94,27 @@ class RunStore:
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_protocol_runs_backtest ON protocol_runs(backtest_id)"
         )
+        # protocol_steps mirrors ProtocolRun's in-memory step bookkeeping so a
+        # process restart keeps historical step-id queries and idempotent
+        # decision replays working (H4 follow-up). One row per step: a step has
+        # at most one accepted decision, so the accepted idempotency_key and
+        # its result live on the step row.
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS protocol_steps (
+                run_id TEXT NOT NULL,
+                step_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                timestamp TEXT,
+                deadline_at TEXT,
+                status TEXT NOT NULL DEFAULT 'awaiting_decision',
+                idempotency_key TEXT,
+                result_json TEXT,
+                PRIMARY KEY (run_id, step_id),
+                UNIQUE (run_id, sequence)
+            )
+            """
+        )
         conn.commit()
         conn.close()
 
@@ -222,6 +243,71 @@ class RunStore:
         conn.commit()
         conn.close()
         return int(updated)
+
+    # -- protocol_steps: persisted step bookkeeping (H4 follow-up) ---------
+
+    def save_step(self, run_id: str, step_id: str, sequence: int,
+                  timestamp: Any = None, deadline_at: Any = None) -> None:
+        """Upsert a step row when it is (re-)awaited — mirrors ensure_step_id."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO protocol_steps (run_id, step_id, sequence, timestamp,
+                                        deadline_at, status)
+            VALUES (?, ?, ?, ?, ?, 'awaiting_decision')
+            ON CONFLICT(run_id, step_id) DO UPDATE SET
+                timestamp = excluded.timestamp,
+                deadline_at = excluded.deadline_at,
+                status = 'awaiting_decision'
+            """,
+            (
+                run_id,
+                step_id,
+                int(sequence),
+                str(timestamp) if timestamp is not None else None,
+                str(deadline_at) if deadline_at is not None else None,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+    def finalize_step(self, run_id: str, step_id: str, idempotency_key: str,
+                      result: Dict[str, Any]) -> None:
+        """Record the step's one accepted decision — mirrors submit_decision."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE protocol_steps
+            SET status = 'completed', idempotency_key = ?, result_json = ?
+            WHERE run_id = ? AND step_id = ?
+            """,
+            (idempotency_key, json.dumps(result, default=str), run_id, step_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def get_steps(self, run_id: str) -> List[Dict[str, Any]]:
+        """All persisted steps for a run, in sequence order (result parsed)."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM protocol_steps WHERE run_id = ? ORDER BY sequence",
+            (run_id,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        steps = []
+        for row in rows:
+            data = dict(row)
+            raw = data.pop("result_json", None)
+            try:
+                data["result"] = json.loads(raw) if raw else None
+            except (TypeError, ValueError):
+                data["result"] = None
+            steps.append(data)
+        return steps
 
 
 run_store = RunStore()

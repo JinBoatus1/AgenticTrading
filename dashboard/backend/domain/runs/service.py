@@ -117,6 +117,9 @@ class ProtocolRun:
             self.step_meta[sid].update(
                 {"timestamp": timestamp, "deadline_at": deadline, "status": "awaiting_decision"}
             )
+        # Mirror to protocol_steps so step-id lookups and idempotent replays
+        # survive a process restart (rehydrated by _get_run).
+        run_store.save_step(self.run_id, sid, seq, timestamp, deadline)
         return sid
 
     def constraints(self) -> Dict[str, Any]:
@@ -138,6 +141,28 @@ class ProtocolRun:
         }
 
 
+def _rehydrate_steps(run: "ProtocolRun") -> None:
+    """Rebuild the in-memory step bookkeeping from protocol_steps after a
+    restart (or after the reaper dropped a terminal run from the registry)."""
+    for row in run_store.get_steps(run.run_id):
+        seq = row["sequence"]
+        sid = row["step_id"]
+        run.seq_to_step_id[seq] = sid
+        run.step_seq[sid] = seq
+        run.step_meta[sid] = {
+            "sequence": seq,
+            "timestamp": row.get("timestamp"),
+            "deadline_at": row.get("deadline_at"),
+            "status": row.get("status") or "awaiting_decision",
+        }
+        if row.get("result") is not None and row.get("idempotency_key"):
+            run.idempotency[(sid, row["idempotency_key"])] = row["result"]
+            run.step_results_by_seq[seq] = {
+                "idempotency_key": row["idempotency_key"],
+                "result": row["result"],
+            }
+
+
 def _get_run(run_id: str) -> "ProtocolRun":
     with _registry_lock:
         run = _runs.get(run_id)
@@ -149,6 +174,7 @@ def _get_run(run_id: str) -> "ProtocolRun":
             raise ProtocolError("run_not_found", "Run not found", status_code=404)
         env = get_environment(record.get("environment_id")) or {}
         run = ProtocolRun(record=record, environment=env)
+        _rehydrate_steps(run)
         with _registry_lock:
             # Double-check under the lock: a concurrent caller may have built and
             # registered the same run while we were constructing ours. Return the
@@ -201,24 +227,28 @@ def recover_orphaned_runs() -> int:
 
 def reap_runs() -> int:
     """Drive abandoned runs forward through any elapsed decision deadlines, then
-    free the market-data buffers of terminal runs by evicting their engine
-    session. The lightweight ProtocolRun (step-id map + idempotency cache) is
-    deliberately KEPT in ``_runs`` so reads and idempotent retries keep working
-    after the heavy session is gone. Idempotent and safe to call periodically.
-    Returns the number of sessions evicted this pass."""
+    free terminal runs entirely: evict the heavy engine session (market-data
+    buffers) AND drop the ProtocolRun from ``_runs`` — its step-id map and
+    idempotency cache are persisted in protocol_steps, so reads and idempotent
+    retries keep working via _get_run's rehydration. Idempotent and safe to
+    call periodically. Returns the number of sessions evicted this pass."""
     with _registry_lock:
         runs = list(_runs.values())
     reaped = 0
     for run in runs:
         try:
             session = run.session()
-            if session is None:
-                continue  # already reaped — nothing heavy left to free
-            session.drain_expired()
-            _sync_status(run)
-            if run.status in ("completed", "failed") and run.backtest_id:
-                if ebs.evict_session(run.backtest_id):
-                    reaped += 1
+            if session is not None:
+                session.drain_expired()
+                _sync_status(run)
+                if run.status in ("completed", "failed") and run.backtest_id:
+                    if ebs.evict_session(run.backtest_id):
+                        reaped += 1
+            if run.status in ("completed", "failed"):
+                # Terminal state is DB-backed (protocol_runs + protocol_steps);
+                # keeping the ProtocolRun would only grow _runs forever.
+                with _registry_lock:
+                    _runs.pop(run.run_id, None)
         except Exception as exc:  # a single wedged run must not stall the sweep
             print(f"⚠️ reap_runs: skipping {run.run_id}: {exc}")
     return reaped
@@ -672,7 +702,8 @@ def submit_decision(run_id: str, step_id: str, decision: DecisionIn) -> Dict[str
             "run_status": "completed" if run_completed else "running",
         }
 
-        # Record finalization + idempotency (scoped to this step_id).
+        # Record finalization + idempotency (scoped to this step_id), and
+        # persist so the replay survives a restart.
         run.idempotency[idem_key] = result
         run.step_results_by_seq[seq] = {
             "idempotency_key": decision.idempotency_key,
@@ -680,6 +711,9 @@ def submit_decision(run_id: str, step_id: str, decision: DecisionIn) -> Dict[str
         }
         if step_id in run.step_meta:
             run.step_meta[step_id]["status"] = "completed"
+        run_store.finalize_step(
+            run.run_id, step_id, decision.idempotency_key, result
+        )
 
         if run_completed:
             _sync_status(run)
