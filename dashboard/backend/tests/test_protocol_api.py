@@ -645,6 +645,18 @@ def test_run_access_control(client):
     other_id, other_key, _ = _new_agent(client)
     resp = client.get(f"/api/v1/runs/{run_id}", headers={"X-API-Key": other_key})
     assert resp.status_code == 403
+    # MEDIUM #9: ownership rejection uses the protocol error envelope, not a
+    # bare-string detail.
+    assert resp.json()["detail"]["error"]["code"] == "forbidden"
+
+
+def test_run_not_found_error_envelope(client):
+    """MEDIUM #9: a missing run returns the protocol error envelope with code
+    run_not_found (was a bare-string detail that broke envelope parsing)."""
+    _, key, _ = _new_agent(client)
+    resp = client.get("/api/v1/runs/run_does_not_exist", headers={"X-API-Key": key})
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["error"]["code"] == "run_not_found"
 
 
 def test_orphaned_run_denied_fail_closed(client):

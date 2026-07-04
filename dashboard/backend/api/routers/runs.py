@@ -21,7 +21,7 @@ import dashboard.backend.domain.runs.service as run_service
 from dashboard.backend.api.protocol_auth import resolve_agent_by_key
 from dashboard.backend.domain.agents.version_repository import agent_version_store
 from dashboard.backend.domain.runs.environment import default_environment_id
-from dashboard.backend.domain.runs.protocol import DecisionIn, ProtocolError
+from dashboard.backend.domain.runs.protocol import DecisionIn, ProtocolError, error_body
 from dashboard.backend.domain.runs.repository import run_store
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
@@ -45,12 +45,17 @@ def _handle_protocol_error(exc: ProtocolError):
 def _require_run_owner(run_id: str, agent: Dict[str, Any]) -> Dict[str, Any]:
     record = run_store.get_run(run_id)
     if not record:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise HTTPException(
+            status_code=404, detail=error_body("run_not_found", "Run not found")
+        )
     # Fail closed: a run with no owner agent_id (orphaned/legacy) must NOT be
     # accessible to an arbitrary authenticated agent. Only the owning agent may
     # access it.
     if not record.get("agent_id") or record["agent_id"] != agent["agent_id"]:
-        raise HTTPException(status_code=403, detail="Run belongs to a different agent")
+        raise HTTPException(
+            status_code=403,
+            detail=error_body("forbidden", "Run belongs to a different agent"),
+        )
     return record
 
 
@@ -65,9 +70,15 @@ def create_run(
     if body.agent_version_id:
         agent_version = agent_version_store.get_version(body.agent_version_id) or {}
         if not agent_version:
-            raise HTTPException(status_code=404, detail="agent_version_id not found")
+            raise HTTPException(
+                status_code=404,
+                detail=error_body("agent_version_not_found", "agent_version_id not found"),
+            )
         if agent_version["agent_id"] != agent["agent_id"]:
-            raise HTTPException(status_code=403, detail="agent_version belongs to a different agent")
+            raise HTTPException(
+                status_code=403,
+                detail=error_body("forbidden", "agent_version belongs to a different agent"),
+            )
 
     environment_id = body.environment.environment_id or default_environment_id()
     try:
@@ -135,9 +146,15 @@ def submit_step_decision(
     agent = resolve_agent_by_key(x_api_key)
     _require_run_owner(run_id, agent)
     if body.run_id and body.run_id != run_id:
-        raise HTTPException(status_code=400, detail="Body run_id does not match path run_id")
+        raise HTTPException(
+            status_code=400,
+            detail=error_body("run_id_mismatch", "Body run_id does not match path run_id"),
+        )
     if body.step_id and body.step_id != step_id:
-        raise HTTPException(status_code=400, detail="Body step_id does not match path step_id")
+        raise HTTPException(
+            status_code=400,
+            detail=error_body("step_id_mismatch", "Body step_id does not match path step_id"),
+        )
     try:
         return run_service.submit_decision(run_id, step_id, body)
     except ProtocolError as exc:

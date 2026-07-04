@@ -141,11 +141,11 @@ Create-run request:
 ```
 created → running → completed
 created/running → failed
-running → cancelled
 ```
 
 The Run loads market data asynchronously; while loading, `GET /steps/next`
-returns `{"status": "loading"}`.
+returns `{"status": "loading"}`. (There is no `cancelled` state: no route or
+service transition ever produces one, so it is not part of the protocol.)
 
 ### Step state machine
 
@@ -327,13 +327,16 @@ All protocol errors use a consistent envelope (delivered as the HTTP `detail`):
 
 | HTTP | code | meaning |
 |------|------|---------|
+| 400  | `invalid_config`, `invalid_symbols`, `too_many_orders`, `run_id_mismatch`, `step_id_mismatch` | bad request |
 | 401  | (auth) | missing/invalid `X-API-Key` |
-| 403  | (auth) | run/agent belongs to a different agent |
-| 404  | `run_not_found`, `unknown_step`, `unknown_environment` | not found |
-| 409  | `step_already_finalized` | conflicting decision on a finalized step |
-| 409  | `decision_deadline_exceeded` | decision arrived after the deadline |
+| 403  | `forbidden` | run/agent belongs to a different agent |
+| 404  | `run_not_found`, `agent_version_not_found`, `unknown_step`, `unknown_environment` | not found |
+| 409  | `step_already_finalized`, `step_not_active`, `run_not_active`, `run_completed` | state conflict on a step/run |
+| 409  | `decision_deadline_exceeded` | decision arrived after the deadline (step auto-held) |
 | 409  | `run_not_completed` | results requested before completion |
-| 400  | `invalid_config`, `invalid_symbols` | bad create-run request |
+
+Every 4xx from these routes uses the envelope above (delivered as the HTTP
+`detail`), including ownership/not-found rejections.
 
 ---
 
