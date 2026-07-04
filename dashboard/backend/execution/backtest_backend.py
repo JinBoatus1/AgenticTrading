@@ -199,6 +199,13 @@ class BacktestBackend(ExecutionBackend):
         s["loop"] = self.loop
         return s
 
+    def is_active(self) -> bool:
+        # Deliberately an unlocked attribute read: the cap check runs under the
+        # global create lock and must never take _step_lock (get_status can
+        # cascade into _maybe_apply_timeout/_finalize). Worst case the cap
+        # briefly counts a just-finished run — fine for a resource cap.
+        return self.session.status not in ("completed", "failed", "closed")
+
     def result(self) -> Optional[Dict[str, Any]]:
         if not self.session.run_id:
             return None

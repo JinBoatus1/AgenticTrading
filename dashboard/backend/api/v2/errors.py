@@ -34,13 +34,18 @@ class ApiError(Exception):
     """Raised anywhere in v2; rendered as {"error": {...}} by api_error_handler."""
 
     def __init__(self, code: str, message: str, status: int = 400,
-                 details: Optional[Dict[str, Any]] = None, retryable: bool = False):
+                 details: Optional[Dict[str, Any]] = None, retryable: bool = False,
+                 headers: Optional[Dict[str, str]] = None):
         super().__init__(message)
         self.code = code
         self.message = message
         self.status = status
         self.details = details
         self.retryable = retryable
+        # Response headers to carry on the rendered envelope. The handler
+        # builds a fresh JSONResponse, so headers set on the per-request
+        # Response object before the raise would otherwise be dropped.
+        self.headers = headers or {}
 
     def to_envelope(self) -> Dict[str, Any]:
         return {"error": {
@@ -52,7 +57,7 @@ class ApiError(Exception):
 
 
 async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
-    headers = {}
+    headers = {name: str(value) for name, value in exc.headers.items()}
     if exc.code == "rate_limited" and exc.details and "retry_after" in exc.details:
         headers["Retry-After"] = str(exc.details["retry_after"])
     return JSONResponse(status_code=exc.status, content=exc.to_envelope(), headers=headers)

@@ -77,11 +77,17 @@ limiter = TokenBucketLimiter()
 def enforce(agent_id: str, response) -> None:
     """Consume one token; set X-RateLimit-* headers; raise rate_limited on miss."""
     state = limiter.check(agent_id)
-    response.headers["X-RateLimit-Limit"] = str(state["limit"])
-    response.headers["X-RateLimit-Remaining"] = str(state["remaining"])
-    response.headers["X-RateLimit-Reset"] = str(state["reset"])
+    rl_headers = {
+        "X-RateLimit-Limit": str(state["limit"]),
+        "X-RateLimit-Remaining": str(state["remaining"]),
+        "X-RateLimit-Reset": str(state["reset"]),
+    }
+    response.headers.update(rl_headers)
     if not state["allowed"]:
+        # Carry the headers on the error too: the envelope handler renders a
+        # fresh JSONResponse, so the ones set above never reach the client.
         raise ApiError(
             "rate_limited", "Rate limit exceeded", status=429,
             details={"retry_after": state["retry_after"]}, retryable=True,
+            headers=rl_headers,
         )

@@ -6,7 +6,6 @@ in process memory (single-worker assumption, spec §12).
 
 from __future__ import annotations
 
-import os
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -22,6 +21,7 @@ from dashboard.backend.api.v2.models import (
 )
 from dashboard.backend.api.v2.auth_scopes import require_scope
 from dashboard.backend.database import db
+from dashboard.backend.domain.runs.service import MAX_ACTIVE_RUNS_PER_AGENT
 from dashboard.backend.execution.backtest_backend import BacktestBackend
 from dashboard.backend.api.v2.rate_limit import enforce
 
@@ -34,10 +34,11 @@ _lock = threading.Lock()
 # pattern as the v1 protocol's _create_lock.
 _create_lock = threading.Lock()
 
-# Same knob as the v1 protocol (domain/runs/service.py): each active run pins
-# an in-memory engine session holding market data.
-MAX_ACTIVE_RUNS_PER_AGENT = int(os.getenv("MAX_ACTIVE_RUNS_PER_AGENT", "5"))
-_TERMINAL_STATUSES = {"completed", "failed", "closed"}
+# MAX_ACTIVE_RUNS_PER_AGENT (imported from the v1 run service — one knob for
+# both surfaces): each active run pins an in-memory engine session holding
+# market data. NOTE: the cap is per SURFACE — v1 and v2 keep separate
+# registries, so an agent can hold up to 2× the limit across both; unifying
+# the registries is part of the run-lifecycle persistence work.
 
 
 def _mint_run_id() -> str:
@@ -58,12 +59,14 @@ def _active_run_count(agent_id: str) -> int:
         entries = [e for e in _runs.values() if e.get("agent_id") == agent_id]
     active = 0
     for entry in entries:
+        # is_active() is the passive liveness peek — never status(), which on
+        # a live session can cascade into deadline handling and _finalize()
+        # (seconds of baseline work) while create_run holds the global lock.
         try:
-            terminal = entry["backend"].status().get("status") in _TERMINAL_STATUSES
+            if entry["backend"].is_active():
+                active += 1
         except Exception:
-            terminal = False  # unknown state counts against the cap (fail closed)
-        if not terminal:
-            active += 1
+            active += 1  # unknown state counts against the cap (fail closed)
     return active
 
 
@@ -84,17 +87,42 @@ def _context_for(run_id: str, session_id: str) -> Dict[str, Any]:
     return backend.build_context()
 
 
+# Rejections that CONSUMED the step (the engine auto-held and advanced). These
+# must replay under their idempotency key: a same-key retry that missed the
+# cache would pass the step re-check and execute the stale actions against the
+# NEXT step's prices. Non-consuming errors (invalid_status) change nothing
+# server-side, so the same key stays retryable once the run is ready.
+_STEP_CONSUMING_REJECTIONS = {"step_already_closed", "validation_failed"}
+
+
+def _replay_rejection(marker: Dict[str, Any]) -> None:
+    raise ApiError(
+        marker["code"], marker["message"], status=marker["status"],
+        details=marker.get("details"), retryable=marker.get("retryable", False),
+    )
+
+
 def _submit_for(run_id: str, session_id: str, idem_key: str,
                 raw_actions: List[Dict[str, Any]]) -> Dict[str, Any]:
     backend = _require_run(run_id, session_id)
     step = backend.current_step_index()
     existing = db.get_idempotency(run_id, step, idem_key)
     if existing is not None:
+        if isinstance(existing, dict) and "__rejection__" in existing:
+            _replay_rejection(existing["__rejection__"])
         return existing
     # Partial execution (spec §5.3): drop schema-invalid actions with reasons,
     # execute the rest. If all are invalid, the step auto-holds (validation_hold).
     valid, rejected = validate_actions(raw_actions)
-    ack = backend.apply_decisions(valid)
+    try:
+        ack = backend.apply_decisions(valid)
+    except ApiError as exc:
+        if exc.code in _STEP_CONSUMING_REJECTIONS:
+            db.put_idempotency(run_id, step, idem_key, {"__rejection__": {
+                "code": exc.code, "message": exc.message, "status": exc.status,
+                "retryable": exc.retryable, "details": exc.details,
+            }})
+        raise
     if rejected:
         ack["rejected"] = list(ack.get("rejected") or []) + rejected
         if not valid:
