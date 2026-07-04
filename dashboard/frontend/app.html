@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=6">
+    <link rel="stylesheet" href="styles.css?v=7">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
     (function () {
@@ -103,14 +103,14 @@
     </svg>
     <!-- Header -->
     <header class="header">
-        <div class="header-brand">
+        <a class="header-brand" href="/?stay=1" aria-label="Agentic Trading Lab home">
             <div class="logo-container">
-                <img src="images/atltransparent.png" alt="AT1" class="logo-icon">
+                <img src="images/atltransparent.png" alt="" class="logo-icon">
             </div>
             <div class="title-section">
                 <h1>Agentic Trading Lab</h1>
             </div>
-        </div>
+        </a>
         <div class="header-right">
             <button id="navMenuToggle" class="nav-menu-toggle" type="button" aria-label="Open menu" aria-expanded="false">☰</button>
             <nav id="primaryNav" class="mode-toggle primary-nav" aria-label="Primary">
@@ -181,18 +181,11 @@
                     <div class="home-hero-bg" aria-hidden="true"></div>
                     <div class="home-hero-grid">
                         <div class="home-hero-left">
-                            <h2 class="home-headline">Talk to agents. Earn money.</h2>
+                            <h2 class="home-headline">
+                                Talk to Agents<br>
+                                <span class="home-headline-accent">Test Trading Ideas</span>
+                            </h2>
                             <p class="home-description">Connect your financial agent, interact through Discord, and review its decisions, trades, and performance in the lab.</p>
-                            <div class="home-actions">
-                                <button id="homeOpenPlaygroundBtn" class="home-btn home-btn-primary" type="button">
-                                    <svg class="ui-icon ui-icon--inline" aria-hidden="true"><use href="#icon-rocket"/></svg>
-                                    Open Playground
-                                </button>
-                                <a id="homeConnectDiscordBtn" class="home-btn home-btn-secondary" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">
-                                    <svg class="ui-icon ui-icon--inline ui-icon--discord" aria-hidden="true"><use href="#icon-discord"/></svg>
-                                    Connect Discord
-                                </a>
-                            </div>
                             <div class="hero-agent-network" aria-hidden="true">
                                 <svg viewBox="0 0 720 300" preserveAspectRatio="xMidYMid meet" class="hero-agent-network-svg">
                                     <defs>
@@ -1439,7 +1432,7 @@
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
     <script src="js/portfolio.js?v=2"></script>
-    <script src="app.js?v=7"></script>
+    <script src="app.js?v=8"></script>
     <script src="js/leaderboard.js?v=11"></script>
     <script src="home-page.js"></script>
 </body>

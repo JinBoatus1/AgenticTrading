@@ -81,6 +81,13 @@ body {
     align-items: center;
     gap: 12px;
     min-width: 0;
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+}
+
+a.header-brand:hover .title-section h1 {
+    color: var(--info-color);
 }
 
 .logo-container {
@@ -3868,12 +3875,13 @@ body {
 .home-page {
     width: 100%;
     box-sizing: border-box;
-    padding-inline: clamp(20px, 2vw, 40px);
+    /* ~2× previous side gutters (was clamp(20px, 2vw, 40px) + max-width 1600px) */
+    padding-inline: clamp(40px, 4vw, 80px);
 }
 
 .home-page__inner {
     width: 100%;
-    max-width: 1600px;
+    max-width: 1280px;
     margin-inline: auto;
     display: flex;
     flex-direction: column;
@@ -3958,11 +3966,11 @@ body {
 .home-eyebrow { margin: 0 0 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: none; color: var(--home-accent-cyan); }
 .home-headline {
     margin: 0 0 12px; font-size: clamp(40px, 3.2vw, 58px); font-weight: 800;
-    line-height: 0.98; letter-spacing: -0.04em; text-wrap: balance; color: var(--text-primary);
+    line-height: 1.05; letter-spacing: -0.04em; color: var(--text-primary);
     position: relative; z-index: 2;
 }
+.home-headline-accent { color: var(--home-accent-cyan); }
 .home-description { margin: 0 0 18px; color: var(--text-secondary); font-size: 15px; line-height: 1.6; max-width: 520px; position: relative; z-index: 2; }
-.home-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; position: relative; z-index: 2; }
 
 .hero-agent-network {
     position: absolute;
@@ -4300,12 +4308,9 @@ body {
 .home-live-toast--blue .home-live-toast-action { color: #60a5fa; }
 .home-live-toast--blue .home-live-toast-icon { border-color: rgba(59,130,246,0.28); background: rgba(59,130,246,0.08); color: #60a5fa; }
 
-@media (min-width: 1360px) { .home-headline { white-space: nowrap; } }
-
 @media (max-width: 1200px) {
     .home-dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .home-hero-grid { grid-template-columns: 1fr; }
-    .home-headline { white-space: normal; }
 }
 
 @media (max-width: 900px) {

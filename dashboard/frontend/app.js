@@ -903,6 +903,28 @@ function openAuthModal(mode = 'login') {
   modal.hidden = false;
 }
 
+/** Open auth modal from landing-page links (?auth=login|signup). */
+function openAuthFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const auth = (params.get('auth') || '').toLowerCase();
+  if (auth !== 'login' && auth !== 'signup') return;
+
+  // Already signed in — stay on the dashboard, no modal.
+  if (localStorage.getItem(AUTH_TOKEN_KEY) && getStoredAuthUser()) {
+    params.delete('auth');
+    const clean = params.toString();
+    const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', next);
+    return;
+  }
+
+  openAuthModal(auth === 'signup' ? 'signup' : 'login');
+  params.delete('auth');
+  const clean = params.toString();
+  const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+  window.history.replaceState({}, '', next);
+}
+
 function closeAuthModal() {
   const modal = document.getElementById('authModal');
   const form = document.getElementById('authForm');
@@ -1001,6 +1023,7 @@ function initAuthUI() {
 
   window.AUTH_USER = getStoredAuthUser();
   updateAuthUI();
+  openAuthFromUrl();
   refreshAuthUser();
 }
 
