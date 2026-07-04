@@ -16,6 +16,12 @@ eggs/
 .eggs/
 lib/
 lib64/
+# ...but the landing app's shadcn `cn` helper lives in src/lib/ — that's app
+# source, not a Python build dir. Re-include it (the blanket `lib/` above is a
+# Python-packaging rule and would otherwise make the landing un-buildable from a
+# clean clone).
+!dashboard/landing/src/lib/
+!dashboard/landing/src/lib/**
 parts/
 sdist/
 var/
