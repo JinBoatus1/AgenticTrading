@@ -8,11 +8,13 @@
 """
 
 import inspect
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 
 from dashboard.backend.app import app
+from dashboard.backend.api.rate_limit import FixedWindowRateLimiter
 import dashboard.backend.api.routers.backtests as bt
 
 
@@ -85,3 +87,109 @@ def test_plot_png_missing_run_not_cached(monkeypatch):
         bt._render_run_plot_png("missing")
     assert hits["n"] == 1  # re-evaluated, not served from a cached exception
     bt._render_run_plot_png.cache_clear()
+
+
+# ===========================================================================
+# #2 — /backtest/run: cost-abuse hardening
+# ===========================================================================
+
+class _Spy:
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self, *a, **k):
+        self.calls += 1
+
+
+@pytest.fixture(autouse=True)
+def _reset_backtest_guards(monkeypatch):
+    bt._backtest_rate_limiter.reset()
+    bt.backtest_status.update({"running": False, "error": None, "runs_count": 0})
+    # Safety net: no test in this file may launch a real backtest thread.
+    monkeypatch.setattr(bt, "run_backtest_background", lambda *a, **k: None)
+    yield
+    bt._backtest_rate_limiter.reset()
+
+
+def _sess():
+    return {"X-Session-Id": str(uuid.uuid4())}
+
+
+def test_backtest_run_valid_request_ok():
+    resp = TestClient(app).post(
+        "/backtest/run",
+        json={"start_date": "2026-05-01", "end_date": "2026-05-07"},
+        headers=_sess(),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+
+def test_backtest_run_accepts_known_model():
+    resp = TestClient(app).post(
+        "/backtest/run",
+        json={"start_date": "2026-05-01", "end_date": "2026-05-02", "model": "claude-haiku-4"},
+        headers=_sess(),
+    )
+    assert resp.status_code == 200
+
+
+def test_backtest_run_rejects_unlisted_model(monkeypatch):
+    spy = _Spy()
+    monkeypatch.setattr(bt, "run_backtest_background", spy)
+    resp = TestClient(app).post(
+        "/backtest/run",
+        json={"start_date": "2026-05-01", "end_date": "2026-05-02",
+              "model": "totally-not-a-real-model-xyz"},
+        headers=_sess(),
+    )
+    assert resp.status_code == 422
+    assert spy.calls == 0  # nothing scheduled
+
+
+def test_backtest_run_rejects_oversized_prompt(monkeypatch):
+    spy = _Spy()
+    monkeypatch.setattr(bt, "run_backtest_background", spy)
+    resp = TestClient(app).post(
+        "/backtest/run",
+        json={"start_date": "2026-05-01", "end_date": "2026-05-02",
+              "strategy_prompt": "x" * 5000},
+        headers=_sess(),
+    )
+    assert resp.status_code == 422
+    assert spy.calls == 0
+
+
+def test_backtest_run_rejects_excessive_date_range(monkeypatch):
+    spy = _Spy()
+    monkeypatch.setattr(bt, "run_backtest_background", spy)
+    resp = TestClient(app).post(
+        "/backtest/run",
+        json={"start_date": "2020-01-01", "end_date": "2026-01-01"},
+        headers=_sess(),
+    )
+    assert resp.status_code == 422
+    assert spy.calls == 0
+
+
+def test_backtest_run_rejects_bad_date_format():
+    resp = TestClient(app).post(
+        "/backtest/run",
+        json={"start_date": "05/01/2026", "end_date": "2026-05-02"},
+        headers=_sess(),
+    )
+    assert resp.status_code == 422
+
+
+def test_backtest_run_rate_limited_per_client(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(
+        bt, "_backtest_rate_limiter",
+        FixedWindowRateLimiter(max_events=2, window_seconds=3600, clock=lambda: now[0]),
+    )
+    client = TestClient(app)
+    headers = _sess()  # same session -> same rate key across the three calls
+    body = {"start_date": "2026-05-01", "end_date": "2026-05-02"}
+    assert client.post("/backtest/run", json=body, headers=headers).status_code == 200
+    assert client.post("/backtest/run", json=body, headers=headers).status_code == 200
+    assert client.post("/backtest/run", json=body, headers=headers).status_code == 429

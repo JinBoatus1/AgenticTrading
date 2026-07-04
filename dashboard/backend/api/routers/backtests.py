@@ -37,6 +37,8 @@ import matplotlib.ticker as mticker
 from dashboard.backend.database import db, DB_PATH
 from dashboard.backend.paths import DASHBOARD_DIR, REPO_ROOT, SCRIPTS_DIR
 from dashboard.backend.middleware import get_session_id_from_request
+from dashboard.backend.api.rate_limit import FixedWindowRateLimiter, client_key
+from dashboard.backend.infrastructure.llm.token_cost import is_known_model
 
 router = APIRouter()
 
@@ -267,6 +269,56 @@ class BacktestRunRequest(BaseModel):
     model: Optional[str] = None
 
 
+# /backtest/run spends real operator LLM credits per trading hour of the run, on
+# an anonymous (session-id-only) surface. The params arrive as EITHER query
+# params or a JSON body, so validation runs on the merged effective values in the
+# handler rather than only on the Pydantic body.
+MAX_STRATEGY_PROMPT_CHARS = 4000
+MAX_BACKTEST_DAYS = 31
+
+# Per-client run budget (best-effort in-process; see api/rate_limit). The global
+# ``backtest_status["running"]`` flag already blocks *concurrent* runs; this caps
+# *serial* abuse (start, wait, start, ...).
+_backtest_rate_limiter = FixedWindowRateLimiter(max_events=10, window_seconds=3600)
+
+
+def _parse_ymd(value: str, field: str) -> datetime:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail=f"{field} must be a date in YYYY-MM-DD format.")
+
+
+def _validate_backtest_params(start_date, end_date, strategy_prompt, model) -> None:
+    """Reject cost-abuse inputs before scheduling the background run.
+
+    - ``model`` must be a known/priced model id (or a free/local marker), so a
+      caller cannot force an arbitrary or the most expensive model.
+    - ``strategy_prompt`` is length-capped (it is injected into every LLM call).
+    - the date range must be well-formed and bounded (each extra day is more
+      hourly LLM calls).
+    """
+    if model and not is_known_model(model):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported model '{model}'. Choose a known model id.",
+        )
+    if strategy_prompt and len(strategy_prompt) > MAX_STRATEGY_PROMPT_CHARS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"strategy_prompt too long (max {MAX_STRATEGY_PROMPT_CHARS} characters).",
+        )
+    start = _parse_ymd(start_date, "start_date")
+    end = _parse_ymd(end_date, "end_date")
+    if end < start:
+        raise HTTPException(status_code=422, detail="end_date must not be before start_date.")
+    if (end - start).days > MAX_BACKTEST_DAYS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Date range too large (max {MAX_BACKTEST_DAYS} days).",
+        )
+
+
 @router.post("/backtest/run")
 async def run_backtest_endpoint(
     request: Request,
@@ -291,6 +343,16 @@ async def run_backtest_endpoint(
         end_date = body.end_date or end_date
         strategy_prompt = body.strategy_prompt or strategy_prompt
         model = body.model or model
+
+    # Guard operator LLM spend BEFORE scheduling anything. Validation first (so a
+    # caller correcting a bad request isn't charged rate budget for a typo), then
+    # the per-client run budget.
+    _validate_backtest_params(start_date, end_date, strategy_prompt, model)
+    if not _backtest_rate_limiter.allow(client_key(request)):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many backtests started recently; please try again later.",
+        )
 
     session_id = request.state.session_id
     print(f"📌 /backtest/run endpoint called: start_date={start_date}, end_date={end_date}", flush=True)
