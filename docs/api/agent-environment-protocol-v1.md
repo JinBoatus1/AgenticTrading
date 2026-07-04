@@ -127,7 +127,6 @@ Create-run request:
     "start_date": "2026-04-15",
     "end_date": "2026-04-30",
     "symbols": ["AAPL", "MSFT"],
-    "initial_cash": 100000,
     "mode": "safe_trading"
   }
 }

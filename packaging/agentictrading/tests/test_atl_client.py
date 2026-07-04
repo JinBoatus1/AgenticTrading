@@ -98,6 +98,17 @@ def test_create_run_rejects_custom_initial_cash():
     assert exc.value.code == "initial_cash_fixed"
 
 
+def test_create_run_rejects_custom_initial_cash_via_config():
+    """The guard can't be bypassed by smuggling initial_cash through the raw
+    config dict (config is merged into run_config, so it must be re-checked)."""
+    with pytest.raises(ATLValidationError) as exc:
+        _client().create_run(
+            "agv_1", environment_id="e", start_date="a", end_date="b",
+            config={"initial_cash": 50_000},
+        )
+    assert exc.value.code == "initial_cash_fixed"
+
+
 def test_create_run_accepts_the_fixed_default_initial_cash(fake_http):
     """Passing the fixed default is tolerated (backward compat) and still omitted
     from the wire payload."""

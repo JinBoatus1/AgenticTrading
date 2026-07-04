@@ -60,7 +60,6 @@ def main() -> int:
         start_date=start,
         end_date=end,
         symbols=["AAPL", "MSFT"],
-        initial_cash=100_000,
     )
     print(f"Run: {run.id}\n")
 

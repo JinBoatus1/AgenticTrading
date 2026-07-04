@@ -235,14 +235,6 @@ class ATLClient:
             )
         # The backtest environment fixes starting capital (backend INITIAL_CAPITAL).
         _FIXED_INITIAL_CASH = 100_000
-        if initial_cash is not None and float(initial_cash) != _FIXED_INITIAL_CASH:
-            raise ATLValidationError(
-                f"initial_cash is fixed at {_FIXED_INITIAL_CASH:.0f} in this "
-                "environment; custom starting capital is not supported",
-                code="initial_cash_fixed",
-            )
-        # Omit initial_cash from the payload — the environment applies its fixed
-        # default, so we don't advertise a knob the backend won't honor.
         run_config: Dict[str, Any] = {
             "start_date": start_date,
             "end_date": end_date,
@@ -251,6 +243,17 @@ class ATLClient:
             run_config["symbols"] = symbols
         if config:
             run_config.update(config)
+        # Validate the EFFECTIVE value — from the kwarg OR a raw config dict — so
+        # config={"initial_cash": ...} can't smuggle a value past the guard, then
+        # never put it on the wire (the environment applies its fixed default).
+        effective_cash = run_config.get("initial_cash", initial_cash)
+        if effective_cash is not None and float(effective_cash) != _FIXED_INITIAL_CASH:
+            raise ATLValidationError(
+                f"initial_cash is fixed at {_FIXED_INITIAL_CASH:.0f} in this "
+                "environment; custom starting capital is not supported",
+                code="initial_cash_fixed",
+            )
+        run_config.pop("initial_cash", None)
         body = {
             "agent_version_id": agent_version_id,
             "environment": {"type": environment_type, "environment_id": environment_id},

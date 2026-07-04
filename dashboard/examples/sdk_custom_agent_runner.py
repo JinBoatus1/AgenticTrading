@@ -106,7 +106,6 @@ def main() -> int:
         environment_id="us-equity-hourly-v1",
         start_date=start,
         end_date=end,
-        initial_cash=100_000,
     )
 
     print("\n=== Metrics ===")
