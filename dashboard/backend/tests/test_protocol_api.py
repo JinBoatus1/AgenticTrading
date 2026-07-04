@@ -638,16 +638,27 @@ def test_run_result_before_completion(client):
 
 
 def test_run_access_control(client):
+    """Another agent's run answers exactly like a missing one — a 403-vs-404
+    split across the ten /runs/{run_id}/* endpoints would let any key holder
+    enumerate which run ids exist (the create_run agent_version convention)."""
     agent_id, key, _ = _new_agent(client)
     version_id = _new_version(client, agent_id, key)
     run_id = _create_run(client, key, version_id)
 
     other_id, other_key, _ = _new_agent(client)
-    resp = client.get(f"/api/v1/runs/{run_id}", headers={"X-API-Key": other_key})
-    assert resp.status_code == 403
-    # MEDIUM #9: ownership rejection uses the protocol error envelope, not a
-    # bare-string detail.
-    assert resp.json()["detail"]["error"]["code"] == "forbidden"
+    denied = client.get(f"/api/v1/runs/{run_id}", headers={"X-API-Key": other_key})
+    missing = client.get(
+        "/api/v1/runs/run_does_not_exist", headers={"X-API-Key": other_key}
+    )
+    assert denied.status_code == 404, denied.text
+    assert missing.status_code == 404
+    # Identical envelopes — no code/message side channel (MEDIUM #9 envelope kept).
+    assert denied.json() == missing.json()
+    assert denied.json()["detail"]["error"]["code"] == "run_not_found"
+
+    # The owner still reads it fine.
+    ok = client.get(f"/api/v1/runs/{run_id}", headers={"X-API-Key": key})
+    assert ok.status_code == 200
 
 
 def test_run_not_found_error_envelope(client):
@@ -680,7 +691,9 @@ def test_orphaned_run_denied_fail_closed(client):
     resp = client.get(
         f"/api/v1/runs/{orphan['run_id']}", headers={"X-API-Key": key}
     )
-    assert resp.status_code == 403, resp.text
+    # 404, not 403: fail-closed AND indistinguishable from a missing run.
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["detail"]["error"]["code"] == "run_not_found"
 
 
 # ----------------------------------------------------------------------

@@ -211,6 +211,31 @@ def test_lower_layers_do_not_import_api_or_app(layer):
     assert offenders == [], f"{layer} imports API/app: {offenders}"
 
 
+def test_execution_layer_imports_only_the_v2_contract_from_api():
+    """execution/ is application-layer glue: it binds domain engines to the v2
+    API contract, so it may import the contract modules (api.v2.models /
+    api.v2.errors) but must not reach routers, dependencies, auth, or the app
+    composition root — otherwise it silently becomes a second api layer."""
+    exec_dir = _BACKEND / "execution"
+    allowed = {
+        "dashboard.backend.api.v2.models",
+        "dashboard.backend.api.v2.errors",
+    }
+    offenders = []
+    for path in exec_dir.rglob("*.py"):
+        if "__pycache__" in path.parts:
+            continue
+        for mod in _imported_modules(path):
+            if mod == "dashboard.backend.app" or mod.startswith("dashboard.backend.app."):
+                offenders.append((path.name, mod))
+            elif (
+                mod == "dashboard.backend.api"
+                or mod.startswith("dashboard.backend.api.")
+            ) and mod not in allowed:
+                offenders.append((path.name, mod))
+    assert offenders == [], f"execution/ imports beyond the v2 contract: {offenders}"
+
+
 # ---------------------------------------------------------------------------
 # Removed compatibility shims stay gone
 # ---------------------------------------------------------------------------

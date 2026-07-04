@@ -44,17 +44,17 @@ def _handle_protocol_error(exc: ProtocolError):
 
 def _require_run_owner(run_id: str, agent: Dict[str, Any]) -> Dict[str, Any]:
     record = run_store.get_run(run_id)
-    if not record:
+    # Fail closed AND no existence oracle: a run owned by another agent — or an
+    # orphaned/legacy row with no owner agent_id — answers exactly like a
+    # missing run. A 403-vs-404 split would let any key holder enumerate which
+    # run ids exist (same convention as create_run's agent_version lookup).
+    if (
+        not record
+        or not record.get("agent_id")
+        or record["agent_id"] != agent["agent_id"]
+    ):
         raise HTTPException(
             status_code=404, detail=error_body("run_not_found", "Run not found")
-        )
-    # Fail closed: a run with no owner agent_id (orphaned/legacy) must NOT be
-    # accessible to an arbitrary authenticated agent. Only the owning agent may
-    # access it.
-    if not record.get("agent_id") or record["agent_id"] != agent["agent_id"]:
-        raise HTTPException(
-            status_code=403,
-            detail=error_body("forbidden", "Run belongs to a different agent"),
         )
     return record
 

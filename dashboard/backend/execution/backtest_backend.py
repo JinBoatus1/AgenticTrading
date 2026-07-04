@@ -11,6 +11,7 @@ import json
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
+from dashboard.backend.api.v2.errors import ApiError
 from dashboard.backend.api.v2.models import SCHEMA_VERSION
 from dashboard.backend.database import db
 from dashboard.backend.execution.base import ExecutionBackend
@@ -64,7 +65,10 @@ class BacktestBackend(ExecutionBackend):
         def _load() -> None:
             try:
                 self.session.load_market_data()
-            except Exception as exc:  # mirror v1 start_backtest behavior
+            except (Exception, SystemExit) as exc:  # mirror v1 start_backtest behavior
+                # SystemExit too: AlpacaDataLoader sys.exit()s when creds are
+                # absent, and a daemon thread swallows an uncaught SystemExit
+                # silently — the run would sit in "loading" forever.
                 # Take the session lock: HTTP readers inspect status/error under
                 # the same lock (get_current_step/get_status), so the writer must
                 # hold it too to avoid a data race on these fields.
@@ -121,11 +125,44 @@ class BacktestBackend(ExecutionBackend):
 
     # -- decisions ---------------------------------------------------------
 
+    @staticmethod
+    def _raise_rejection(result: Dict[str, Any]) -> None:
+        """Map the engine's non-accepted submit results to typed v2 errors.
+
+        Flattening them into the ack shape would report a refused submission
+        as an accepted-looking decision attributed to "external_agent"."""
+        err = str(result.get("error") or "invalid_status")
+        if err == "step_already_closed":
+            raise ApiError(
+                "step_already_closed",
+                "The step closed before the decision arrived (step auto-held)",
+                status=409, retryable=True,
+                details={"outcome": result.get("outcome"),
+                         "next_step": result.get("next_step")},
+            )
+        if err == "backtest_already_completed":
+            raise ApiError("invalid_status", "Run already completed", status=409)
+        if err.startswith("invalid_status:"):
+            state = err.split(":", 1)[1]
+            raise ApiError(
+                "invalid_status",
+                f"Run is not awaiting a decision (status: {state})", status=409,
+                retryable=state == "loading",
+            )
+        # Engine-level payload rejection (parse failure etc.) — the step was
+        # auto-held with decision_source="validation_hold" by the engine.
+        raise ApiError(
+            "validation_failed", err, status=422,
+            details={"outcome": result.get("outcome")},
+        )
+
     def apply_decisions(self, actions: List[Dict[str, Any]]) -> Dict[str, Any]:
         # Actions arrive pre-validated from the v2 boundary (validate_actions);
         # this backend executes them and reports execution results. Schema-level
         # rejections are merged in by the boundary.
         result = self.session.submit_decisions({"actions": actions})
+        if not result.get("accepted", True):
+            self._raise_rejection(result)
 
         executed = [
             {"action": e.get("action"), "symbol": e.get("symbol"),

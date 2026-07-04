@@ -55,7 +55,11 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["content-type", "authorization", "x-session-id", "x-browser-id", "x-api-key", "accept"],
-    expose_headers=["content-type", "cache-control", "etag", "x-session-id"],
+    # x-ratelimit-*/retry-after: the v2 spec promises these to agent clients;
+    # browsers strip headers absent from Access-Control-Expose-Headers.
+    expose_headers=["content-type", "cache-control", "etag", "x-session-id",
+                    "x-ratelimit-limit", "x-ratelimit-remaining",
+                    "x-ratelimit-reset", "retry-after"],
     max_age=3600,
 )
 

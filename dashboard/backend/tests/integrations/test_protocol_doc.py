@@ -25,8 +25,11 @@ def test_doc_has_no_phantom_cancelled_state():
 def test_doc_error_table_documents_actually_emitted_codes():
     doc = _doc()
     # Codes the runs router / run service actually raise (via the error envelope).
-    for code in ("forbidden", "run_not_found", "agent_version_not_found",
+    for code in ("run_not_found", "agent_version_not_found",
                  "too_many_orders", "decision_deadline_exceeded",
                  "unsupported_environment", "result_not_found",
                  "too_many_active_runs", "run_failed"):
         assert f"`{code}`" in doc, code
+    # The runs router no longer emits `forbidden`: denied lookups collapse to
+    # 404 (no existence oracle), so the doc must not advertise a 403 row.
+    assert "| 403" not in doc
