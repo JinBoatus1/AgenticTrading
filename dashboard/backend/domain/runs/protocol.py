@@ -6,8 +6,8 @@ and translation between protocol ``orders`` and the engine's legacy ``actions``
 payload. Execution/validation itself is reused from ``llm_validator`` and the
 backtest engine — nothing here re-implements trading logic.
 
-Moved verbatim (Phase 3B2) from ``dashboard/backend/protocol.py``, which is now a
-thin compatibility re-export shim. Public classes, constants, schemas, signatures,
+Moved verbatim (Phase 3B2) from ``dashboard/backend/protocol.py``; the original
+module was removed in Phase 4A. Public classes, constants, schemas, signatures,
 and behavior are unchanged; only the module location moved.
 """
 

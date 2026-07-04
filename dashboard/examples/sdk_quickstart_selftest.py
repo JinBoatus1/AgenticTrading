@@ -26,7 +26,7 @@ Run it:
 Optional env overrides:
   ATL_BASE_URL   (default http://127.0.0.1:8000)
   ATL_START_DATE (default 2026-04-15)
-  ATL_END_DATE   (default 2026-04-22)
+  ATL_END_DATE   (default 2026-04-30)
 """
 
 from __future__ import annotations

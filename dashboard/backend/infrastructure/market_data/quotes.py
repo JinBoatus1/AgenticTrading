@@ -2,7 +2,7 @@
 Market data fetcher - connects to Alpaca API for live quotes.
 
 Canonical location (Phase 3D1). Moved verbatim from
-``dashboard/backend/market_data.py`` (now a thin compatibility re-export shim).
+``dashboard/backend/market_data.py`` (original module removed in Phase 4A).
 Provider URLs, endpoints, request methods/headers/params/timeouts/retries,
 symbol/timestamp handling, returned schemas, fallback behavior, caching, and
 logging are unchanged; only the module location moved.

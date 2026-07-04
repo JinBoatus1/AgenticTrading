@@ -1,7 +1,7 @@
 """Paper-trading session tracking (canonical location, Phase 3C5B).
 
-Moved verbatim from ``dashboard/backend/paper_trading.py`` (now a thin
-compatibility re-export shim). Public symbols, signatures, defaults, stored
+Moved verbatim from ``dashboard/backend/paper_trading.py`` (original module
+removed in Phase 4A). Public symbols, signatures, defaults, stored
 fields, timestamps, returned schemas, and exceptions are unchanged; only the
 module location moved. This module owns session-tracking workflow only; the
 Alpaca provider adapter lives in

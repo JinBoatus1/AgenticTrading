@@ -1,8 +1,8 @@
 """Leaderboard contest: baseline strategies on a fixed backtest window.
 
 Canonical location (Phase 3C3). Moved from
-``dashboard/backend/services/leaderboard_service.py``, which is now a thin
-compatibility re-export shim. Public functions, ranking behavior, filtering,
+``dashboard/backend/services/leaderboard_service.py``; the original module was
+removed in Phase 4A. Public functions, ranking behavior, filtering,
 ordering, metrics, result schemas, constants, and database behavior are
 unchanged; only the module location and the leaderboard-domain import paths
 moved.

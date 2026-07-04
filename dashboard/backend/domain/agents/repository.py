@@ -1,8 +1,9 @@
 """Registered external agents with persistent trading sessions and API keys.
 
-Moved verbatim (Phase 3A1) from ``dashboard/backend/agent_store.py``, which is now
-a thin compatibility re-export shim. Public classes, the ``agent_store`` singleton,
-SQL, return schemas, and behavior are unchanged; only the module location moved.
+Moved verbatim (Phase 3A1) from ``dashboard/backend/agent_store.py``; the
+original module was removed in Phase 4A. Public classes, the ``agent_store``
+singleton, SQL, return schemas, and behavior are unchanged; only the module
+location moved.
 """
 
 from __future__ import annotations

@@ -5,8 +5,8 @@ hashes, etc.) of an Agent at a point in time. Versions are immutable once
 created: changing a strategy means creating a new version. Runs reference a
 specific AgentVersion so results are always tied to a reproducible config.
 
-Moved verbatim (Phase 3A1) from ``dashboard/backend/agent_version_store.py``,
-which is now a thin compatibility re-export shim. Public classes, constants, the
+Moved verbatim (Phase 3A1) from ``dashboard/backend/agent_version_store.py``;
+the original module was removed in Phase 4A. Public classes, constants, the
 ``agent_version_store`` singleton, SQL, return schemas, and behavior are
 unchanged; only the module location moved.
 """

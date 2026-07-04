@@ -10,8 +10,8 @@ execution and persistence to the engine and ``llm_validator``. It adds:
 * protocol-shaped Observation / ExecutionResult payloads,
 * a simple run/step state machine and clear deadline errors.
 
-Moved verbatim (Phase 3B1) from ``dashboard/backend/run_service.py``, which is
-now a thin compatibility re-export shim. Public functions, ``ProtocolRun``,
+Moved verbatim (Phase 3B1) from ``dashboard/backend/run_service.py``; the
+original module was removed in Phase 4A. Public functions, ``ProtocolRun``,
 module-level registries, signatures, and behavior are unchanged; only the module
 location moved (and the ``run_store`` import now points at the canonical
 repository).

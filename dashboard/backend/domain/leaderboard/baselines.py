@@ -4,8 +4,8 @@ Strategy *logic* lives in the leaderboard ``strategies`` package — one file pe
 strategy. This module just handles data fetching, dispatch, and metrics.
 
 Canonical location (Phase 3C3). Moved from
-``dashboard/backend/engines/leaderboard_baselines.py``, which is now a thin
-compatibility re-export shim. The reusable backtest metric helpers and the
+``dashboard/backend/engines/leaderboard_baselines.py``; the original module was
+removed in Phase 4A. The reusable backtest metric helpers and the
 Alpaca market-data provider are imported from their canonical homes (not
 duplicated here); only the leaderboard-specific contest-window fetch, metric
 aggregation schema, and daily downsample policy live here.

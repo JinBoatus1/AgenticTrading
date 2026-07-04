@@ -7,8 +7,8 @@ result run (agent_runs.run_id, e.g. ext_...). Persisting this mapping lets the
 Run API answer GET /runs/{run_id} and result/metric queries even after the
 in-memory engine session is gone.
 
-Moved verbatim (Phase 3B1) from ``dashboard/backend/run_store.py``, which is now
-a thin compatibility re-export shim. Public class, the ``run_store`` singleton,
+Moved verbatim (Phase 3B1) from ``dashboard/backend/run_store.py``; the original
+module was removed in Phase 4A. Public class, the ``run_store`` singleton,
 SQL, return schemas, and behavior are unchanged; only the module location moved.
 """
 

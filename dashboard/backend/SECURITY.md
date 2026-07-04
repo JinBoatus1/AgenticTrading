@@ -23,10 +23,9 @@ The backend now provides **safe LLM integration** that:
 
 | File | Purpose |
 |------|---------|
-| `llm_validator.py` | Validation engine (schema, constraints, tool rejection) |
+| `infrastructure/llm/validator.py` | Validation engine (schema, constraints, tool rejection) |
 | `llm_integration_example.py` | Example endpoint to add to app.py |
-| `test_llm_validator.py` | 50+ unit tests (all cases including security) |
-| `../SECURITY_AUDIT.md` | Full risk analysis and remediation plan |
+| `tests/test_llm_validator.py` | 50+ unit tests (all cases including security) |
 
 ---
 
@@ -36,14 +35,14 @@ The backend now provides **safe LLM integration** that:
 # Install pytest if not present
 pip install pytest
 
-# Run all validator tests
-pytest tests/test_llm_validator.py -v
+# Run all validator tests (from the repo root)
+pytest dashboard/backend/tests/test_llm_validator.py -v
 
 # Run specific test category
-pytest tests/test_llm_validator.py::TestToolCallingRejection -v
+pytest dashboard/backend/tests/test_llm_validator.py::TestToolCallingRejection -v
 
 # Check test coverage
-pytest tests/test_llm_validator.py --cov=llm_validator
+pytest dashboard/backend/tests/test_llm_validator.py --cov=dashboard.backend.infrastructure.llm.validator
 ```
 
 **Expected:** All tests pass ✅
@@ -55,7 +54,7 @@ pytest tests/test_llm_validator.py --cov=llm_validator
 ### In Your Code
 
 ```python
-from llm_validator import validate_llm_response
+from dashboard.backend.infrastructure.llm.validator import validate_llm_response
 
 # Get response from LLM
 raw_response = llm.call(prompt)  # JSON string from LLM
@@ -292,7 +291,7 @@ All decisions logged:
 ### Run All Tests
 
 ```bash
-pytest tests/test_llm_validator.py -v
+pytest dashboard/backend/tests/test_llm_validator.py -v
 ```
 
 Output:
@@ -318,7 +317,7 @@ tests/test_llm_validator.py::TestPortfolioConstraints::test_insufficient_cash PA
 This is the most critical test. Ensure it passes:
 
 ```bash
-pytest tests/test_llm_validator.py::TestToolCallingRejection -v
+pytest dashboard/backend/tests/test_llm_validator.py::TestToolCallingRejection -v
 ```
 
 Must see:
@@ -431,7 +430,7 @@ Use for:
 
 ## Troubleshooting Checklist
 
-- [ ] Tests pass: `pytest tests/test_llm_validator.py -v`
+- [ ] Tests pass: `pytest dashboard/backend/tests/test_llm_validator.py -v`
 - [ ] Environment variable set: `echo $ANTHROPIC_API_KEY`
 - [ ] Anthropic SDK installed: `pip list | grep anthropic`
 - [ ] No tools in API call (removed `tools=[...]`)
@@ -444,25 +443,23 @@ Use for:
 
 ## Next Steps
 
-1. **Run tests:** `pytest tests/test_llm_validator.py -v`
-2. **Review:** Read `../SECURITY_AUDIT.md` for full context
-3. **Integrate:** Use `llm_integration_example.py` as template
-4. **Test endpoint:** Make sample API call to `/api/llm-trading-decision`
-5. **Monitor:** Check logs for `AUDIT:` entries
+1. **Run tests:** `pytest dashboard/backend/tests/test_llm_validator.py -v`
+2. **Integrate:** Use `llm_integration_example.py` as template
+3. **Test endpoint:** Make sample API call to `/api/llm-trading-decision`
+4. **Monitor:** Check logs for `AUDIT:` entries
 
 ---
 
 ## References
 
-- **SECURITY_AUDIT.md** — Full risk analysis and remediation plan
-- **llm_validator.py** — Source code for validation
+- **infrastructure/llm/validator.py** — Source code for validation
 - **llm_integration_example.py** — Integration pattern
-- **test_llm_validator.py** — Test coverage (50+ tests)
+- **tests/test_llm_validator.py** — Test coverage (50+ tests)
 
 ---
 
-**Questions?** Check the source files or review SECURITY_AUDIT.md.
+**Questions?** Check the source files above.
 
-**Security concern?** Update llm_validator.py and re-run tests.
+**Security concern?** Update `infrastructure/llm/validator.py` and re-run tests.
 
 **New constraints?** Modify `PortfolioConstraints` and add tests.

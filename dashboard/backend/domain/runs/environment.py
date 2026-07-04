@@ -5,8 +5,8 @@ schema, constraints). For this version only the existing hourly US-equity
 backtest is exposed. The registry is intentionally data-driven so paper/live
 environments can be added later without changing the Run API.
 
-Moved verbatim (Phase 3B2) from ``dashboard/backend/environments.py``, which is
-now a thin compatibility re-export shim. The ``ENVIRONMENTS`` registry, public
+Moved verbatim (Phase 3B2) from ``dashboard/backend/environments.py``; the
+original module was removed in Phase 4A. The ``ENVIRONMENTS`` registry, public
 functions, and behavior are unchanged; only the module location moved.
 """
 

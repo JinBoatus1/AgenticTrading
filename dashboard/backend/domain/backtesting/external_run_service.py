@@ -5,8 +5,8 @@ Each trading hour waits up to DECISION_TIMEOUT_SECONDS for POST /decisions;
 otherwise the step auto-holds (no trades).
 
 Canonical location (Phase 3C1). Moved verbatim from
-``dashboard/backend/external_backtest_service.py``, which is now a thin
-compatibility re-export shim. Public classes, functions, constants, singletons,
+``dashboard/backend/external_backtest_service.py``; the original module was
+removed in Phase 4A. Public classes, functions, constants, singletons,
 signatures, return schemas, exceptions, logging, persistence, result
 serialization, and backtest orchestration are unchanged; only the module
 location moved.
