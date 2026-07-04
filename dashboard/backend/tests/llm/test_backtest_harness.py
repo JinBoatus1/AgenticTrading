@@ -338,3 +338,60 @@ def test_subclass_inherits_llm_method():
     assert out["actions"][0]["action"] == "buy"
     assert pm.custom_method() == "ok"
     assert MyPM.make_trading_decision_with_llm is bha.PortfolioManager.make_trading_decision_with_llm
+
+
+# ---------------------------------------------------------------------------
+# LOW #5 — LLM_MAX_OUTPUT_TOKENS must be parsed defensively at import time
+# ---------------------------------------------------------------------------
+
+def _reload_harness_with_env(monkeypatch, value):
+    import importlib
+    if value is None:
+        monkeypatch.delenv("LLM_MAX_OUTPUT_TOKENS", raising=False)
+    else:
+        monkeypatch.setenv("LLM_MAX_OUTPUT_TOKENS", value)
+    return importlib.reload(harness)
+
+
+def _restore_harness(monkeypatch):
+    import importlib
+    monkeypatch.delenv("LLM_MAX_OUTPUT_TOKENS", raising=False)
+    importlib.reload(harness)
+
+
+def test_malformed_max_output_tokens_falls_back_to_default(monkeypatch):
+    """A malformed env value must not crash the module import — it falls back
+    to the 2000 default (with a warning) instead of raising ValueError."""
+    try:
+        mod = _reload_harness_with_env(monkeypatch, "twenty")
+        assert mod.DEFAULT_MAX_OUTPUT_TOKENS == 2000
+    finally:
+        _restore_harness(monkeypatch)
+
+
+def test_nonpositive_max_output_tokens_falls_back_to_default(monkeypatch):
+    """0/negative ceilings would break every provider call — treat them as
+    malformed and fall back to the default."""
+    try:
+        mod = _reload_harness_with_env(monkeypatch, "0")
+        assert mod.DEFAULT_MAX_OUTPUT_TOKENS == 2000
+    finally:
+        _restore_harness(monkeypatch)
+
+
+def test_valid_max_output_tokens_override_respected(monkeypatch):
+    """A well-formed override keeps working exactly as before."""
+    try:
+        mod = _reload_harness_with_env(monkeypatch, "600")
+        assert mod.DEFAULT_MAX_OUTPUT_TOKENS == 600
+    finally:
+        _restore_harness(monkeypatch)
+
+
+def test_unset_max_output_tokens_uses_default(monkeypatch):
+    """No env var → default 2000, no warning path involved."""
+    try:
+        mod = _reload_harness_with_env(monkeypatch, None)
+        assert mod.DEFAULT_MAX_OUTPUT_TOKENS == 2000
+    finally:
+        _restore_harness(monkeypatch)

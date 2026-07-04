@@ -124,7 +124,29 @@ Make precise, actionable trading decisions based on the technical indicators pro
 
 # Per-request output-token ceiling. Defaults to 2000 (unchanged) but can be
 # lowered via env (e.g. LLM_MAX_OUTPUT_TOKENS=600) to cap spend in small demos.
-DEFAULT_MAX_OUTPUT_TOKENS = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "2000"))
+def _parse_max_output_tokens(raw: Optional[str]) -> int:
+    """Parse ``LLM_MAX_OUTPUT_TOKENS`` defensively.
+
+    A malformed or non-positive value must not crash the module at import time
+    (this constant is evaluated on ``import``, so a bad env var would take down
+    every backtest CLI and the backend). Falls back to 2000 with a warning.
+    """
+    if raw is None:
+        return 2000
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        print(
+            f"⚠️ Ignoring invalid LLM_MAX_OUTPUT_TOKENS={raw!r} "
+            f"(expected a positive integer); using default 2000"
+        )
+        return 2000
+    return value
+
+
+DEFAULT_MAX_OUTPUT_TOKENS = _parse_max_output_tokens(os.getenv("LLM_MAX_OUTPUT_TOKENS"))
 
 
 def request_trading_decision(client, *, prompt: str, model: Optional[str] = None, max_tokens: Optional[int] = None):
