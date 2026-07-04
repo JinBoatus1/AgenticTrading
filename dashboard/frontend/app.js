@@ -225,11 +225,37 @@ function setAgentViewMode(mode) {
   document.getElementById('agentViewList')?.classList.toggle('active', agentViewMode === 'list');
 }
 
+// Demo mode: only then may the page show illustrative MOCK_AGENTS. Real users
+// (production host, no ?demo flag) see the genuine empty/error states instead of
+// fabricated agents.
+function isDemoMode() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('demo')) return params.get('demo') !== '0';
+    return ['localhost', '127.0.0.1', ''].includes(window.location.hostname);
+  } catch (e) {
+    return false;
+  }
+}
+
+// Distinct error-state shown when the agents API is unreachable — never mask a
+// backend outage by rendering fake data.
+function renderAgentsError() {
+  const grid = document.getElementById('agentsGrid');
+  const empty = document.getElementById('agentsEmptyState');
+  const errorEl = document.getElementById('agentsErrorState');
+  if (grid) grid.innerHTML = '';
+  if (empty) empty.hidden = true;
+  if (errorEl) errorEl.hidden = false;
+}
+
 function renderAgentsGrid(agents) {
   const grid = document.getElementById('agentsGrid');
   const empty = document.getElementById('agentsEmptyState');
+  const errorEl = document.getElementById('agentsErrorState');
   if (!grid) return;
 
+  if (errorEl) errorEl.hidden = true;  // a successful render clears any prior error
   grid.innerHTML = '';
   if (!agents.length) {
     if (empty) empty.hidden = false;
@@ -418,18 +444,25 @@ async function loadAgents() {
       }
     }
 
-    // Fallback to local mock agents so the page renders without a backend.
-    // TODO: Replace mock agent data with backend API data later.
-    if (!agents.length) {
+    // Demo only: seed illustrative agents so the page has content without a
+    // backend. Real users get the genuine empty-state (rendered by
+    // renderAgentsGrid) instead of fabricated agents.
+    if (!agents.length && isDemoMode()) {
       agents = MOCK_AGENTS;
     }
 
     allAgents = agents;
     applyAgentFilters();
   } catch (error) {
-    console.warn('Failed to load agents, using mock data:', error.message);
-    allAgents = MOCK_AGENTS;
-    applyAgentFilters();
+    console.warn('Failed to load agents:', error.message);
+    if (isDemoMode()) {
+      allAgents = MOCK_AGENTS;
+      applyAgentFilters();
+    } else {
+      // Real backend outage: show a distinct error-state, never fake data.
+      allAgents = [];
+      renderAgentsError();
+    }
   }
 }
 

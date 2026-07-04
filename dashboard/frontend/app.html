@@ -660,7 +660,9 @@
             <!-- My Portfolio -->
             <div class="page-header">
                 <div>
-                    <h2 class="page-title">My Portfolio</h2>
+                    <h2 class="page-title">My Portfolio
+                        <span id="portfolioSampleBadge" title="Illustrative sample data — not a real brokerage account." style="display:inline-block; vertical-align:middle; margin-left:8px; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:.04em; background:rgba(245,158,11,.15); color:#f59e0b; border:1px solid rgba(245,158,11,.4);">SAMPLE DATA</span>
+                    </h2>
                 </div>
                 <button id="addAgentBtn" class="home-btn home-btn-primary" type="button">Add Agent</button>
             </div>
@@ -736,6 +738,7 @@
                 </div>
                 <div id="agentsGrid" class="agents-grid"></div>
                 <p id="agentsEmptyState" class="control-helper" hidden>No agents yet. Run a backtest with the CLI, or click <strong>Add Agent</strong> to register one.</p>
+                <p id="agentsErrorState" class="control-helper" hidden style="color:#f87171;">Couldn't reach the server to load agents. Check your connection and try again.</p>
             </div>
         </div>
     </div>
