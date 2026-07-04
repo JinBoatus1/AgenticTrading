@@ -22,7 +22,7 @@ from dashboard.backend.domain.backtesting.features import TechnicalIndicators
 from dashboard.backend.domain.backtesting.portfolio_manager import PortfolioManager
 from dashboard.backend.infrastructure.llm.backtest_harness import (
     HAS_ANTHROPIC,
-    LLM_MODEL_NAME,
+    default_model_name,
     make_llm_client,
 )
 
@@ -85,7 +85,10 @@ class LLMAgentStrategy(BaselineStrategy):
 
         client = self._make_client()
         self.used_llm = client is not None
-        model_id = self.model_id or LLM_MODEL_NAME
+        # When no explicit model id is configured, use the default that matches
+        # the gateway make_llm_client actually built (CommonStack slug vs native
+        # Anthropic id) rather than a hardcoded native id that a gateway rejects.
+        model_id = self.model_id or default_model_name()
 
         manager = PortfolioManager(initial_capital=initial_capital)
         total = len(timestamps)

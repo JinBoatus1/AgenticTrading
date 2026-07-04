@@ -41,7 +41,11 @@ ensure_repo_root()
 load_dotenv(DASHBOARD_DIR / ".env")
 load_dotenv(DASHBOARD_DIR.parent / ".env")
 
-from dashboard.backend.domain.leaderboard.service import deploy_model_run, load_leaderboard_config  # noqa: E402
+from dashboard.backend.domain.leaderboard.service import (  # noqa: E402
+    LeaderboardFallbackError,
+    deploy_model_run,
+    load_leaderboard_config,
+)
 
 
 def main() -> int:
@@ -50,6 +54,12 @@ def main() -> int:
     parser.add_argument("--start", default=None, help="Override window start (YYYY-MM-DD) for testing")
     parser.add_argument("--end", default=None, help="Override window end (YYYY-MM-DD) for testing")
     parser.add_argument("--force", action="store_true", help="Recompute even if a cached run exists")
+    parser.add_argument(
+        "--allow-fallback",
+        action="store_true",
+        help="Publish even if the LLM entry fell back to rule-based trading "
+        "(by default that is refused so a rule-based curve is not shown as an LLM result)",
+    )
     parser.add_argument("--list", action="store_true", help="List configured entries and exit")
     args = parser.parse_args()
 
@@ -65,12 +75,18 @@ def main() -> int:
     if args.start or args.end:
         print(f"  (test window override: {args.start or 'config'} → {args.end or 'config'})")
 
-    result = deploy_model_run(
-        args.entry,
-        force_refresh=args.force,
-        start_date=args.start,
-        end_date=args.end,
-    )
+    try:
+        result = deploy_model_run(
+            args.entry,
+            force_refresh=args.force,
+            start_date=args.start,
+            end_date=args.end,
+            allow_fallback=args.allow_fallback,
+        )
+    except LeaderboardFallbackError as exc:
+        print("\n❌ Refused to publish a rule-based fallback under an LLM name:")
+        print(f"   {exc}")
+        return 2
 
     print("\n" + "=" * 60)
     if result.get("cached"):

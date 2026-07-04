@@ -117,6 +117,17 @@ def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
         metrics = calc_metrics(curve, initial_capital)
         run_id = _run_id(strategy_id, start_date, end_date)
 
+        # Belt-and-suspenders: the auto-compute path is meant for cheap rule-based
+        # baselines (LLM entries carry auto_compute=false and deploy manually via
+        # deploy_model_run). Guard here too so a misconfigured LLM entry can't
+        # slip a rule-based fallback onto the board without the manual override.
+        _reject_if_llm_fallback(
+            strategy_id,
+            strategy_impl,
+            int(getattr(strategy_impl, "llm_calls", 0) or 0),
+            model=strategy.get("model"),
+        )
+
         db.insert_run(
             run_id=run_id,
             session_id=session_id,
@@ -144,12 +155,47 @@ def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
     }
 
 
+class LeaderboardFallbackError(RuntimeError):
+    """Raised when an LLM leaderboard entry silently fell back to rule-based
+    trading, so publishing it would misrepresent a rule-based curve as that
+    model's result. Override deliberately with ``allow_fallback=True``."""
+
+
+def _reject_if_llm_fallback(
+    entry_id: str,
+    strategy_impl: Any,
+    llm_calls: int,
+    *,
+    model: Optional[str] = None,
+    model_id: Optional[str] = None,
+    allow_fallback: bool = False,
+) -> None:
+    """Integrity guard (H6): refuse to publish an LLM entry that silently fell
+    back to rule-based trading — no client (missing key/SDK) or a model id the
+    active gateway rejected so every call failed. Publishing it would present a
+    rule-based curve as if the model produced it. Rule-based baselines expose no
+    ``used_llm`` (getattr → None) and pass through untouched. Applied on BOTH
+    insert paths so an LLM entry can't slip through the auto-compute path."""
+    used_llm = getattr(strategy_impl, "used_llm", None)
+    if used_llm is None or allow_fallback:
+        return
+    if not used_llm or llm_calls == 0:
+        raise LeaderboardFallbackError(
+            f"Entry '{entry_id}' produced a rule-based fallback "
+            f"(used_llm={used_llm}, llm_calls={llm_calls}); refusing to publish it "
+            f"under model '{model}'. Usually the model id '{model_id}' is not valid "
+            f"for the active LLM gateway, or the API key is missing. Pass "
+            f"allow_fallback=True / --allow-fallback to publish it anyway."
+        )
+
+
 def deploy_model_run(
     entry_id: str,
     *,
     force_refresh: bool = False,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    allow_fallback: bool = False,
 ) -> Dict[str, Any]:
     """Compute and persist one (expensive) leaderboard model entry.
 
@@ -208,6 +254,15 @@ def deploy_model_run(
     llm_calls = int(getattr(strategy_impl, "llm_calls", 0) or 0)
     model_id = getattr(strategy_impl, "model_id", None) or entry.get("model_id")
     est_cost = token_cost.estimate_cost_usd(model_id, input_tokens, output_tokens)
+
+    _reject_if_llm_fallback(
+        entry_id,
+        strategy_impl,
+        llm_calls,
+        model=entry.get("model"),
+        model_id=model_id,
+        allow_fallback=allow_fallback,
+    )
 
     db.insert_run(
         run_id=run_id,
