@@ -42,7 +42,7 @@ except ImportError:  # pragma: no cover
         return cls
 
 from .atl_client import ATLClient
-from .exceptions import ATLAPIError, ATLRunFailedError, ATLTimeoutError
+from .exceptions import ATLAPIError, ATLConflictError, ATLRunFailedError, ATLTimeoutError
 from .models import Decision, Observation, RunResult
 
 
@@ -56,6 +56,19 @@ class TradingAgentProtocol(Protocol):
 
 # Run states the backend may surface that mean "stop, this run will not proceed".
 _FAILED_STATES = {"failed", "cancelled", "canceled"}
+
+# Conflict codes that mean "the step was auto-held server-side; the run is still
+# live" — e.g. the agent took longer than the environment's decision window
+# (default 30s). These must NOT abort the run.
+#
+# NOTE: in practice a genuinely-late decision surfaces as ``step_already_finalized``,
+# not ``decision_deadline_exceeded``: the backend applies the elapsed-deadline
+# auto-hold (advancing the step) while reconciling status *before* it re-checks the
+# submitted step, so the step is already finalized by then. Both are kept so the
+# runner is robust either way — do NOT drop ``step_already_finalized`` thinking it
+# is "only for duplicate submissions". The backend contract is locked by
+# test_late_decision_returns_autoheld_code (dashboard backend test_protocol_api).
+_STEP_AUTOHELD_CODES = {"decision_deadline_exceeded", "step_already_finalized"}
 
 
 class AgentRunner:
@@ -94,7 +107,20 @@ class AgentRunner:
             indefinitely (must be explicitly chosen).
         max_steps:
             Optional cap on the number of decisions submitted (mostly for tests).
+            When this cap stops the loop the run is *not* finalized, so this
+            returns the metrics gathered so far rather than the (409-raising)
+            final result.
+
+        Note
+        ----
+        The environment enforces a per-step decision deadline (default 30s). If
+        ``agent.decide`` plus submission takes longer, the backend auto-holds
+        that step and the runner advances to the next one instead of failing —
+        so a single slow decision never aborts the whole run.
         """
+        if poll_interval <= 0:
+            raise ValueError("poll_interval must be > 0")
+
         run = self.client.create_run(
             agent_version_id,
             environment_id=environment_id,
@@ -105,49 +131,73 @@ class AgentRunner:
             config=config,
         )
 
-        steps_done = 0
-        waited = 0.0
-        while True:
-            step = self.client.get_next_step(run.id)
-            status = step.status
+        try:
+            completed = False
+            steps_done = 0
+            waited = 0.0
+            while True:
+                step = self.client.get_next_step(run.id)
+                status = step.status
 
-            if status == "completed":
-                break
+                if status == "completed":
+                    completed = True
+                    break
 
-            if status in _FAILED_STATES:
-                raise ATLRunFailedError(
-                    step.message or f"run entered state '{status}'",
-                    code=status,
+                if status in _FAILED_STATES:
+                    raise ATLRunFailedError(
+                        step.message or f"run entered state '{status}'",
+                        code=status,
+                        response=step.raw,
+                    )
+
+                if status == "awaiting_decision":
+                    waited = 0.0  # progress made; reset the idle timer
+                    decision = self.agent.decide(step.observation)
+                    try:
+                        result = self.client.submit_decision(run.id, step.id, decision)
+                    except ATLConflictError as exc:
+                        if exc.code not in _STEP_AUTOHELD_CODES:
+                            raise
+                        # The decision window elapsed (or the step was already
+                        # finalized): the step auto-held server-side and the run
+                        # is still live. Advance instead of aborting the run.
+                        result = None
+                    if result is not None:
+                        # Decision accepted server-side; a hook raising here
+                        # surfaces to the caller and never resubmits.
+                        self._fire("on_execution_result", result)
+
+                    steps_done += 1
+                    if max_steps is not None and steps_done >= max_steps:
+                        break
+                    continue
+
+                if status in ("loading", "pending", "executing"):
+                    waited = self._wait(poll_interval, waited, max_wait_seconds, status)
+                    continue
+
+                # Any other status is unexpected; fail loudly instead of spinning.
+                raise ATLAPIError(
+                    f"unexpected step status '{status}' from get_next_step",
+                    code="unexpected_step_status",
                     response=step.raw,
                 )
 
-            if status == "awaiting_decision":
-                waited = 0.0  # progress made; reset the idle timer
-                decision = self.agent.decide(step.observation)
-                result = self.client.submit_decision(run.id, step.id, decision)
-                # Decision is already accepted server-side; a hook raising here
-                # surfaces to the caller and never triggers a resubmission.
-                self._fire("on_execution_result", result)
+            if completed:
+                final = self.client.get_run_result(run.id)
+                self._fire("on_run_completed", final)
+                return final
 
-                steps_done += 1
-                if max_steps is not None and steps_done >= max_steps:
-                    break
-                continue
-
-            if status in ("loading", "pending", "executing"):
-                waited = self._wait(poll_interval, waited, max_wait_seconds, status)
-                continue
-
-            # Any other status is unexpected; fail loudly instead of spinning.
-            raise ATLAPIError(
-                f"unexpected step status '{status}' from get_next_step",
-                code="unexpected_step_status",
-                response=step.raw,
+            # Stopped early via max_steps: the run isn't finalized, so /result
+            # would 409. Return the metrics gathered so far instead.
+            return RunResult(
+                run_id=run.id,
+                status="running",
+                metrics=self.client.get_run_metrics(run.id),
             )
-
-        final = self.client.get_run_result(run.id)
-        self._fire("on_run_completed", final)
-        return final
+        except ATLAPIError as exc:
+            # Attach the run id to any backend error so the caller can locate it.
+            raise exc.with_run_id(run.id)
 
     def _wait(
         self,

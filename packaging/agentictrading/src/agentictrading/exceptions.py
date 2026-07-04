@@ -28,12 +28,14 @@ class ATLAPIError(Exception):
         path: Optional[str] = None,
         code: Optional[str] = None,
         response: Any = None,
+        run_id: Optional[str] = None,
     ) -> None:
         self.status_code = status_code
         self.message = message or "API error"
         self.path = path
         self.code = code
         self.response = response
+        self.run_id = run_id
         super().__init__(self._format())
 
     def _format(self) -> str:
@@ -43,9 +45,22 @@ class ATLAPIError(Exception):
         if self.code:
             parts.append(f"[{self.code}]")
         parts.append(self.message)
+        if self.run_id:
+            parts.append(f"{{run {self.run_id}}}")
         if self.path:
             parts.append(f"({self.path})")
         return " ".join(parts)
+
+    def with_run_id(self, run_id: Optional[str]) -> "ATLAPIError":
+        """Attach the run id (if not already set) and refresh the message.
+
+        Returns ``self`` so callers can ``raise exc.with_run_id(run.id)`` and
+        preserve the original traceback.
+        """
+        if run_id and not self.run_id:
+            self.run_id = run_id
+            self.args = (self._format(),)
+        return self
 
 
 class ATLAuthenticationError(ATLAPIError):

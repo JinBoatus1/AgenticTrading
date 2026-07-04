@@ -824,6 +824,37 @@ def test_reaper_frees_session_but_preserves_reads(client):
     assert status.status_code == 200 and status.json()["status"] == "completed"
 
 
+def test_late_decision_returns_autoheld_code(client, monkeypatch):
+    """Cross-package contract the PyPI SDK's AgentRunner relies on: a decision
+    submitted after the step deadline returns a 409 with an 'auto-held' code so
+    the SDK can advance instead of aborting the run.
+
+    In practice the backend surfaces `step_already_finalized` (it applies the
+    elapsed-deadline auto-hold during status reconciliation before re-checking
+    the submitted step). Keep the asserted set in sync with runner.py's
+    _STEP_AUTOHELD_CODES — dropping a code here would silently regress H5.
+    """
+    import dashboard.backend.domain.backtesting.external_run_service as ebs
+
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    monkeypatch.setattr(ebs, "DECISION_TIMEOUT_SECONDS", 0.2)
+    run_id = _create_run(client, key, version_id)
+    step = _wait_for_step(client, run_id, key)
+    if step.get("status") != "awaiting_decision":
+        pytest.skip("run auto-completed before a late decision could be submitted")
+
+    time.sleep(0.5)  # let the step's decision deadline elapse
+    resp = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step['step_id']}/decision",
+        json={"idempotency_key": str(uuid.uuid4()), "orders": []},
+        headers={"X-API-Key": key},
+    )
+    assert resp.status_code == 409, resp.text
+    code = resp.json()["detail"]["error"]["code"]
+    assert code in ("step_already_finalized", "decision_deadline_exceeded"), code
+
+
 def test_reaper_advances_abandoned_run(client, monkeypatch):
     """The reaper drives an abandoned run forward through an elapsed decision
     deadline with no agent polling (each past-due step auto-holds)."""

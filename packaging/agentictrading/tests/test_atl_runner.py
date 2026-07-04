@@ -60,12 +60,12 @@ class RunnerBackend:
 
 
 def _run(runner, **kw):
+    kw.setdefault("poll_interval", 0.001)  # small positive: >0 is now required
     return runner.run_backtest(
         "agv_1",
         environment_id="us-equity-hourly-v1",
         start_date="2026-04-15",
         end_date="2026-04-16",
-        poll_interval=0,
         **kw,
     )
 
@@ -199,3 +199,140 @@ def test_runner_requires_decide():
 
     with pytest.raises(TypeError):
         AgentRunner(_client(), NotAnAgent())
+
+
+# ----------------------------------------------------------------------
+# H5 — SDK runner survives the per-step decision deadline
+# ----------------------------------------------------------------------
+
+
+class _HoldAgent:
+    def __init__(self):
+        self.exec_results = []
+
+    def decide(self, observation):
+        return {"orders": [], "rationale": "hold"}
+
+    def on_execution_result(self, result):
+        self.exec_results.append(result)
+
+
+def _err(code, message="err"):
+    return {"detail": {"protocol_version": "1.0", "error": {"code": code, "message": message}}}
+
+
+class ConflictOnDecideBackend:
+    """Returns a 409 (with a configurable code) on the FIRST decision submit."""
+
+    def __init__(self, step_sequence, code):
+        self.step_sequence = list(step_sequence)
+        self.code = code
+        self.submitted = 0
+
+    def __call__(self, req):
+        url = req.full_url
+        method = req.get_method()
+        if method == "POST" and url.endswith("/api/v1/runs"):
+            return (200, {"run_id": "run_1", "status": "created"})
+        if url.endswith("/steps/next"):
+            return (200, self.step_sequence.pop(0))
+        if url.endswith("/decision"):
+            self.submitted += 1
+            return (409, _err(self.code))
+        if url.endswith("/result"):
+            return (200, {"run_id": "run_1", "status": "completed", "metrics": {"total_return": 0.0}})
+        raise AssertionError(f"unexpected url {url}")
+
+
+def test_runner_deadline_exceeded_advances_not_aborts(fake_http):
+    """A slow decision (409 decision_deadline_exceeded) must NOT abort the run —
+    the step auto-held server-side, so the runner advances and completes."""
+    backend = ConflictOnDecideBackend([_AWAITING, _COMPLETED], code="decision_deadline_exceeded")
+    fake_http(backend)
+    agent = _HoldAgent()
+    result = _run(AgentRunner(_client(), agent))
+
+    assert isinstance(result, RunResult)
+    assert result.metrics["total_return"] == 0.0
+    assert backend.submitted == 1
+    assert agent.exec_results == []  # no execution result for the auto-held step
+
+
+def test_runner_step_already_finalized_advances(fake_http):
+    backend = ConflictOnDecideBackend([_AWAITING, _COMPLETED], code="step_already_finalized")
+    fake_http(backend)
+    result = _run(AgentRunner(_client(), _HoldAgent()))
+    assert isinstance(result, RunResult)
+
+
+def test_runner_other_conflict_still_raises_with_run_id(fake_http):
+    """A conflict that is NOT an auto-hold (e.g. run_completed) still raises, and
+    the run id is attached to the error."""
+    from agentictrading import ATLConflictError
+
+    backend = ConflictOnDecideBackend([_AWAITING, _COMPLETED], code="run_completed")
+    fake_http(backend)
+    with pytest.raises(ATLConflictError) as ei:
+        _run(AgentRunner(_client(), _HoldAgent()))
+    assert ei.value.code == "run_completed"
+    assert ei.value.run_id == "run_1"
+
+
+class MaxStepsBackend:
+    """Always awaiting; /result 409s (run not finalized), /metrics works."""
+
+    def __init__(self):
+        self.result_calls = 0
+
+    def __call__(self, req):
+        url = req.full_url
+        method = req.get_method()
+        if method == "POST" and url.endswith("/api/v1/runs"):
+            return (200, {"run_id": "run_1", "status": "created"})
+        if url.endswith("/steps/next"):
+            return (200, _AWAITING)
+        if url.endswith("/decision"):
+            return (200, {"run_id": "run_1", "step_id": "step_1", "accepted": True,
+                          "validation": {"passed": True, "rejections": []}, "fills": [],
+                          "portfolio_after": {}, "run_status": "running"})
+        if url.endswith("/metrics"):
+            return (200, {"run_id": "run_1", "status": "running", "metrics": {"total_return": 0.01}})
+        if url.endswith("/result"):
+            self.result_calls += 1
+            return (409, _err("run_not_completed", "not done"))
+        raise AssertionError(f"unexpected url {url}")
+
+
+def test_runner_max_steps_returns_metrics_not_409(fake_http):
+    """Stopping via max_steps returns metrics-so-far, not a /result 409."""
+    backend = MaxStepsBackend()
+    fake_http(backend)
+    result = _run(AgentRunner(_client(), _HoldAgent()), max_steps=1)
+
+    assert isinstance(result, RunResult)
+    assert result.status == "running"
+    assert result.metrics["total_return"] == 0.01
+    assert backend.result_calls == 0  # never asked the backend for a final result
+
+
+def test_runner_rejects_nonpositive_poll_interval():
+    runner = AgentRunner(_client(), _HoldAgent())
+    for bad in (0, -1, -0.5):
+        with pytest.raises(ValueError):
+            runner.run_backtest(
+                "agv_1",
+                environment_id="us-equity-hourly-v1",
+                start_date="2026-04-15",
+                end_date="2026-04-16",
+                poll_interval=bad,
+            )
+
+
+def test_runner_attaches_run_id_to_backend_errors(fake_http):
+    from agentictrading import ATLAPIError
+
+    backend = RunnerBackend([{"status": "weird", "run_id": "run_1"}])
+    fake_http(backend)
+    with pytest.raises(ATLAPIError) as ei:
+        _run(AgentRunner(_client(), _HoldAgent()))
+    assert ei.value.run_id == "run_1"
