@@ -243,9 +243,17 @@ async def serve_app_trailing_slash(request: Request):
     return RedirectResponse(url=target, status_code=308)
 
 @app.get("/favicon.svg", include_in_schema=False)
+async def serve_favicon_svg():
+    """Serve the real SVG favicon (frontend/favicon.svg)."""
+    favicon_path = frontend_path / "favicon.svg"
+    if not favicon_path.exists():
+        raise HTTPException(status_code=404, detail="Favicon not found")
+    return FileResponse(favicon_path, media_type="image/svg+xml")
+
+
 @app.get("/favicon.ico", include_in_schema=False)
 async def serve_favicon():
-    """Serve ATL logo as the site favicon."""
+    """Serve the PNG logo for legacy /favicon.ico requests."""
     favicon_path = frontend_path / "images" / "atltransparent.png"
     if not favicon_path.exists():
         raise HTTPException(status_code=404, detail="Favicon not found")

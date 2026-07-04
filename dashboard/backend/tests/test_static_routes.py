@@ -37,3 +37,21 @@ def test_app_serves_dashboard_html():
     resp = client.get("/app")
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
+
+
+def test_favicon_svg_serves_real_svg():
+    """LOW #3 — /favicon.svg must serve the actual frontend/favicon.svg with an
+    SVG media type, not PNG bytes that shadow the real file."""
+    client = TestClient(app)
+    resp = client.get("/favicon.svg")
+    assert resp.status_code == 200
+    assert "image/svg+xml" in resp.headers.get("content-type", "")
+    assert resp.content.lstrip().startswith(b"<svg")
+
+
+def test_favicon_ico_still_serves_png():
+    """/favicon.ico keeps serving the PNG logo for legacy browser requests."""
+    client = TestClient(app)
+    resp = client.get("/favicon.ico")
+    assert resp.status_code == 200
+    assert "image/png" in resp.headers.get("content-type", "")
