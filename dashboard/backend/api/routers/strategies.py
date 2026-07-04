@@ -18,6 +18,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from dashboard.backend.api.rate_limit import FixedWindowRateLimiter, client_key
 from dashboard.backend.domain.strategies.repository import (
     create_strategy,
     get_strategy,
@@ -25,11 +26,22 @@ from dashboard.backend.domain.strategies.repository import (
 
 router = APIRouter(prefix="/strategies", tags=["strategies"])
 
+# Public, unauthenticated write. Bound *naive* write abuse (unbounded rows) with
+# a per-client write budget. Best-effort only (see rate_limit module): a public
+# sharing endpoint can't be fully locked down without breaking shared links.
+_create_rate_limiter = FixedWindowRateLimiter(max_events=30, window_seconds=3600)
+
 
 class CreateStrategyBody(BaseModel):
-    prompt: str = Field(min_length=1, description="Free-form strategy prompt the agent will follow")
+    # max_length bounds per-row storage; the store also strips/validates non-empty.
+    prompt: str = Field(
+        min_length=1,
+        max_length=5000,
+        description="Free-form strategy prompt the agent will follow",
+    )
     description: Optional[str] = Field(default=None, max_length=500)
     source: Optional[str] = Field(default=None, max_length=40)
+    # Display-only attribution label (e.g. "discord:<id>"); NOT an auth control.
     owner: Optional[str] = Field(default=None, max_length=120)
 
 
@@ -53,6 +65,11 @@ def create_strategy_endpoint(body: CreateStrategyBody, request: Request):
     Plain ``def`` so the blocking SQLite write runs in FastAPI's threadpool
     rather than on the event loop.
     """
+    if not _create_rate_limiter.allow(client_key(request)):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many strategies created recently; please try again later.",
+        )
     try:
         record = create_strategy(
             prompt=body.prompt,
