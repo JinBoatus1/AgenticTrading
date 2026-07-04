@@ -55,6 +55,19 @@ def test_rate_limiter_keys_are_independent():
     assert rl.allow("a") is False
 
 
+def test_rate_limiter_reclaims_expired_keys_when_over_max_keys():
+    """Memory must not grow without bound as distinct keys are seen: once the key
+    count hits max_keys, a new key sweeps fully-expired buckets."""
+    now = [0.0]
+    rl = FixedWindowRateLimiter(max_events=1, window_seconds=10, clock=lambda: now[0], max_keys=3)
+    for i in range(3):
+        assert rl.allow(f"k{i}") is True
+    assert len(rl._events) == 3
+    now[0] = 100.0  # every existing key's window has fully expired
+    assert rl.allow("k_new") is True
+    assert len(rl._events) <= 3  # expired buckets reclaimed, not unbounded
+
+
 # --- endpoint tests ---------------------------------------------------------
 
 def test_create_strategy_ok_returns_share_url():

@@ -16,7 +16,7 @@ auth. Endpoints that need real protection must add authentication.
 from __future__ import annotations
 
 import time
-from collections import defaultdict, deque
+from collections import deque
 from typing import Callable, Deque, Dict
 
 from fastapi import Request
@@ -34,13 +34,15 @@ class FixedWindowRateLimiter:
         window_seconds: float,
         *,
         clock: Callable[[], float] = time.monotonic,
+        max_keys: int = 10_000,
     ) -> None:
         if max_events < 1:
             raise ValueError("max_events must be >= 1")
         self.max_events = max_events
         self.window_seconds = window_seconds
+        self.max_keys = max_keys
         self._clock = clock
-        self._events: Dict[str, Deque[float]] = defaultdict(deque)
+        self._events: Dict[str, Deque[float]] = {}
 
     def allow(self, key: str) -> bool:
         """Record an attempt for ``key``; return True iff it is within the limit.
@@ -51,17 +53,32 @@ class FixedWindowRateLimiter:
         """
         now = self._clock()
         cutoff = now - self.window_seconds
-        q = self._events[key]
-        while q and q[0] <= cutoff:
-            q.popleft()
+        q = self._events.get(key)
+        if q is None:
+            # New key. Opportunistically reclaim fully-expired buckets before
+            # growing so total key-cardinality stays bounded over the process
+            # lifetime. (The previous ``del`` guard here was dead code: it needed
+            # both ``len(q) >= max_events`` and ``q`` empty, impossible when
+            # max_events >= 1, so empty buckets were never reclaimed.)
+            if len(self._events) >= self.max_keys:
+                self._sweep(cutoff)
+            q = deque()
+            self._events[key] = q
+        else:
+            while q and q[0] <= cutoff:
+                q.popleft()
         if len(q) >= self.max_events:
-            if not q:
-                # Nothing left after pruning — drop the empty bucket to bound
-                # key-cardinality growth over the process lifetime.
-                del self._events[key]
             return False
         q.append(now)
         return True
+
+    def _sweep(self, cutoff: float) -> None:
+        """Drop keys whose entire window has expired (newest event older than the
+        window) or that hold no events — bounds memory regardless of how many
+        distinct keys are ever seen."""
+        stale = [k for k, dq in self._events.items() if not dq or dq[-1] <= cutoff]
+        for k in stale:
+            del self._events[k]
 
     def reset(self) -> None:
         """Clear all state (used by tests and between logical sessions)."""
