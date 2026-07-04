@@ -1,6 +1,5 @@
 import { Link } from "wouter";
 import atlLogo from "@assets/atl-logo.png";
-import { Button } from "@/components/ui/button";
 
 const NAV_LINKS = [
   { href: "#agents", label: "Agents" },
@@ -23,10 +22,21 @@ export function Navbar() {
           <img src={atlLogo} alt="ATL Logo" className="w-8 h-8 object-contain" />
           <span className="text-lg font-bold tracking-tight text-foreground">Agentic Trading Lab</span>
         </Link>
-        <div className="col-start-3 flex items-center justify-end gap-4">
-          <Button className="bg-primary text-primary-foreground glow-primary hover:bg-primary/90 transition-all" asChild>
-            <a href="/app">Open Dashboard</a>
-          </Button>
+        <div className="col-start-3 flex items-center justify-end gap-3">
+          <button
+            type="button"
+            data-landing-auth="login"
+            className="inline-flex items-center justify-center rounded-md text-sm font-semibold h-9 px-4 border border-border bg-transparent text-foreground hover:bg-muted transition-colors"
+          >
+            Sign In
+          </button>
+          <button
+            type="button"
+            data-landing-auth="signup"
+            className="inline-flex items-center justify-center rounded-md text-sm font-semibold h-9 px-4 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            Get Started
+          </button>
         </div>
       </div>
     </nav>
