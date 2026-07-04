@@ -902,6 +902,184 @@ def test_step_state_survives_full_restart(client):
     assert retry.status_code == 200, retry.text
     assert retry.json()["decision_id"] == decision_id
 
+    # A REAL restart also runs startup recovery, which fails the still-
+    # incomplete run. Step history and idempotent replay must keep answering.
+    with run_service._registry_lock:
+        run_service._runs.clear()
+    assert run_service.recover_orphaned_runs() >= 1
+    s2 = client.get(
+        f"/api/v1/runs/{run_id}/steps/{step_id}", headers={"X-API-Key": key}
+    )
+    assert s2.status_code == 200, s2.text
+    assert s2.json()["status"] == "completed"
+    retry2 = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step_id}/decision",
+        json={"idempotency_key": idem, "orders": []},
+        headers={"X-API-Key": key},
+    )
+    assert retry2.status_code == 200, retry2.text
+    assert retry2.json()["decision_id"] == decision_id
+    status = client.get(f"/api/v1/runs/{run_id}/status", headers={"X-API-Key": key})
+    assert status.status_code == 200 and status.json()["status"] == "failed"
+
+
+def test_ensure_step_id_is_race_safe(client):
+    """Concurrent steps/next polls must never mint two step_ids for one
+    sequence: since protocol_steps got UNIQUE(run_id, sequence), the old
+    benign last-write-wins race would now crash with an IntegrityError."""
+    import threading as _threading
+
+    import dashboard.backend.domain.runs.service as run_service
+
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+    _wait_for_step(client, run_id, key)
+    run = run_service._runs[run_id]
+
+    seq = 990_001  # untouched sequence so every thread races the create branch
+    barrier = _threading.Barrier(8)
+    results, errors = [], []
+
+    def _mint():
+        barrier.wait()
+        try:
+            results.append(run.ensure_step_id(seq, "2026-04-15T10:00:00", None))
+        except Exception as exc:  # noqa: BLE001 — the test asserts none occur
+            errors.append(exc)
+
+    threads = [_threading.Thread(target=_mint) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert len(set(results)) == 1, results
+
+
+def test_repeat_poll_does_not_rewrite_step_row(client, monkeypatch):
+    """steps/next is polled in a loop; re-awaiting an unchanged step must not
+    pay a synchronous SQLite write per poll."""
+    import dashboard.backend.domain.runs.service as run_service
+    from dashboard.backend.domain.runs.repository import run_store
+
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+    _wait_for_step(client, run_id, key)
+
+    calls = []
+    real = run_store.save_step
+    monkeypatch.setattr(
+        run_store, "save_step",
+        lambda *a, **kw: (calls.append(a), real(*a, **kw))[1],
+    )
+    run = run_service._runs[run_id]
+    sid1 = run.ensure_step_id(990_002, "2026-04-15T11:00:00", "2026-04-15T11:00:30")
+    sid2 = run.ensure_step_id(990_002, "2026-04-15T11:00:00", "2026-04-15T11:00:30")
+    assert sid1 == sid2
+    assert len(calls) == 1, "identical re-await must skip the DB write"
+
+
+def test_reaper_defers_eviction_while_decision_in_flight(client):
+    """The reaper must not pop a run from the registry while a request holds
+    run.lock (mid-decision): the in-flight thread's state writes would land on
+    an orphaned object and a concurrent reader would rehydrate a stale row."""
+    import dashboard.backend.domain.runs.service as run_service
+
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+
+    # Drive to completion so the run is terminal (reap-eligible).
+    for _ in range(200):
+        body = _wait_for_step(client, run_id, key)
+        if body.get("status") == "completed":
+            break
+        r = client.post(
+            f"/api/v1/runs/{run_id}/steps/{body['step_id']}/decision",
+            json={"idempotency_key": str(uuid.uuid4()), "orders": []},
+            headers={"X-API-Key": key},
+        )
+        assert r.status_code == 200, r.text
+    else:
+        raise AssertionError("run did not complete")
+
+    run = run_service._runs[run_id]
+    with run.lock:  # simulate an in-flight decision holding the run lock
+        run_service.reap_runs()
+        assert run_id in run_service._runs, "must defer while the lock is held"
+    run_service.reap_runs()
+    assert run_id not in run_service._runs  # freed on the next sweep
+
+
+def test_timeout_held_step_not_reported_completed_after_restart(client, monkeypatch):
+    """A step that auto-held on deadline was never completed; after a restart
+    (engine log gone) get_step must not fabricate 'completed' — it reports the
+    persisted awaiting state."""
+    import dashboard.backend.domain.backtesting.external_run_service as ebs
+    import dashboard.backend.domain.runs.service as run_service
+
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    monkeypatch.setattr(ebs, "DECISION_TIMEOUT_SECONDS", 0.2)
+    run_id = _create_run(client, key, version_id)
+    step = _wait_for_step(client, run_id, key)
+    if step.get("status") != "awaiting_decision":
+        pytest.skip("run auto-completed before a step could time out")
+    step_id = step["step_id"]
+
+    time.sleep(0.5)  # let the deadline elapse
+    nxt = _wait_for_step(client, run_id, key)  # applies the auto-hold, advances
+    assert nxt.get("step_id") != step_id or nxt.get("status") == "completed"
+
+    run = run_service._runs[run_id]
+    if run.backtest_id:
+        ebs.evict_session(run.backtest_id)
+    with run_service._registry_lock:
+        run_service._runs.clear()
+
+    s = client.get(
+        f"/api/v1/runs/{run_id}/steps/{step_id}", headers={"X-API-Key": key}
+    )
+    assert s.status_code == 200, s.text
+    assert s.json()["status"] != "completed", s.json()
+
+
+def test_list_steps_survives_restart_for_incomplete_run(client):
+    """list_steps must fall back to the persisted step bookkeeping when the
+    engine log is gone and the run has no result yet — not silently report
+    zero steps for a run that decided real steps."""
+    import dashboard.backend.domain.backtesting.external_run_service as ebs
+    import dashboard.backend.domain.runs.service as run_service
+
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+    step = _wait_for_step(client, run_id, key)
+    assert step.get("status") == "awaiting_decision"
+    r = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step['step_id']}/decision",
+        json={"idempotency_key": str(uuid.uuid4()), "orders": []},
+        headers={"X-API-Key": key},
+    )
+    assert r.status_code == 200, r.text
+
+    run = run_service._runs[run_id]
+    if run.backtest_id:
+        ebs.evict_session(run.backtest_id)
+    with run_service._registry_lock:
+        run_service._runs.clear()
+
+    listed = client.get(f"/api/v1/runs/{run_id}/steps", headers={"X-API-Key": key})
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert body["count"] >= 1, body
+    ids = {s["step_id"] for s in body["steps"]}
+    assert step["step_id"] in ids
+    by_id = {s["step_id"]: s for s in body["steps"]}
+    assert by_id[step["step_id"]]["status"] == "completed"
+
 
 def test_late_decision_returns_autoheld_code(client, monkeypatch):
     """Cross-package contract the PyPI SDK's AgentRunner relies on: a decision

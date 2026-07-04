@@ -65,6 +65,9 @@ class RunStore:
     def _get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
+        # Step writes share this file with the engine's heavy finalize writes;
+        # wait for the lock instead of failing fast with "database is locked".
+        conn.execute("PRAGMA busy_timeout = 5000")
         return conn
 
     def _init_schema(self) -> None:
@@ -289,7 +292,10 @@ class RunStore:
         conn.close()
 
     def get_steps(self, run_id: str) -> List[Dict[str, Any]]:
-        """All persisted steps for a run, in sequence order (result parsed)."""
+        """All persisted steps for a run, in sequence order (result parsed).
+
+        Unbounded on purpose: a run's step count is capped by its backtest
+        window (total_steps), so the full history is small by construction."""
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute(

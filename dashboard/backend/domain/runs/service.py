@@ -102,25 +102,38 @@ class ProtocolRun:
         return ebs.get_session(self.backtest_id)
 
     def ensure_step_id(self, seq: int, timestamp: Any, deadline: Any) -> str:
-        sid = self.seq_to_step_id.get(seq)
-        if sid is None:
-            sid = _new_step_id()
-            self.seq_to_step_id[seq] = sid
-            self.step_seq[sid] = seq
-            self.step_meta[sid] = {
-                "sequence": seq,
-                "timestamp": timestamp,
-                "deadline_at": deadline,
-                "status": "awaiting_decision",
-            }
-        else:
-            self.step_meta[sid].update(
-                {"timestamp": timestamp, "deadline_at": deadline, "status": "awaiting_decision"}
-            )
-        # Mirror to protocol_steps so step-id lookups and idempotent replays
-        # survive a process restart (rehydrated by _get_run).
-        run_store.save_step(self.run_id, sid, seq, timestamp, deadline)
-        return sid
+        # Under the run lock: two concurrent steps/next polls must not mint two
+        # step_ids for one sequence — protocol_steps' UNIQUE(run_id, sequence)
+        # would turn the old benign last-write-wins race into an IntegrityError.
+        with self.lock:
+            sid = self.seq_to_step_id.get(seq)
+            if sid is None:
+                sid = _new_step_id()
+                self.seq_to_step_id[seq] = sid
+                self.step_seq[sid] = seq
+                self.step_meta[sid] = {
+                    "sequence": seq,
+                    "timestamp": timestamp,
+                    "deadline_at": deadline,
+                    "status": "awaiting_decision",
+                }
+            else:
+                meta = self.step_meta[sid]
+                if (
+                    meta.get("timestamp") == timestamp
+                    and meta.get("deadline_at") == deadline
+                    and meta.get("status") == "awaiting_decision"
+                ):
+                    # Repeat poll of an unchanged step: steps/next is polled in
+                    # a loop, so skip the per-poll synchronous SQLite write.
+                    return sid
+                meta.update(
+                    {"timestamp": timestamp, "deadline_at": deadline, "status": "awaiting_decision"}
+                )
+            # Mirror to protocol_steps so step-id lookups and idempotent replays
+            # survive a process restart (rehydrated by _get_run).
+            run_store.save_step(self.run_id, sid, seq, timestamp, deadline)
+            return sid
 
     def constraints(self) -> Dict[str, Any]:
         env_constraints = self.environment.get("constraints", {})
@@ -246,9 +259,17 @@ def reap_runs() -> int:
                         reaped += 1
             if run.status in ("completed", "failed"):
                 # Terminal state is DB-backed (protocol_runs + protocol_steps);
-                # keeping the ProtocolRun would only grow _runs forever.
-                with _registry_lock:
-                    _runs.pop(run.run_id, None)
+                # keeping the ProtocolRun would only grow _runs forever. But a
+                # request may be mid-flight on this run (holding run.lock, its
+                # finalize_step not yet committed) — popping now would strand
+                # its writes on an orphaned object and let a concurrent reader
+                # rehydrate a stale row. Defer to the next sweep instead.
+                if run.lock.acquire(blocking=False):
+                    try:
+                        with _registry_lock:
+                            _runs.pop(run.run_id, None)
+                    finally:
+                        run.lock.release()
         except Exception as exc:  # a single wedged run must not stall the sweep
             print(f"⚠️ reap_runs: skipping {run.run_id}: {exc}")
     return reaped
@@ -743,6 +764,25 @@ def list_steps(run_id: str) -> Dict[str, Any]:
             "decision_source": source,
             "actions_executed": d.get("actions_executed", 0),
         })
+    if not steps and run.step_meta:
+        # No decision log (post-restart, run not finalized): answer from the
+        # rehydrated protocol_steps bookkeeping instead of reporting zero
+        # steps for a run that really processed some. Only accepted decisions
+        # finalize a step, so a completed row's source is external_agent by
+        # construction; its executed count comes from the stored result.
+        for seq in sorted(run.seq_to_step_id):
+            sid = run.seq_to_step_id[seq]
+            meta = run.step_meta.get(sid, {})
+            prior = run.step_results_by_seq.get(seq)
+            completed = meta.get("status") == "completed"
+            steps.append({
+                "sequence": seq,
+                "step_id": sid,
+                "timestamp": meta.get("timestamp"),
+                "status": "completed" if completed else (meta.get("status") or "awaiting_decision"),
+                "decision_source": "external_agent" if completed else None,
+                "actions_executed": len((prior or {}).get("result", {}).get("fills") or []),
+            })
     return {"protocol_version": PROTOCOL_VERSION, "run_id": run_id, "steps": steps, "count": len(steps)}
 
 
@@ -864,7 +904,19 @@ def _historical_step_status(run, seq) -> str:
     if run.step_results_by_seq.get(seq):
         return "completed"
     # Fall back to the persisted/engine decision log.
-    return "timed_out" if _step_decision_source(run, seq) == "timeout_hold" else "completed"
+    source = _step_decision_source(run, seq)
+    if source == "timeout_hold":
+        return "timed_out"
+    if source is not None:
+        return "completed"
+    # No decision log at all (post-restart, run not finalized): answer from the
+    # persisted step row rather than fabricating "completed" — a step that
+    # auto-held or was mid-await when the process died never completed.
+    sid = run.seq_to_step_id.get(seq)
+    meta = run.step_meta.get(sid) if sid else None
+    if meta and meta.get("status") != "completed":
+        return meta.get("status") or "awaiting_decision"
+    return "completed"
 
 
 def _decisions_raw(run) -> List[Dict[str, Any]]:
