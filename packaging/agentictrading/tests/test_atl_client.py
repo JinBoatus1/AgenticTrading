@@ -377,3 +377,30 @@ def test_timeout_mapping(monkeypatch):
     monkeypatch.setattr(atl_client.urllib.request, "urlopen", boom)
     with pytest.raises(ATLTimeoutError):
         _client().get_run("run_1")
+
+
+def test_socket_timeout_maps_to_timeout_error(monkeypatch):
+    """A mid-read socket timeout (the type ``resp.read()`` actually raises)
+    must surface as ATLTimeoutError, exactly like a connect timeout."""
+    import socket
+
+    def boom(req, timeout=None):
+        raise socket.timeout("The read operation timed out")
+
+    monkeypatch.setattr(atl_client.urllib.request, "urlopen", boom)
+    with pytest.raises(ATLTimeoutError):
+        _client().get_run("run_1")
+
+
+def test_client_catches_socket_timeout_explicitly():
+    """LOW #13 — on Python 3.9 (the package's floor), ``socket.timeout`` is
+    NOT an alias of TimeoutError (they merged in 3.10), so a bare
+    ``except TimeoutError`` lets a mid-read timeout escape as a raw
+    ``socket.timeout``. Source-level guard because on CI's ≥3.10 the two are
+    runtime-indistinguishable."""
+    import inspect
+
+    src = inspect.getsource(atl_client)
+    assert "except socket.timeout" in src, (
+        "atl_client must catch socket.timeout explicitly for Python 3.9 support"
+    )

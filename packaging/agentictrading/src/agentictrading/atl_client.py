@@ -26,6 +26,7 @@ Conceptual mapping::
 from __future__ import annotations
 
 import json
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -109,7 +110,11 @@ class ATLClient:
             if isinstance(reason, TimeoutError) or isinstance(reason, OSError) and "timed out" in str(reason):
                 raise ATLTimeoutError(f"request timed out: {reason}", path=path) from exc
             raise ATLAPIError(f"connection error: {reason}", path=path) from exc
-        except TimeoutError as exc:
+        except socket.timeout as exc:
+            # socket.timeout, not TimeoutError: on Python 3.9 (our floor) they
+            # are distinct types and a mid-read timeout raises socket.timeout.
+            # From 3.10 on socket.timeout IS TimeoutError, so this clause is
+            # equivalent there.
             raise ATLTimeoutError(f"request timed out after {timeout or self.timeout}s", path=path) from exc
 
     def _raise_for_error(self, exc: "urllib.error.HTTPError", path: str) -> None:
