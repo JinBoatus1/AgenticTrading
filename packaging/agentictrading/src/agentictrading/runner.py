@@ -61,13 +61,14 @@ _FAILED_STATES = {"failed", "cancelled", "canceled"}
 # live" — e.g. the agent took longer than the environment's decision window
 # (default 30s). These must NOT abort the run.
 #
-# NOTE: in practice a genuinely-late decision surfaces as ``step_already_finalized``,
-# not ``decision_deadline_exceeded``: the backend applies the elapsed-deadline
-# auto-hold (advancing the step) while reconciling status *before* it re-checks the
-# submitted step, so the step is already finalized by then. Both are kept so the
-# runner is robust either way — do NOT drop ``step_already_finalized`` thinking it
-# is "only for duplicate submissions". The backend contract is locked by
-# test_late_decision_returns_autoheld_code (dashboard backend test_protocol_api).
+# NOTE: a genuinely-late decision surfaces as ``decision_deadline_exceeded``: the
+# backend consults the engine decision log and, when the step was auto-held with
+# decision_source == "timeout_hold", raises that documented code (MEDIUM #8).
+# ``step_already_finalized`` is kept in the set too — it's what a genuine
+# double-submit of an already-finalized step returns, and keeping it makes the
+# runner robust against older backends / edge orderings. Do NOT drop either. The
+# backend contract is locked by test_late_decision_returns_autoheld_code
+# (dashboard backend test_protocol_api).
 _STEP_AUTOHELD_CODES = {"decision_deadline_exceeded", "step_already_finalized"}
 
 

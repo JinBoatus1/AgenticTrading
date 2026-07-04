@@ -498,6 +498,22 @@ def submit_decision(run_id: str, step_id: str, decision: DecisionIn) -> Dict[str
             prior = run.step_results_by_seq.get(seq)
             if prior and prior["idempotency_key"] == decision.idempotency_key:
                 return prior["result"]
+            # A step auto-held because its decision deadline elapsed has no
+            # finalized protocol decision (``step_results_by_seq`` unset) but is
+            # logged by the engine with ``decision_source == "timeout_hold"``.
+            # ``get_status()`` above applies that auto-hold and advances
+            # ``step_index`` before we reach here, so the dedicated
+            # ``decision_deadline_exceeded`` raise at ``submit_decisions()`` below
+            # is effectively unreachable for the common case — surface the
+            # documented code here instead, so an agent/SDK can tell a missed
+            # deadline from a genuine double-submit (which keeps its
+            # ``step_already_finalized`` below, since ``prior`` is set).
+            if prior is None and _step_decision_source(run, seq) == "timeout_hold":
+                raise ProtocolError(
+                    "decision_deadline_exceeded",
+                    "Decision arrived after the step deadline; the step was auto-held",
+                    409,
+                )
             raise ProtocolError(
                 "step_already_finalized",
                 "This step already has a finalized decision",
@@ -789,15 +805,23 @@ def _build_step_view(run, session, seq, step_id, step) -> Dict[str, Any]:
     }
 
 
-def _historical_step_status(run, seq) -> str:
-    prior = run.step_results_by_seq.get(seq)
-    if prior:
-        return "completed"
-    # Fall back to the persisted/engine decision log.
+def _step_decision_source(run, seq) -> Optional[str]:
+    """The engine's recorded ``decision_source`` for step ``seq`` (e.g.
+    ``'timeout_hold'`` for a deadline auto-hold), or ``None`` if the step has no
+    logged decision yet. Single source of truth for both historical-status
+    reporting and the late-decision code in ``submit_decision``.
+    """
     for d in _decisions_raw(run):
         if d.get("step_index") == seq:
-            return "timed_out" if d.get("decision_source") == "timeout_hold" else "completed"
-    return "completed"
+            return d.get("decision_source")
+    return None
+
+
+def _historical_step_status(run, seq) -> str:
+    if run.step_results_by_seq.get(seq):
+        return "completed"
+    # Fall back to the persisted/engine decision log.
+    return "timed_out" if _step_decision_source(run, seq) == "timeout_hold" else "completed"
 
 
 def _decisions_raw(run) -> List[Dict[str, Any]]:

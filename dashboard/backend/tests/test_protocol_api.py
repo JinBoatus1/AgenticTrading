@@ -829,10 +829,12 @@ def test_late_decision_returns_autoheld_code(client, monkeypatch):
     submitted after the step deadline returns a 409 with an 'auto-held' code so
     the SDK can advance instead of aborting the run.
 
-    In practice the backend surfaces `step_already_finalized` (it applies the
-    elapsed-deadline auto-hold during status reconciliation before re-checking
-    the submitted step). Keep the asserted set in sync with runner.py's
-    _STEP_AUTOHELD_CODES — dropping a code here would silently regress H5.
+    The backend surfaces the documented `decision_deadline_exceeded` for a
+    deadline miss (MEDIUM #8): `submit_decision` consults the engine decision log
+    and, when the step was auto-held with decision_source == "timeout_hold",
+    raises that code rather than the generic `step_already_finalized` (which is
+    reserved for a genuine double-submit of an already-finalized step). The SDK's
+    _STEP_AUTOHELD_CODES still tolerates both, so it stays robust either way.
     """
     import dashboard.backend.domain.backtesting.external_run_service as ebs
 
@@ -852,7 +854,7 @@ def test_late_decision_returns_autoheld_code(client, monkeypatch):
     )
     assert resp.status_code == 409, resp.text
     code = resp.json()["detail"]["error"]["code"]
-    assert code in ("step_already_finalized", "decision_deadline_exceeded"), code
+    assert code == "decision_deadline_exceeded", code
 
 
 def test_reaper_advances_abandoned_run(client, monkeypatch):
