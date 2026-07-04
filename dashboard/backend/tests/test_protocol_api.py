@@ -961,6 +961,35 @@ def test_agent_version_lookup_is_not_an_existence_oracle(client):
     assert ok.status_code == 200
 
 
+def test_create_run_agent_version_is_not_an_existence_oracle(client):
+    """v1/v2 reconciliation follow-up (LOW #8's sibling) — POST /runs with an
+    agent_version_id that exists but belongs to another agent must answer
+    exactly like a nonexistent id. The former 403-vs-404 split let any key
+    holder enumerate which agent-version ids exist."""
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+
+    _, other_key, _ = _new_agent(client)
+
+    def _probe(version_ref):
+        return client.post(
+            "/api/v1/runs",
+            json={
+                "agent_version_id": version_ref,
+                "environment": {"type": "backtest", "environment_id": "us-equity-hourly-v1"},
+                "config": {"start_date": "2026-04-15", "end_date": "2026-04-16"},
+            },
+            headers={"X-API-Key": other_key},
+        )
+
+    missing = _probe("agv_does_not_exist")
+    denied = _probe(version_id)
+    assert missing.status_code == 404
+    assert denied.status_code == 404, denied.text
+    # Identical bodies too — no code/message side channel.
+    assert denied.json() == missing.json()
+
+
 def test_observation_features_cover_configured_symbols(client, monkeypatch):
     """LOW #11 — the step observation must include features for EVERY symbol
     the run's config declares tradeable, not a top-10-RSI sample of them (an

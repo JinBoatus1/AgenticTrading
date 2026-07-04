@@ -69,15 +69,12 @@ def create_run(
     agent_version: Dict[str, Any] = {}
     if body.agent_version_id:
         agent_version = agent_version_store.get_version(body.agent_version_id) or {}
-        if not agent_version:
+        # Another agent's version answers exactly like a nonexistent one: a
+        # 403-vs-404 split would let any key holder enumerate version ids.
+        if not agent_version or agent_version["agent_id"] != agent["agent_id"]:
             raise HTTPException(
                 status_code=404,
                 detail=error_body("agent_version_not_found", "agent_version_id not found"),
-            )
-        if agent_version["agent_id"] != agent["agent_id"]:
-            raise HTTPException(
-                status_code=403,
-                detail=error_body("forbidden", "agent_version belongs to a different agent"),
             )
 
     environment_id = body.environment.environment_id or default_environment_id()
