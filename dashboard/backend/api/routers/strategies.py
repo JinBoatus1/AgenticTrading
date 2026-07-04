@@ -47,8 +47,12 @@ def _with_share_url(record: dict, request: Request) -> dict:
 
 
 @router.post("")
-async def create_strategy_endpoint(body: CreateStrategyBody, request: Request):
-    """Store a free-form strategy prompt; returns its share code + URL."""
+def create_strategy_endpoint(body: CreateStrategyBody, request: Request):
+    """Store a free-form strategy prompt; returns its share code + URL.
+
+    Plain ``def`` so the blocking SQLite write runs in FastAPI's threadpool
+    rather than on the event loop.
+    """
     try:
         record = create_strategy(
             prompt=body.prompt,
@@ -62,7 +66,7 @@ async def create_strategy_endpoint(body: CreateStrategyBody, request: Request):
 
 
 @router.get("/{code}")
-async def get_strategy_endpoint(code: str, request: Request):
+def get_strategy_endpoint(code: str, request: Request):
     """Fetch a stored strategy by share code (for the viewer / backtest)."""
     record = get_strategy(code)
     if not record:
