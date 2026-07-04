@@ -60,6 +60,10 @@ Start the API server
 
 .. code-block:: bash
 
-   python3 dashboard/backend/app.py
+   # from the repository root (the backend is the ``dashboard.backend`` package)
+   uvicorn dashboard.backend.app:app --reload
+
+   # equivalent module entrypoint:
+   python3 -m dashboard.backend.app
 
 Open the dashboard at `http://localhost:8000/ <http://localhost:8000/>`_.

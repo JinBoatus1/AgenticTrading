@@ -61,9 +61,13 @@ dashboard/
 
 ### Conventions
 
-- **Run the API:** `uvicorn dashboard.backend.app:app` (canonical). A deprecated
-  `__main__` launcher in `app.py` remains because `getting_started.rst`
-  documents `python3 dashboard/backend/app.py`.
+- **Run the API:** `uvicorn dashboard.backend.app:app` (canonical, used by
+  `render.yaml` + `Dockerfile`). The `__main__` block in `app.py` is a real
+  module entrypoint (`python -m dashboard.backend.app`) that references the app
+  by its canonical import string, so the reloader resolves the same module
+  identity. `getting_started.rst` documents these; `python3 dashboard/backend/app.py`
+  (running the file directly) does NOT work — the top-level `dashboard.backend.*`
+  imports require the repo root on `sys.path`.
 - **Routes:** business routers live in `api/routers/` and are mounted by
   `api/router.py` under `/api`. **Paper-trading routes stay outside `/api`** and
   are registered directly on the app, so `/paper/*` (not `/api/paper/*`) is the
