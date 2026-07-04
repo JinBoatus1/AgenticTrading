@@ -13,6 +13,7 @@ registered before ``/api/backtest/{run_id}`` and ``/runs/latest/metrics`` before
 """
 
 import threading
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from typing import List, Optional
@@ -22,6 +23,16 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
+
+# matplotlib is imported and configured (headless Agg backend) once at module
+# import, not per request: the plot endpoint previously re-imported it and
+# re-called matplotlib.use("Agg") on every call. Agg must be selected before any
+# pyplot import elsewhere in the process, so it belongs at module scope.
+import matplotlib
+matplotlib.use("Agg")
+from matplotlib.figure import Figure
+import matplotlib.dates as mdates
+import matplotlib.ticker as mticker
 
 from dashboard.backend.database import db, DB_PATH
 from dashboard.backend.paths import DASHBOARD_DIR, REPO_ROOT, SCRIPTS_DIR
@@ -520,13 +531,28 @@ async def get_equity_curve(run_id: str, request: Request):
 
 
 @router.get("/runs/{run_id}/plot.png", include_in_schema=False)
-async def get_run_plot(run_id: str):
+def get_run_plot(run_id: str):
     """Render an equity-curve comparison PNG (agent vs baselines) for a run.
 
     Public endpoint: the path ends in ``.png`` so it is exempt from the session
     middleware. Used by the Discord bot to post a chart after a backtest, and
     usable directly as an <img> src. Returns the same agent-vs-DJIA-vs-buy&hold
     comparison the website shows, normalized to percent return.
+
+    Sync ``def`` so FastAPI runs the CPU-bound matplotlib render in its
+    threadpool rather than blocking the event loop; the PNG is cached per run_id.
+    """
+    return Response(content=_render_run_plot_png(run_id), media_type="image/png")
+
+
+@lru_cache(maxsize=128)
+def _render_run_plot_png(run_id: str) -> bytes:
+    """Render (and memoize) the equity-curve comparison PNG for ``run_id``.
+
+    A run's equity data is immutable once written and run_ids are unique per
+    run, so the rendered bytes are reused without re-querying the DB or
+    re-rendering. HTTPExceptions (missing run / no equity data) are raised, not
+    cached — so data that appears later is still picked up on a retry.
     """
     run = db.get_run(run_id)
     if not run:
@@ -568,12 +594,6 @@ async def get_run_plot(run_id: str):
         plan.append(("Buy & Hold", buyhold_id, "#f59e0b"))
     if djia_id:
         plan.append(("DJIA", djia_id, "#9aa7b8"))
-
-    import matplotlib
-    matplotlib.use("Agg")
-    from matplotlib.figure import Figure
-    import matplotlib.dates as mdates
-    import matplotlib.ticker as mticker
 
     fig = Figure(figsize=(9.0, 4.8), dpi=130)
     fig.patch.set_facecolor("#0b0f17")
@@ -620,7 +640,7 @@ async def get_run_plot(run_id: str):
     buf = BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight", facecolor=fig.get_facecolor())
     buf.seek(0)
-    return Response(content=buf.getvalue(), media_type="image/png")
+    return buf.getvalue()
 
 
 @router.get("/compare", response_model=ComparisonResponse)
