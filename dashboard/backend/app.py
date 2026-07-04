@@ -9,7 +9,7 @@ frontend. Backend API route bodies live in ``dashboard.backend.api.routers.*``.
 
 import math
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -224,7 +224,7 @@ async def serve_app():
 
 
 @app.get("/app/", include_in_schema=False)
-async def serve_app_trailing_slash():
+async def serve_app_trailing_slash(request: Request):
     """Redirect /app/ → /app (method-preserving 308).
 
     app.html references its assets with relative paths (``styles.css``,
@@ -232,8 +232,15 @@ async def serve_app_trailing_slash():
     against the ``/app/`` base (``/app/styles.css`` → 404), so the dashboard
     renders unstyled. Redirecting to ``/app`` makes relative assets resolve
     against root.
+
+    Preserve the query string: the frontend deep-links via query params on this
+    route (``?auth=login``, ``?view=paper``, ``?mode=…`` from generateShareURL /
+    openAuthFromUrl), which a bare ``/app`` redirect would drop.
     """
-    return RedirectResponse(url="/app", status_code=308)
+    target = "/app"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    return RedirectResponse(url=target, status_code=308)
 
 @app.get("/favicon.svg", include_in_schema=False)
 @app.get("/favicon.ico", include_in_schema=False)

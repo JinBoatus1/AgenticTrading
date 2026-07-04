@@ -22,6 +22,15 @@ def test_app_trailing_slash_redirects_to_app():
     assert resp.headers["location"] == "/app"
 
 
+def test_app_trailing_slash_preserves_query_string():
+    """The redirect must keep query params so deep-links (?auth=login, ?view=paper)
+    survive the trailing-slash normalization."""
+    client = TestClient(app)
+    resp = client.get("/app/?auth=login&view=paper", follow_redirects=False)
+    assert resp.status_code == 308
+    assert resp.headers["location"] == "/app?auth=login&view=paper"
+
+
 def test_app_serves_dashboard_html():
     """/app (no trailing slash) still serves the dashboard HTML directly."""
     client = TestClient(app)
