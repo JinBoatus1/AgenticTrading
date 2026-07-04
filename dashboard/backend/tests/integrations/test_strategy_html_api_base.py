@@ -35,3 +35,7 @@ def test_strategy_html_no_hardcoded_default_dates():
     assert 'value="2026-05-01"' not in src
     assert 'value="2026-05-07"' not in src
     assert "function initDateDefaults(" in src
+    # Dates are formatted from LOCAL parts, not UTC toISOString (off-by-one near
+    # local midnight in non-UTC timezones).
+    assert "getFullYear()" in src
+    assert "toISOString" not in src
