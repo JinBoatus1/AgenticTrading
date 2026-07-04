@@ -242,8 +242,11 @@ def test_safe_trading_ranks_by_trend_not_rsi_extremity(monkeypatch):
 def test_safe_trading_always_includes_current_holdings(monkeypatch):
     captured = _capture_top_signals(monkeypatch)
     signals = {f"F{i:02d}": _trend_sig(105.0, 50.0, 100.0, 98.0) for i in range(12)}
-    # A held name with a trend score too weak to ever make the top-12.
-    signals["HELD"] = _trend_sig(70.0, 20.0, 100.0, 120.0, macd=-1.0)
+    # A held name that ranks LAST under BOTH schemes: neutral RSI (|50-50|=0, so
+    # the old RSI-extremity ranking excludes it too) AND a terrible trend score
+    # (price below both SMAs, negative MACD). So its appearance can only be the
+    # holdings-append step, not either ranking.
+    signals["HELD"] = _trend_sig(70.0, 50.0, 100.0, 120.0, macd=-1.0)
     state = {
         "timestamp": datetime(2026, 1, 1), "cash": 50000,
         "positions": [{"symbol": "HELD", "shares": 10, "entry_price": 90.0,

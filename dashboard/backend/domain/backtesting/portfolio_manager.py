@@ -9,14 +9,14 @@ lower-level logic already lives under ``dashboard.backend.domain.trading`` and
 
 Most of the class is a mechanical move (only the imports became canonical), and
 the legacy script re-exports this exact class object so ``bha.PortfolioManager``
-and existing subclasses keep working unchanged. **One behavior was NOT moved
-verbatim:** the ``safe_trading`` candidate selection in
-``make_trading_decision_with_llm`` changed from the pre-refactor ranking — top-10
-by RSI extremity (``|RSI - 50|``, a mean-reversion heuristic) — to ranking the
-top-12 by a multi-factor trend/momentum score *and always appending current
-holdings*. That is a deliberate strategy change bundled into the refactor, so
-backtests produced before and after this commit are **not** directly comparable
-(see the inline comment on that branch for the rationale).
+and existing subclasses keep working unchanged. **The trading logic is not fully
+unchanged, though:** the ``safe_trading`` candidate selection in
+``make_trading_decision_with_llm`` no longer ranks the top-10 candidates by RSI
+extremity (``|RSI - 50|``, a mean-reversion heuristic) — it ranks the top-12 by a
+multi-factor trend/momentum score *and always appends current holdings*. That
+ranking change was made separately from (and independently of) this file's
+domain-layer move, so backtests from before it are **not** directly comparable
+with current ones (see the inline comment on that branch for the rationale).
 
 This module is domain-level orchestration: it must NOT import dashboard scripts,
 ``HourlyBacktester``, FastAPI routers, the database singleton, or Alpaca clients.
