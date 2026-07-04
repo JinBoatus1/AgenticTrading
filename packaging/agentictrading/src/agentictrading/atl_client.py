@@ -216,20 +216,36 @@ class ATLClient:
         start_date: str,
         end_date: str,
         symbols: Optional[List[str]] = None,
-        initial_cash: float = 100_000,
+        initial_cash: Optional[float] = None,
         environment_type: str = "backtest",
         config: Optional[Dict[str, Any]] = None,
     ) -> Run:
-        """Create a run for an existing AgentVersion. Requires ``agent_version_id``."""
+        """Create a run for an existing AgentVersion. Requires ``agent_version_id``.
+
+        ``initial_cash`` is accepted for forward-compatibility but the backtest
+        environment currently fixes starting capital, so a value other than the
+        fixed default is rejected client-side (fail fast) rather than making a
+        request the backend would reject with ``invalid_config``. Leave it unset —
+        the environment applies the fixed default.
+        """
         if not agent_version_id:
             raise ATLValidationError(
                 "agent_version_id is required; create an AgentVersion first",
                 code="missing_agent_version_id",
             )
+        # The backtest environment fixes starting capital (backend INITIAL_CAPITAL).
+        _FIXED_INITIAL_CASH = 100_000
+        if initial_cash is not None and float(initial_cash) != _FIXED_INITIAL_CASH:
+            raise ATLValidationError(
+                f"initial_cash is fixed at {_FIXED_INITIAL_CASH:.0f} in this "
+                "environment; custom starting capital is not supported",
+                code="initial_cash_fixed",
+            )
+        # Omit initial_cash from the payload — the environment applies its fixed
+        # default, so we don't advertise a knob the backend won't honor.
         run_config: Dict[str, Any] = {
             "start_date": start_date,
             "end_date": end_date,
-            "initial_cash": initial_cash,
         }
         if symbols is not None:
             run_config["symbols"] = symbols

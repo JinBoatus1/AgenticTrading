@@ -89,7 +89,7 @@ class AgentRunner:
         start_date: str,
         end_date: str,
         symbols: Optional[List[str]] = None,
-        initial_cash: float = 100_000,
+        initial_cash: Optional[float] = None,
         config: Optional[Dict[str, Any]] = None,
         poll_interval: float = 2.0,
         max_wait_seconds: Optional[float] = 300.0,

@@ -67,7 +67,6 @@ def test_create_run_request_construction(fake_http):
         start_date="2026-04-15",
         end_date="2026-04-16",
         symbols=["AAPL"],
-        initial_cash=100_000,
     )
     assert captured["method"] == "POST"
     assert captured["url"] == "http://test.local/api/v1/runs"
@@ -75,7 +74,8 @@ def test_create_run_request_construction(fake_http):
     assert captured["body"]["agent_version_id"] == "agv_1"
     assert captured["body"]["environment"] == {"type": "backtest", "environment_id": "us-equity-hourly-v1"}
     assert captured["body"]["config"]["symbols"] == ["AAPL"]
-    assert captured["body"]["config"]["initial_cash"] == 100_000
+    # initial_cash is NOT advertised on the wire — the environment fixes capital.
+    assert "initial_cash" not in captured["body"]["config"]
     assert run.id == "run_1"
     assert run.run_id == "run_1"
     assert run.environment_id == "us-equity-hourly-v1"
@@ -84,6 +84,37 @@ def test_create_run_request_construction(fake_http):
 def test_create_run_requires_agent_version():
     with pytest.raises(ATLValidationError):
         _client().create_run("", environment_id="e", start_date="a", end_date="b")
+
+
+def test_create_run_rejects_custom_initial_cash():
+    """MEDIUM #12 — the environment fixes starting capital, so a non-default
+    initial_cash is rejected client-side (fail fast) with a clear code, before
+    any HTTP request the backend would 400."""
+    with pytest.raises(ATLValidationError) as exc:
+        _client().create_run(
+            "agv_1", environment_id="e", start_date="a", end_date="b",
+            initial_cash=50_000,
+        )
+    assert exc.value.code == "initial_cash_fixed"
+
+
+def test_create_run_accepts_the_fixed_default_initial_cash(fake_http):
+    """Passing the fixed default is tolerated (backward compat) and still omitted
+    from the wire payload."""
+    captured = {}
+
+    def responder(req):
+        captured["body"] = json.loads(req.data.decode())
+        return (200, {"run_id": "run_1", "status": "created",
+                      "environment": {"environment_id": "e", "type": "backtest"},
+                      "config": {}})
+
+    fake_http(responder)
+    _client().create_run(
+        "agv_1", environment_id="e", start_date="a", end_date="b",
+        initial_cash=100_000,
+    )
+    assert "initial_cash" not in captured["body"]["config"]
 
 
 def test_api_key_not_in_repr():

@@ -40,7 +40,6 @@ result = AgentRunner(client=client, agent=MyAgent()).run_backtest(
     start_date="2026-04-15",
     end_date="2026-04-16",
     symbols=["AAPL", "MSFT"],
-    initial_cash=100_000,
 )
 print(result.metrics)
 ```
