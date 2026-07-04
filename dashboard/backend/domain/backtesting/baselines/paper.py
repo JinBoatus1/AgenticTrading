@@ -13,6 +13,7 @@ Alpaca provider adapter continues to come from
 import json
 import requests
 import os
+import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
@@ -275,7 +276,7 @@ class PaperTradingBaselineCalculator:
         now = datetime.now()
         
         # DJIA run
-        djia_run_id = f"djia_paper_baseline_{now.strftime('%Y%m%d_%H%M%S')}"
+        djia_run_id = f"djia_paper_baseline_{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         djia_initial = djia_curve[0]["equity"]
         djia_final = djia_curve[-1]["equity"]
         djia_return = (djia_final - djia_initial) / djia_initial
@@ -298,7 +299,7 @@ class PaperTradingBaselineCalculator:
         print(f"  ✅ Stored DJIA baseline")
         
         # Buy-and-Hold run
-        bah_run_id = f"bah_paper_baseline_{now.strftime('%Y%m%d_%H%M%S')}"
+        bah_run_id = f"bah_paper_baseline_{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         bah_initial = bah_curve[0]["equity"]
         bah_final = bah_curve[-1]["equity"]
         bah_return = (bah_final - bah_initial) / bah_initial

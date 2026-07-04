@@ -89,7 +89,8 @@ def create_paper_trading_session(agent_name: str) -> str:
     Returns:
         run_id: Unique identifier for this session
     """
+    import uuid
     from datetime import datetime
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_id = f"{agent_name}_{timestamp}"
+    run_id = f"{agent_name}_{timestamp}_{uuid.uuid4().hex[:8]}"
     return run_id

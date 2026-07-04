@@ -35,11 +35,13 @@ def _imported_modules(path: Path):
 def test_create_paper_trading_session_run_id_format():
     run_id = create_paper_trading_session("MyAgent")
     assert run_id.startswith("MyAgent_")
-    # Suffix is a YYYYmmdd_HHMMSS timestamp.
+    # Suffix is <YYYYmmdd_HHMMSS>_<uuid8 hex> — the uuid8 makes the id
+    # collision-resistant for two sessions started in the same second.
     suffix = run_id[len("MyAgent_"):]
-    assert len(suffix) == 15
-    assert suffix[8] == "_"
-    assert suffix.replace("_", "").isdigit()
+    ts, sep, uid = suffix.rpartition("_")
+    assert sep == "_"
+    assert len(ts) == 15 and ts[8] == "_" and ts.replace("_", "").isdigit()
+    assert len(uid) == 8 and all(c in "0123456789abcdef" for c in uid)
 
 
 def test_session_initial_fields():

@@ -15,6 +15,7 @@ be extracted in a later phase.
 """
 
 import sys
+import uuid
 from datetime import datetime
 from typing import Dict, List, Tuple
 
@@ -217,7 +218,7 @@ class HourlyBacktester:
                 entry["timestamp"] = entry["timestamp"].isoformat()
         
         # Store in database
-        run_id = f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        run_id = f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         initial_eq = equity_curve[0]["equity"] if equity_curve else INITIAL_CAPITAL
         final_eq = equity_curve[-1]["equity"] if equity_curve else INITIAL_CAPITAL
         total_return = (final_eq - INITIAL_CAPITAL) / INITIAL_CAPITAL
@@ -277,7 +278,7 @@ class HourlyBacktester:
             return None, []
         
         # Store in database
-        run_id = f"buyhold_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        run_id = f"buyhold_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         initial_eq = equity_history[0]["equity"]
         final_eq = equity_history[-1]["equity"]
         total_return = (final_eq - INITIAL_CAPITAL) / INITIAL_CAPITAL
@@ -323,7 +324,7 @@ class HourlyBacktester:
             return None, []
         
         # Store in database
-        run_id = f"djia_index_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        run_id = f"djia_index_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         initial_eq = equity_history[0]["equity"]
         final_eq = equity_history[-1]["equity"]
         total_return = (final_eq - INITIAL_CAPITAL) / INITIAL_CAPITAL
