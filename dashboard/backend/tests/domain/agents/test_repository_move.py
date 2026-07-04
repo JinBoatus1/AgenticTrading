@@ -169,7 +169,9 @@ def test_owns_agent(store):
     stored = store.get_agent(created["agent_id"])
     assert store.owns_agent(stored, owner_user_id=5) is True
     assert store.owns_agent(stored, owner_user_id=6) is False
-    # The public agent dict omits owner_browser_session, so ownership by browser
-    # session is only recognized when it matches the session_id (current behavior).
-    assert store.owns_agent(stored, owner_browser_session=stored["session_id"]) is True
-    assert store.owns_agent(stored, owner_browser_session="bz") is False
+    # session_id is NOT an ownership credential — it is discoverable, so matching
+    # it must never grant ownership (regression guard for the takeover bug).
+    assert store.owns_agent(stored, owner_browser_session=stored["session_id"]) is False
+    # The real owner_browser_session IS recognized — owns_agent reads it straight
+    # from the row (the public agent dict omits it as a private credential).
+    assert store.owns_agent(stored, owner_browser_session="bz") is True

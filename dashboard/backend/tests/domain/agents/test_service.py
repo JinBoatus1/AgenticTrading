@@ -177,15 +177,18 @@ def test_require_access_missing_agent(svc):
         svc.require_access("agent_does_not_exist", user_id=1)
 
 
-def test_require_access_trading_session_fallback(svc):
+def test_require_access_rejects_bare_session_id(svc):
+    """A matching trading session_id is NOT an ownership credential (regression
+    guard for the unauthenticated-takeover bug). Ownership requires a real
+    credential — owner_user_id / owner_browser_session — or the agent API key."""
     agent = svc.create_agent(
         name="A", model_name="m", owner_user_id=99, owner_browser_session=None
     )
-    # Neither user nor browser owns it, but the trading session matches.
-    got = svc.require_access(
-        agent["agent_id"], user_id=None, browser_session=None,
-        trading_session=agent["session_id"],
-    )
+    # Knowing only the agent's (discoverable) session_id must NOT grant access.
+    with pytest.raises(AgentAccessDeniedError):
+        svc.require_access(agent["agent_id"], user_id=None, browser_session=None)
+    # The real owner (user_id) is still recognized.
+    got = svc.require_access(agent["agent_id"], user_id=99)
     assert got["agent_id"] == agent["agent_id"]
 
 

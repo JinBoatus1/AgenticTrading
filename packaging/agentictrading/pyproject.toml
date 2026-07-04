@@ -54,3 +54,6 @@ where = ["src"]
 
 [tool.setuptools.dynamic]
 version = { attr = "agentictrading.__version__" }
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

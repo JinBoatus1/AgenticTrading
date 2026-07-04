@@ -46,13 +46,16 @@ def _require_run_owner(run_id: str, agent: Dict[str, Any]) -> Dict[str, Any]:
     record = run_store.get_run(run_id)
     if not record:
         raise HTTPException(status_code=404, detail="Run not found")
-    if record.get("agent_id") and record["agent_id"] != agent["agent_id"]:
+    # Fail closed: a run with no owner agent_id (orphaned/legacy) must NOT be
+    # accessible to an arbitrary authenticated agent. Only the owning agent may
+    # access it.
+    if not record.get("agent_id") or record["agent_id"] != agent["agent_id"]:
         raise HTTPException(status_code=403, detail="Run belongs to a different agent")
     return record
 
 
 @router.post("")
-async def create_run(
+def create_run(
     body: CreateRunBody,
     x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
 ):
@@ -79,7 +82,7 @@ async def create_run(
 
 
 @router.get("/{run_id}")
-async def get_run(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+def get_run(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
     agent = resolve_agent_by_key(x_api_key)
     _require_run_owner(run_id, agent)
     try:
@@ -89,7 +92,7 @@ async def get_run(run_id: str, x_api_key: Optional[str] = Header(default=None, a
 
 
 @router.get("/{run_id}/status")
-async def get_run_status(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+def get_run_status(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
     agent = resolve_agent_by_key(x_api_key)
     _require_run_owner(run_id, agent)
     try:
@@ -99,7 +102,7 @@ async def get_run_status(run_id: str, x_api_key: Optional[str] = Header(default=
 
 
 @router.get("/{run_id}/steps/next")
-async def get_next_step(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+def get_next_step(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
     agent = resolve_agent_by_key(x_api_key)
     _require_run_owner(run_id, agent)
     try:
@@ -109,7 +112,7 @@ async def get_next_step(run_id: str, x_api_key: Optional[str] = Header(default=N
 
 
 @router.get("/{run_id}/steps/{step_id}")
-async def get_step(
+def get_step(
     run_id: str,
     step_id: str,
     x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
@@ -123,7 +126,7 @@ async def get_step(
 
 
 @router.post("/{run_id}/steps/{step_id}/decision")
-async def submit_step_decision(
+def submit_step_decision(
     run_id: str,
     step_id: str,
     body: DecisionIn,
@@ -142,7 +145,7 @@ async def submit_step_decision(
 
 
 @router.get("/{run_id}/steps")
-async def list_steps(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+def list_steps(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
     agent = resolve_agent_by_key(x_api_key)
     _require_run_owner(run_id, agent)
     try:
@@ -152,7 +155,7 @@ async def list_steps(run_id: str, x_api_key: Optional[str] = Header(default=None
 
 
 @router.get("/{run_id}/decisions")
-async def list_decisions(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+def list_decisions(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
     agent = resolve_agent_by_key(x_api_key)
     _require_run_owner(run_id, agent)
     try:
@@ -162,7 +165,7 @@ async def list_decisions(run_id: str, x_api_key: Optional[str] = Header(default=
 
 
 @router.get("/{run_id}/trades")
-async def list_trades(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+def list_trades(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
     agent = resolve_agent_by_key(x_api_key)
     _require_run_owner(run_id, agent)
     try:
@@ -172,7 +175,7 @@ async def list_trades(run_id: str, x_api_key: Optional[str] = Header(default=Non
 
 
 @router.get("/{run_id}/metrics")
-async def get_metrics(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+def get_metrics(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
     agent = resolve_agent_by_key(x_api_key)
     _require_run_owner(run_id, agent)
     try:
@@ -182,7 +185,7 @@ async def get_metrics(run_id: str, x_api_key: Optional[str] = Header(default=Non
 
 
 @router.get("/{run_id}/result")
-async def get_result(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+def get_result(run_id: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
     agent = resolve_agent_by_key(x_api_key)
     _require_run_owner(run_id, agent)
     try:

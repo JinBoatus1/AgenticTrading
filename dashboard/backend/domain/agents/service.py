@@ -123,7 +123,6 @@ class AgentService:
         *,
         user_id: Optional[int] = None,
         browser_session: Optional[str] = None,
-        trading_session: Optional[str] = None,
     ) -> Dict[str, Any]:
         agent = self.agents.get_agent(agent_id)
         if not agent:
@@ -134,8 +133,10 @@ class AgentService:
             owner_browser_session=browser_session,
         ):
             return agent
-        if trading_session and agent.get("session_id") == trading_session:
-            return agent
+        # A matching trading session_id is intentionally NOT accepted here: it is
+        # discoverable, so it cannot serve as an ownership credential. Callers
+        # that hold the agent's API key are authorized at the route/dependency
+        # layer instead (see api/dependencies._require_agent_access).
         raise AgentAccessDeniedError()
 
     # ------------------------------------------------------------------

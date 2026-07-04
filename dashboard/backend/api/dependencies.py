@@ -54,13 +54,24 @@ def _require_owner_context(request: Request, authorization: Optional[str]) -> Di
     return ctx
 
 
-def _require_agent_access(agent_id: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
+def _require_agent_access(
+    agent_id: str,
+    ctx: Dict[str, Any],
+    *,
+    api_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    # The agent's own API key is a valid credential for its own agent — this is
+    # how API-only clients (which have no logged-in user or browser session)
+    # authorize state-changing operations on the agent they own.
+    if api_key:
+        keyed = agent_service.resolve_api_key(api_key)
+        if keyed and keyed.get("agent_id") == agent_id:
+            return keyed
     try:
         return agent_service.require_access(
             agent_id,
             user_id=ctx.get("user_id"),
             browser_session=ctx.get("browser_session"),
-            trading_session=ctx.get("trading_session"),
         )
     except AgentNotFoundError:
         raise HTTPException(status_code=404, detail="Agent not found")

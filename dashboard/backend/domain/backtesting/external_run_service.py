@@ -519,7 +519,13 @@ class ExternalBacktestSession:
                 djia_run_id=djia_id,
                 buyhold_run_id=buyhold_id,
             )
-        except Exception as exc:
+        # Baseline generation is strictly best-effort and must never break — or
+        # hang — run finalization. AlpacaDataLoader raises SystemExit (a
+        # BaseException, not Exception) when credentials are absent; if that
+        # escaped here it would propagate into the ASGI worker and wedge the
+        # request future forever. Catch SystemExit alongside Exception so a
+        # credential-less environment degrades to "run saved, no baselines".
+        except (Exception, SystemExit) as exc:
             print(f"⚠️ Baseline generation failed (run saved): {exc}")
 
         try:
@@ -714,9 +720,16 @@ def start_backtest(
         _sessions[backtest_id] = session
 
     def _load_in_background() -> None:
+        # load_market_data() constructs AlpacaDataLoader, which raises SystemExit
+        # (a BaseException, not Exception) when credentials are absent. On this
+        # daemon thread the default threading.excepthook silently swallows
+        # SystemExit, so the thread would die without ever marking the session
+        # failed — leaving the run stuck in "loading" forever. Catch SystemExit
+        # alongside Exception so a credential-less environment fails the run
+        # cleanly instead of stranding it. (Mirrors the _finalize() catch above.)
         try:
             session.load_market_data()
-        except Exception as exc:
+        except (Exception, SystemExit) as exc:
             session.status = "failed"
             session.error = str(exc)
 

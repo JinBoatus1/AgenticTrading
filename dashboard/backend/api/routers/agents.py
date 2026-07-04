@@ -101,7 +101,6 @@ async def list_builtin_agents():
                 "name": agent["name"],
                 "model_name": agent.get("model_name") or "local-model",
                 "description": agent.get("description"),
-                "session_id": agent["session_id"],
                 "run_count": agent.get("run_count", 0),
                 "latest_return": latest.get("total_return"),
                 "latest_sharpe": latest.get("sharpe_ratio"),
@@ -201,9 +200,10 @@ async def delete_agent(
     agent_id: str,
     request: Request,
     authorization: Optional[str] = Header(default=None),
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
 ):
-    ctx = _require_owner_context(request, authorization)
-    _require_agent_access(agent_id, ctx)
+    ctx = _owner_context(request, authorization)
+    _require_agent_access(agent_id, ctx, api_key=x_api_key)
     agent_service.delete_agent(agent_id)
     return {"status": "deleted", "agent_id": agent_id}
 
@@ -213,10 +213,11 @@ async def rotate_agent_api_key(
     agent_id: str,
     request: Request,
     authorization: Optional[str] = Header(default=None),
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
 ):
     """Generate a new API key for an agent. The previous key stops working immediately."""
-    ctx = _require_owner_context(request, authorization)
-    _require_agent_access(agent_id, ctx)
+    ctx = _owner_context(request, authorization)
+    _require_agent_access(agent_id, ctx, api_key=x_api_key)
     api_key = agent_service.rotate_api_key(agent_id)
     if not api_key:
         raise HTTPException(status_code=404, detail="Agent not found")

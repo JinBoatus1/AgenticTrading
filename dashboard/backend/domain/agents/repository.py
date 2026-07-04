@@ -404,21 +404,33 @@ class AgentStore:
         owner_user_id: Optional[int] = None,
         owner_browser_session: Optional[str] = None,
     ) -> bool:
-        if owner_user_id is not None and agent.get("owner_user_id") == owner_user_id:
-            return True
-        if owner_browser_session and agent.get("owner_browser_session") == owner_browser_session:
-            return True
-        if owner_browser_session and agent.get("session_id") == owner_browser_session:
-            return True
-        stored = self.get_agent(agent["agent_id"])
-        if not stored:
+        agent_id = agent.get("agent_id") if isinstance(agent, dict) else agent
+        if not agent_id:
             return False
-        if owner_user_id is not None and stored.get("owner_user_id") == owner_user_id:
+        # Read the ownership columns straight from the row. owner_browser_session
+        # is deliberately omitted from the public agent dict (it is a private
+        # credential), so we must NOT rely on the passed-in dict for it — doing so
+        # is why owner_browser_session ownership silently never matched.
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT owner_user_id, owner_browser_session FROM external_agents WHERE agent_id = ?",
+            (agent_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return False
+        if owner_user_id is not None and row["owner_user_id"] == owner_user_id:
             return True
-        if owner_browser_session and stored.get("owner_browser_session") == owner_browser_session:
+        if owner_browser_session and row["owner_browser_session"] == owner_browser_session:
             return True
-        if owner_browser_session and stored.get("session_id") == owner_browser_session:
-            return True
+        # NOTE: session_id is NOT an ownership credential. It is an internal
+        # trading-session identifier that is discoverable (it used to be returned
+        # by the public /builtin listing), so matching it against a caller-supplied
+        # session would let anyone who learned it take over the agent. Ownership
+        # requires owner_user_id or owner_browser_session (a real, private
+        # credential), or the agent API key (checked at the route layer).
         return False
 
 

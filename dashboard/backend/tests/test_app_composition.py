@@ -40,6 +40,7 @@ EXPECTED_BACKTESTS_ROUTES = {
     ("GET", "/runs", "get_runs"),
     ("GET", "/runs/{run_id}", "get_run"),
     ("GET", "/runs/{run_id}/equity", "get_equity_curve"),
+    ("GET", "/runs/{run_id}/plot.png", "get_run_plot"),
     ("GET", "/compare", "compare_runs"),
 }
 
@@ -110,6 +111,7 @@ EXPECTED_FULL_CONTRACT = {
     ("GET", "/compare"),
     ("GET", "/config/defaults"),
     ("GET", "/health"),
+    ("GET", "/favicon.ico"),
     ("GET", "/favicon.svg"),
     ("GET", "/home-page.js"),
     ("GET", "/images/{file_name}"),

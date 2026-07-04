@@ -107,9 +107,14 @@ def test_builtin_agent_card_counts_website_runs(client):
         llm_model="anthropic/claude-haiku-4-5",
     )
 
-    # The frontend scopes itself to the active agent's trading session, so fetch
-    # the card using that session id (matching real usage).
-    active_headers = {"X-Session-Id": created["session_id"]}
+    # Matching real frontend usage: X-Session-Id is scoped to the active agent's
+    # trading session, while X-Browser-Id carries the stable owner credential the
+    # dashboard sends on every request (owner_browser_session), which is what
+    # authorizes access — the session_id alone is not an ownership credential.
+    active_headers = {
+        "X-Session-Id": created["session_id"],
+        "X-Browser-Id": browser_session,
+    }
     fetched = client.get(
         f"/api/v1/agents/{created['agent_id']}", headers=active_headers
     )
@@ -236,3 +241,50 @@ def test_rotate_api_key(client):
     resolved = client.get("/api/v1/agents/resolve", headers={"X-API-Key": new_key})
     assert resolved.status_code == 200
     assert resolved.json()["agent_id"] == agent_id
+
+
+def test_builtin_listing_does_not_leak_session_id(client):
+    """The public /builtin listing must not expose the ownership-sensitive
+    session_id (regression for the unauthenticated-takeover vulnerability)."""
+    owner = str(uuid.uuid4())
+    created = client.post(
+        "/api/v1/agents",
+        json={"name": "victim-bot", "agent_type": "builtin"},
+        headers={"X-Session-Id": owner},
+    ).json()
+    agent_id = created["agent"]["agent_id"]
+
+    listing = client.get("/api/v1/agents/builtin")
+    assert listing.status_code == 200
+    entry = next(a for a in listing.json()["agents"] if a["agent_id"] == agent_id)
+    assert "session_id" not in entry, "public builtin listing leaks session_id"
+
+
+def test_leaked_session_id_cannot_take_over_agent(client):
+    """Even if an attacker learns an agent's session_id, replaying it as
+    X-Session-Id must not grant ownership on state-changing routes."""
+    owner = str(uuid.uuid4())
+    created = client.post(
+        "/api/v1/agents",
+        json={"name": "victim-bot", "agent_type": "builtin"},
+        headers={"X-Session-Id": owner},
+    ).json()
+    agent_id = created["agent"]["agent_id"]
+    leaked_session_id = created["session_id"]
+
+    attacker = {"X-Session-Id": leaked_session_id}
+    assert client.delete(f"/api/v1/agents/{agent_id}", headers=attacker).status_code == 403
+    assert (
+        client.post(f"/api/v1/agents/{agent_id}/rotate-api-key", headers=attacker).status_code
+        == 403
+    )
+
+    # The legitimate owner (real browser session) still manages the agent.
+    owner_headers = {"X-Session-Id": owner}
+    rotated = client.post(f"/api/v1/agents/{agent_id}/rotate-api-key", headers=owner_headers)
+    assert rotated.status_code == 200
+
+    # The agent's own API key is a valid credential for state-changing routes.
+    new_key = rotated.json()["api_key"]
+    deleted = client.delete(f"/api/v1/agents/{agent_id}", headers={"X-API-Key": new_key})
+    assert deleted.status_code == 200

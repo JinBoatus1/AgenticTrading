@@ -112,14 +112,16 @@ def test_llm_agent_uses_canonical_symbols():
     from dashboard.backend.domain.backtesting.features import TechnicalIndicators
     from dashboard.backend.domain.backtesting.portfolio_manager import PortfolioManager
     from dashboard.backend.infrastructure.llm.backtest_harness import (
-        Anthropic,
         HAS_ANTHROPIC,
         LLM_MODEL_NAME,
+        make_llm_client,
     )
 
     assert la.TechnicalIndicators is TechnicalIndicators
     assert la.PortfolioManager is PortfolioManager
-    assert la.Anthropic is Anthropic
+    # llm_agent now builds its client via the canonical make_llm_client()
+    # (gateway-aware) rather than referencing Anthropic directly.
+    assert la.make_llm_client is make_llm_client
     assert la.HAS_ANTHROPIC == HAS_ANTHROPIC
     assert la.LLM_MODEL_NAME == LLM_MODEL_NAME
     assert not hasattr(la, "bha")

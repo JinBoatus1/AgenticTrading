@@ -425,3 +425,27 @@ def test_run_access_control(client):
     other_id, other_key, _ = _new_agent(client)
     resp = client.get(f"/api/v1/runs/{run_id}", headers={"X-API-Key": other_key})
     assert resp.status_code == 403
+
+
+def test_orphaned_run_denied_fail_closed(client):
+    """A run with no owner agent_id must not be reachable by any authenticated
+    agent. Regression for the IDOR fail-open: _require_run_owner previously
+    allowed access whenever the run's agent_id was falsy; it must now fail
+    closed. The API never creates such rows, so insert one straight into the
+    RunStore the router uses."""
+    import dashboard.backend.api.routers.runs as runs_api
+
+    _, key, _ = _new_agent(client)
+    orphan = runs_api.run_store.create_run(
+        agent_id=None,
+        agent_version_id=None,
+        session_id=str(uuid.uuid4()),
+        environment_id="us-equity-hourly-v1",
+        environment_type="backtest",
+        config={},
+    )
+
+    resp = client.get(
+        f"/api/v1/runs/{orphan['run_id']}", headers={"X-API-Key": key}
+    )
+    assert resp.status_code == 403, resp.text

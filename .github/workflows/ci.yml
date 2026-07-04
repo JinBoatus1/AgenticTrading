@@ -1,0 +1,50 @@
+name: CI
+
+# Runs the backend and packaging test suites on every push and PR to main.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-timeout matplotlib
+
+      - name: Run backend tests
+        run: pytest dashboard/backend/tests/ --timeout=180 -p no:cacheprovider
+
+  packaging-tests:
+    name: Packaging (agentictrading) tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Run packaging tests
+        working-directory: packaging/agentictrading
+        run: pytest tests/ -p no:cacheprovider
