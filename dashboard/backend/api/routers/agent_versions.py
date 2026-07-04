@@ -92,7 +92,17 @@ async def get_agent_version(
     version = agent_service.get_version(agent_version_id)
     if not version:
         raise HTTPException(status_code=404, detail="Agent version not found")
-    require_agent_access(
-        version["agent_id"], request=request, x_api_key=x_api_key, authorization=authorization
-    )
+    try:
+        require_agent_access(
+            version["agent_id"], request=request, x_api_key=x_api_key, authorization=authorization
+        )
+    except HTTPException as exc:
+        if exc.status_code in (401, 403):
+            # The version id alone doesn't say which agent to authorize
+            # against, so the row is looked up before auth. Any auth failure
+            # must then collapse into the same 404 a nonexistent id gets —
+            # otherwise the 401/403-vs-404 split is an existence oracle for
+            # agent-version ids.
+            raise HTTPException(status_code=404, detail="Agent version not found")
+        raise
     return {"agent_version": version}

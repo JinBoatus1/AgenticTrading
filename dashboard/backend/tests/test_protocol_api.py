@@ -890,3 +890,72 @@ def test_reaper_advances_abandoned_run(client, monkeypatch):
     session = run.session()
     # Advanced on its own, or finished and was evicted — either is forward progress.
     assert session is None or session.step_index > start_index
+
+
+def test_engine_side_rejection_keeps_protocol_order_shape(client):
+    """LOW #10 — a rejection produced AFTER the pre-filters (engine batch
+    failure or unexecuted-action reconcile) must still carry the protocol
+    order shape under ``order``, not the internal engine action dict."""
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+    step = _wait_for_step(client, run_id, key)
+
+    # Selling an unheld symbol passes every pre-filter (caps only constrain
+    # buys) and is rejected by the engine, exercising the post-engine path.
+    resp = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step['step_id']}/decision",
+        json={
+            "idempotency_key": str(uuid.uuid4()),
+            "orders": [{"symbol": "AAPL", "side": "sell", "quantity": 5}],
+        },
+        headers={"X-API-Key": key},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    rejections = body["validation"]["rejections"]
+    assert rejections, body
+    for r in rejections:
+        order = r["order"]
+        # Protocol OrderIn fields, exactly as submitted…
+        assert "side" in order and "quantity" in order, order
+        assert order["symbol"] == "AAPL"
+        # …and none of the engine's internal action-dict fields.
+        assert "action" not in order, order
+        assert "position_size" not in order, order
+
+
+def test_agent_version_lookup_is_not_an_existence_oracle(client):
+    """LOW #8 — GET /agent-versions/{id} must answer identically for
+    "doesn't exist" and "exists but you can't access it", for anonymous,
+    garbage-key, and other-agent-key callers alike. A 401/403-vs-404 split
+    would let anyone enumerate which version ids exist."""
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+
+    # Anonymous probe: existing and missing ids must be indistinguishable.
+    missing = client.get("/api/v1/agent-versions/agv_does_not_exist")
+    existing = client.get(f"/api/v1/agent-versions/{version_id}")
+    assert missing.status_code == 404
+    assert existing.status_code == 404, existing.text
+
+    # Another agent's perfectly valid key: 404, not 403.
+    _, other_key, _ = _new_agent(client)
+    denied = client.get(
+        f"/api/v1/agent-versions/{version_id}", headers={"X-API-Key": other_key}
+    )
+    assert denied.status_code == 404, denied.text
+
+    # Garbage key: still indistinguishable between existing and missing ids.
+    garbage_existing = client.get(
+        f"/api/v1/agent-versions/{version_id}", headers={"X-API-Key": "ag_garbage"}
+    )
+    garbage_missing = client.get(
+        "/api/v1/agent-versions/agv_does_not_exist", headers={"X-API-Key": "ag_garbage"}
+    )
+    assert garbage_existing.status_code == 404, garbage_existing.text
+    assert garbage_missing.status_code == 404, garbage_missing.text
+
+    # The legitimate owner still reads it fine.
+    ok = client.get(f"/api/v1/agent-versions/{version_id}", headers={"X-API-Key": key})
+    assert ok.status_code == 200

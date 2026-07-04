@@ -552,6 +552,10 @@ def submit_decision(run_id: str, step_id: str, decision: DecisionIn) -> Dict[str
             )
 
         accepted_actions: List[Dict[str, Any]] = []
+        # Parallel to accepted_actions: the protocol-shaped order each action
+        # came from, so post-engine rejections can echo the order as submitted
+        # instead of leaking the internal engine action dict.
+        accepted_order_reprs: List[Dict[str, Any]] = []
         rejections: List[Dict[str, Any]] = []
         confidence = decision.confidence if decision.confidence is not None else 0.75
         # Buy shares provisionally accepted earlier in THIS decision, per symbol,
@@ -609,6 +613,7 @@ def submit_decision(run_id: str, step_id: str, decision: DecisionIn) -> Dict[str
                     order, shares=shares, confidence=confidence, rationale=decision.rationale
                 )
             )
+            accepted_order_reprs.append(order_repr)
 
         trades_before = session.trade_count()
         engine_result = session.submit_decisions({"actions": accepted_actions})
@@ -625,20 +630,21 @@ def submit_decision(run_id: str, step_id: str, decision: DecisionIn) -> Dict[str
             if err == "backtest_already_completed":
                 raise ProtocolError("run_completed", "Run already completed", 409)
             # validation_hold / invalid_status: treat all submitted orders as rejected
-            for action in accepted_actions:
-                rejections.append({"order": action, "reason": err or "validation_failed"})
+            for order_repr in accepted_order_reprs:
+                rejections.append({"order": order_repr, "reason": err or "validation_failed"})
             accepted_actions = []
+            accepted_order_reprs = []
             executed = []
         else:
             executed = engine_result.get("executed", []) or []
 
         # Reconcile: any accepted action the engine did not execute is rejected.
         executed_keys = {(e.get("symbol"), e.get("action")) for e in executed}
-        for action in accepted_actions:
+        for action, order_repr in zip(accepted_actions, accepted_order_reprs):
             key = (action["symbol"], action["action"])
             if key not in executed_keys:
                 rejections.append(
-                    {"order": action, "reason": _infer_rejection(action, cash_before, prices, positions_before)}
+                    {"order": order_repr, "reason": _infer_rejection(action, cash_before, prices, positions_before)}
                 )
 
         fills = session.fills_since(trades_before)
