@@ -5,7 +5,7 @@ Source: 91-agent adversarial review, 2026-07-03. PR by Allan-Feng, 292 files, +3
 
 **Bottom line:** the *package refactor* is sound and near-shippable; nearly every bug is in the *new features* bolted alongside (Protocol v1, SDK, Discord, strategy store, built-in agents, landing page, leaderboard models). Recommend splitting refactor from features. Fix order below is roughly merge-priority.
 
-> **STATUS (2026-07-04):** 🔴 BLOCKERS **B0/B1 DONE + pushed** (`d62f976`). 🟠 **ALL HIGH H1–H9 DONE + PUSHED** to PR #67 — PR head is now **`9268da8`** (clean fast-forward `d62f976..9268da8`, no force; commits `50e0d95`, `472b127`, `970d5db`, `95bca5f`, `a4f6362`, `8974788`, `5fd64c3`, `9268da8`) — each red-green + full-suite gated + adversarially reviewed. Fresh pre-push regression on the pushed tree: backend 5 failed (pre-existing) / 647 passed / 2 skipped; packaging 36 passed. 🟡 Medium + ⚪ Low: untouched. **Heads-up (still open):** the new CI runs the full suite → RED on the 5 pre-existing failures (4× `test_backtest_isolation`, 1× `test_prompt_contains_constraints`) until they're xfail'd/fixed. PR still shows `CONFLICTING` = pre-existing `/api/v1` vs `/api/v2` base conflict, not from our push.
+> **STATUS (2026-07-04):** 🔴 BLOCKERS **B0/B1 DONE + pushed** (`d62f976`). 🟠 **ALL HIGH H1–H9 DONE + PUSHED** to PR #67 — PR head is now **`9268da8`** (clean fast-forward `d62f976..9268da8`, no force; commits `50e0d95`, `472b127`, `970d5db`, `95bca5f`, `a4f6362`, `8974788`, `5fd64c3`, `9268da8`) — each red-green + full-suite gated + adversarially reviewed. Fresh pre-push regression on the pushed tree: backend 5 failed (pre-existing) / 647 passed / 2 skipped; packaging 36 passed. 🟡 Medium: ALL actionable items DONE on `pr-67-review` (local; #1 v1/v2 reconciliation deferred — see section). ⚪ Low: **ALL 13 DONE** on `pr-67-review` (local, 2026-07-05; adversarially reviewed — see section). **Heads-up (still open):** the new CI runs the full suite → RED on the 5 pre-existing failures (4× `test_backtest_isolation`, 1× `test_prompt_contains_constraints`) until they're xfail'd/fixed. PR still shows `CONFLICTING` = pre-existing `/api/v1` vs `/api/v2` base conflict, not from our push.
 
 ## Working setup for the fix session
 
@@ -129,19 +129,26 @@ Source: 91-agent adversarial review, 2026-07-03. PR by Allan-Feng, 292 files, +3
 
 ## ⚪ LOW (batch sweeps — cheap wins)
 
-- [ ] **Docstring sweep**: `grep -rn "compatibility re-export shim" dashboard/backend --include=*.py` — 17+ moved modules claim shims that were deleted in Phase 4A. Rewrite to "original module removed in Phase 4A" (agents/backtesting/leaderboard/runs repositories + services).
-- [ ] **Vercel caching**: `vercel.json:25,33` serves content-hashed `/assets/*` with `max-age=0` — set `public, max-age=31536000, immutable`; keep no-cache only on mutable entry points (index.html/app.js/styles.css).
-- [ ] **favicon**: `app.py:173` `/favicon.svg` returns PNG bytes and shadows `frontend/favicon.svg` — serve the real SVG (`image/svg+xml`), keep PNG for `/favicon.ico`, or delete the unused file.
-- [ ] **`.env.example:22`** commits a real Discord channel snowflake — replace with a fake placeholder.
-- [ ] **`LLM_MAX_OUTPUT_TOKENS`** (`infrastructure/llm/backtest_harness.py:127`) crashes at import on malformed value — parse defensively (fallback 2000); record effective max_tokens in run metadata when it deviates.
-- [ ] **SECURITY.md:26** still references pre-move validator paths — update to `dashboard.backend.infrastructure.llm.validator`.
-- [ ] **Custom `strategy_prompt` LLM path** (`validator.py:669`) bypasses `validate_llm_response` — route parsed decisions through it (or apply `TradingConstraints` + action-count cap), or document the exemption in SECURITY.md.
-- [ ] **`agent_versions.py:92`** existence lookup before auth (oracle) — auth first or return 404 for both not-found/denied.
-- [ ] **`/api/v1/agents/builtin` N+1 queries** (`agents.py:94`) — batch the stats lookup / cache the listing.
-- [ ] **Rejection `order` shape inconsistency** (`domain/runs/service.py:420`) — always emit the protocol order shape.
-- [ ] **Observation has empty bars/events for most symbols** (`domain/runs/service.py:580`) — include features for allowed_symbols or document the truncation.
-- [ ] **Delete dead landing components** (`frontend/landing/src/components/hero.tsx` lowercase set) + prune unused `ui/` primitives.
-- [ ] **SDK Python 3.9** mid-read socket timeout escapes as raw `socket.timeout` (`atl_client.py:112`); `sdk_quickstart_selftest.py` docstring contradicts its default end date.
+> **STATUS (2026-07-05):** ⚪ **ALL 13 LOW items DONE** on `pr-67-review` (local, not pushed), commits `3fa74ce..398ee11` (10 commits). Behavioral fixes red-green gated; a 5-lens adversarial workflow (20 agents, 3-vote refute panels) over the full LOW diff confirmed 3 defects — vercel.json header-rule shadowing (fix was a no-op; catch-all must come FIRST since Vercel applies every matching block top-to-bottom, later overwrites same key), one non-discriminating test, one stale doc sample — all fixed in `398ee11`. Full regression after: backend 5 failed (pre-existing) / **719 passed** / 2 skipped; packaging **41 passed**; landing `tsc` + `vite build` green (independently re-verified).
+
+- [x] **Docstring sweep** — ✅ `3fa74ce`. 12 files (not 17) still claimed shims; all now say "original module removed in Phase 4A".
+- [x] **Vercel caching** — ✅ `3fa74ce` + **corrected in `398ee11`**: content-hashed `/assets/*` → `immutable`, `/` → no-cache; the adversarial pass proved specific rules must come AFTER the `/(.*)` catch-all (later matching blocks overwrite the same header key), which also fixes the pre-existing latent shadowing of the app.js/styles.css rules; inert `/index.html` block dropped (cleanUrls redirects it).
+- [x] **favicon** — ✅ `5c97bcf`. Route had moved to `app.py:245`; `/favicon.svg` now serves the real SVG (`image/svg+xml`), `/favicon.ico` keeps PNG. +2 tests.
+- [x] **`.env.example` snowflake** — ✅ `3fa74ce`. Placeholder.
+- [x] **`LLM_MAX_OUTPUT_TOKENS`** — ✅ `1ff78bb`. Defensive parse (malformed/non-positive → warn + 2000); +4 reload-matrix tests. *Metadata recording skipped:* `agent_runs` has no metadata column — schema change disproportionate for LOW; noted as residual.
+- [x] **SECURITY.md paths** — ✅ `3fa74ce` + `398ee11`. All pre-move paths, import example, pytest commands (repo-root form) AND the sample output node IDs updated; dead `SECURITY_AUDIT.md` refs dropped.
+- [x] **Custom `strategy_prompt` LLM path** — ✅ `2641393`. NOT rerouted through `validate_llm_response` (engine behavior preserved per the do-not-touch list); instead: action count capped at len(DJIA_30), per-order `MAX_ORDER_SHARES` ceiling (shared constant), defensive position_size coercion (numeric strings honored; inf/NaN/garbage skip the action, not the whole decision), and the exemption + its inline constraints documented in SECURITY.md. +4 tests (one strengthened in `398ee11` after the adversarial pass showed it non-discriminating).
+- [x] **`agent_versions.py` oracle** — ✅ `3cea7bc`. All post-lookup auth failures collapse to the same 404 as nonexistent ids (anonymous / garbage-key / other-agent-key indistinguishable); owner access unchanged. Adversarial panel found the same 404-vs-403 shape in `runs.py` `create_run` (agent_version_id) — **pre-existing, untouched by the PR diff → follow-up below**.
+- [x] **`/agents/builtin` N+1** — ✅ `1f12dee`. `get_runs_by_sessions()` batch query + prefetch seam in `agent_with_stats`; query-count test.
+- [x] **Rejection `order` shape** — ✅ `3cea7bc`. Engine-batch-failure + reconcile rejections now echo the submitted protocol order via a parallel `accepted_order_reprs` list.
+- [x] **Observation bars/events** — ✅ `c63a888`. Protocol runs pass their effective allow-list into the engine; features now cover every allowed symbol with data (top-10 RSI sampling kept only for the legacy symbols=None external flow); doc states the coverage contract + bars/events reserved-empty.
+- [x] **Dead landing components** — ✅ `3618b6a` (app now at `dashboard/landing/`). 65 files: 9 lowercase root components + 54 ui/ primitives (cascading dead code — only `button.tsx`/`card.tsx` survive) + 2 orphaned hooks. `tsc` + `vite build` green (independently verified); CSS bundle 107.76→31.81 kB. `card.tsx` kept only because the otherwise-dead `pages/not-found.tsx` imports it → follow-up below.
+- [x] **SDK Python 3.9 socket.timeout** — ✅ `70e7275` (+ selftest docstring in `3fa74ce`). `except socket.timeout` (alias of TimeoutError on ≥3.10); behavioral + source-guard tests.
+
+### LOW-pass follow-ups (not blockers)
+- `runs.py` `create_run` splits 404 `agent_version_not_found` vs 403 `forbidden` for agent-version ids — same existence-oracle shape as the fixed `agent_versions.py` one, but pre-existing and outside the PR diff; align it with the 404-for-denied convention in the v1/v2 reconciliation work.
+- Landing: `pages/not-found.tsx` is fully dead (`App.tsx` uses its own inline 404) — deleting it together with `ui/card.tsx` is the natural next prune step.
+- `LLM_MAX_OUTPUT_TOKENS` effective-value recording needs an `agent_runs` metadata column (deliberately not added here).
 
 ---
 
