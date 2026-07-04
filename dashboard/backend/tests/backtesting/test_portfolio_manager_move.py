@@ -10,6 +10,7 @@ import json
 from datetime import datetime
 
 import pandas as pd
+import pytest
 
 from dashboard.backend.domain.backtesting.portfolio_manager import (
     PortfolioManager as CanonicalPortfolioManager,
@@ -180,6 +181,90 @@ def test_make_trading_decision_with_llm_buy_and_tokens():
     assert pm.input_tokens == 12
     assert pm.output_tokens == 8
     assert pm.llm_calls == 1
+
+
+# ---------------------------------------------------------------------------
+# MEDIUM #7 — safe_trading candidate ranking is trend-based, NOT RSI-extremity
+# (the module docstring previously claimed the class was "functionally
+# identical" / "moved verbatim", which hid this deliberate strategy change).
+# ---------------------------------------------------------------------------
+
+def _trend_sig(price, rsi, sma20, sma50, macd=1.0, macd_signal=0.0):
+    return {"price": price, "rsi": rsi, "macd": macd, "macd_signal": macd_signal,
+            "sma20": sma20, "sma50": sma50, "bb_upper": 0.0, "bb_lower": 0.0}
+
+
+class _StopAfterCapture(BaseException):
+    """BaseException so it threads through make_trading_decision_with_llm's
+    ``except Exception`` fallback and stops exactly after the ranking."""
+
+
+def _capture_top_signals(monkeypatch):
+    """Patch create_prompt to record the ranked ``top_signals`` and halt
+    before the (unavailable) LLM call."""
+    from dashboard.backend.domain.backtesting import portfolio_manager as pm_mod
+    captured = {}
+
+    def _fake_create_prompt(snapshot, **kwargs):
+        captured["top"] = set(snapshot["top_signals"].keys())
+        raise _StopAfterCapture()
+
+    monkeypatch.setattr(pm_mod, "create_prompt", _fake_create_prompt)
+    return captured
+
+
+def test_safe_trading_ranks_by_trend_not_rsi_extremity(monkeypatch):
+    captured = _capture_top_signals(monkeypatch)
+    signals = {
+        # Strong trend confluence + healthy mid RSI -> highest trend score.
+        "TREND": _trend_sig(110.0, 55.0, 100.0, 95.0),
+        # Deeply oversold, no trend confluence: the pre-refactor |RSI-50|
+        # ranking would surface this FIRST; trend ranking ranks it last.
+        "OVERSOLD": _trend_sig(80.0, 15.0, 100.0, 110.0, macd=-1.0),
+    }
+    # 12 solid-trend fillers to fill the top-12 and push OVERSOLD out.
+    for i in range(12):
+        signals[f"F{i:02d}"] = _trend_sig(105.0, 50.0, 100.0, 98.0)
+    state = {
+        "timestamp": datetime(2026, 1, 1), "cash": 100000, "positions": [],
+        "positions_value": 0, "total_equity": 100000, "market_signals": signals,
+    }
+    pm = CanonicalPortfolioManager(100000)
+    with pytest.raises(_StopAfterCapture):
+        pm.make_trading_decision_with_llm(state, llm_client=object(), mode="safe_trading")
+
+    top = captured["top"]
+    assert "TREND" in top
+    assert "OVERSOLD" not in top   # the old RSI-extremity ranking would include it
+    assert len(top) == 12          # top-12 cut, nothing appended (no holdings)
+
+
+def test_safe_trading_always_includes_current_holdings(monkeypatch):
+    captured = _capture_top_signals(monkeypatch)
+    signals = {f"F{i:02d}": _trend_sig(105.0, 50.0, 100.0, 98.0) for i in range(12)}
+    # A held name with a trend score too weak to ever make the top-12.
+    signals["HELD"] = _trend_sig(70.0, 20.0, 100.0, 120.0, macd=-1.0)
+    state = {
+        "timestamp": datetime(2026, 1, 1), "cash": 50000,
+        "positions": [{"symbol": "HELD", "shares": 10, "entry_price": 90.0,
+                       "current_price": 70.0, "position_value": 700.0, "pnl_pct": -22.2}],
+        "positions_value": 700.0, "total_equity": 50700.0, "market_signals": signals,
+    }
+    pm = CanonicalPortfolioManager(50000)
+    with pytest.raises(_StopAfterCapture):
+        pm.make_trading_decision_with_llm(state, llm_client=object(), mode="safe_trading")
+
+    # Force-included despite a bottom-tier trend score (so the model can exit it).
+    assert "HELD" in captured["top"]
+
+
+def test_module_docstring_no_longer_claims_verbatim_identity():
+    import dashboard.backend.domain.backtesting.portfolio_manager as pm_mod
+    doc = pm_mod.__doc__ or ""
+    assert "functionally identical" not in doc
+    assert "Moved verbatim" not in doc
+    # It must instead disclose the safe_trading divergence.
+    assert "safe_trading" in doc
 
 
 # ---------------------------------------------------------------------------

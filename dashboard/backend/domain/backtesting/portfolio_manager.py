@@ -1,15 +1,22 @@
 """Backtesting portfolio-manager orchestration facade.
 
-Moved verbatim (Phase 2C3) from ``dashboard/scripts/backtest_hourly_agent.py``.
-``PortfolioManager`` coordinates the backtest agent: portfolio state/valuation,
-deterministic reference-agent decisions, the LLM decision workflow, in-memory
-execution, equity history, and token counters. The lower-level logic already
-lives under ``dashboard.backend.domain.trading`` and
+Moved (Phase 2C3) from ``dashboard/scripts/backtest_hourly_agent.py`` during the
+domain-layer extraction. ``PortfolioManager`` coordinates the backtest agent:
+portfolio state/valuation, deterministic reference-agent decisions, the LLM
+decision workflow, in-memory execution, equity history, and token counters. The
+lower-level logic already lives under ``dashboard.backend.domain.trading`` and
 ``dashboard.backend.infrastructure.llm``; this class delegates to it.
 
-The class body is functionally identical to the post-Phase-2C2 implementation;
-only the imports are canonical. The legacy script re-exports this exact class so
-``bha.PortfolioManager`` and existing subclasses keep working unchanged.
+Most of the class is a mechanical move (only the imports became canonical), and
+the legacy script re-exports this exact class object so ``bha.PortfolioManager``
+and existing subclasses keep working unchanged. **One behavior was NOT moved
+verbatim:** the ``safe_trading`` candidate selection in
+``make_trading_decision_with_llm`` changed from the pre-refactor ranking — top-10
+by RSI extremity (``|RSI - 50|``, a mean-reversion heuristic) — to ranking the
+top-12 by a multi-factor trend/momentum score *and always appending current
+holdings*. That is a deliberate strategy change bundled into the refactor, so
+backtests produced before and after this commit are **not** directly comparable
+(see the inline comment on that branch for the rationale).
 
 This module is domain-level orchestration: it must NOT import dashboard scripts,
 ``HourlyBacktester``, FastAPI routers, the database singleton, or Alpaca clients.
