@@ -95,4 +95,4 @@ Pipeline is **backtest → SQLite → API → dashboard**. The backend is layere
 - `README.md`'s "File Structure" diagram is idealized; the real layout nests everything under `dashboard/`.
 - The committed `dashboard/storage/data/backtest.db` holds seed runs referenced by `dashboard/config/defaults.json`. Importing a store module runs `CREATE TABLE IF NOT EXISTS` against `DATABASE_PATH`, so running the app locally can add empty tables to that file — don't commit those mutations. If you regenerate the DB, update `defaults.json`.
 - Pytest is not in `requirements.txt`; install it separately.
-- `discord.py` (for `integrations/discord_bot.py`) is an **undeclared** optional dep — install it separately to run the bot; its tests `importorskip('discord')`.
+- `discord.py` (for `integrations/discord_bot.py`) is an **optional** dep declared in `requirements-discord.txt` (like `requirements-sphinx.txt` for the docs build), not core `requirements.txt` — run `pip install -r requirements-discord.txt` to run the bot. It's kept out of core so web/API/backtest installs stay lean; its tests `importorskip('discord')`.

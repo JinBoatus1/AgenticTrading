@@ -30,3 +30,26 @@ def test_bot_no_longer_forwards_raw_sentinel_model():
     # The old raw forwards that leaked the 'local-model' sentinel are gone.
     assert 'payload["model"] = selected["model_name"]' not in src
     assert "model = selected.get(\"model_name\") if selected else None" not in src
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+
+def test_discord_dependency_is_declared():
+    """MEDIUM #11 — discord_bot.py imports ``discord`` (discord.py 2.x), but the
+    dep was undeclared, so the bot was unrunnable from any declared requirements
+    file. Declare it in an optional ``requirements-discord.txt`` (mirroring
+    ``requirements-sphinx.txt`` for docs) rather than core ``requirements.txt``,
+    so web/API/backtest installs stay lean, and point contributors at it in
+    CLAUDE.md.
+    """
+    req = _REPO_ROOT / "requirements-discord.txt"
+    assert req.exists(), "requirements-discord.txt is missing"
+    text = req.read_text(encoding="utf-8")
+    assert "discord.py" in text, "requirements-discord.txt must pin discord.py"
+    # Keep it OUT of core requirements.txt (optional integration, not core).
+    core = (_REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
+    assert "discord.py" not in core
+    # CLAUDE.md must point contributors at the optional file.
+    claude_md = (_REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "requirements-discord.txt" in claude_md
