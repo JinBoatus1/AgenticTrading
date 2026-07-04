@@ -17,52 +17,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="/assets/index-BB7gl2m6.js?v=8"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BQNECKqk.css?v=4">
-    <style id="landing-header-patch">
+    <script type="module" crossorigin src="/assets/index-NS-avptu.js?v=9"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DuIWd7wm.css?v=5">
+    <style id="landing-auth-patch">
       /* Hide page until auth gate finishes (avoids flash for logged-in users). */
       html.landing-auth-pending body { visibility: hidden; }
       html.landing-ready body { visibility: visible; }
-
-      /* Center brand; landing title = 18px (dashboard uses 23px) */
-      nav.fixed .container {
-        position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        min-height: 4rem;
-      }
-      nav.fixed .container > div:first-child {
-        display: flex;
-        align-items: center;
-        flex: 1;
-        min-width: 0;
-      }
-      nav.fixed .container > div:first-child > a {
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-        display: inline-flex;
-        align-items: center;
-        gap: 0.625rem;
-        z-index: 2;
-        white-space: nowrap;
-      }
-      nav.fixed .container > div:first-child > a img {
-        width: 2rem !important;
-        height: 2rem !important;
-      }
-      nav.fixed .container > div:first-child > a span {
-        font-size: 1.125rem !important;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-      }
-      nav.fixed .container > div:last-child {
-        flex: 0 0 auto;
-        margin-left: auto;
-        z-index: 3;
-      }
 
       /* Auth modal on landing (signup / sign-in stay on this page) */
       .landing-auth-modal[hidden] { display: none !important; }
@@ -169,19 +129,6 @@
         cursor: pointer;
         text-decoration: underline;
         text-underline-offset: 2px;
-      }
-
-      /* Lock agent-playground panel so chat steps don't shift page layout */
-      #hero-playground-window {
-        height: 480px !important;
-        min-height: 480px !important;
-        max-height: 480px !important;
-        flex-shrink: 0 !important;
-      }
-      #hero-playground-window > :last-child {
-        min-height: 0 !important;
-        overflow-y: auto !important;
-        overflow-x: hidden !important;
       }
     </style>
     <script>
@@ -426,118 +373,6 @@
           });
         }
 
-        function extraSectionsHtml() {
-          return ''
-            + '<section id="discord-prompt" class="py-24 bg-muted/20 border-y border-border">'
-            + '  <div class="container mx-auto px-6">'
-            + '    <div class="grid lg:grid-cols-2 gap-16 items-center">'
-            + '      <div>'
-            + '        <h2 class="text-3xl md:text-4xl font-bold mb-4">Prompt Your Agent Through Discord</h2>'
-            + '        <p class="text-muted-foreground mb-6 text-lg leading-relaxed">Talk to your trading agent where your team already collaborates. Send strategy ideas, ask for backtests, review decisions, and iterate in plain language — no dashboard required.</p>'
-            + '        <ul class="space-y-3 mb-8 text-sm text-muted-foreground">'
-            + '          <li>Describe setups, risk rules, and entry/exit logic conversationally</li>'
-            + '          <li>Your agent translates prompts into executable trading logic</li>'
-            + '          <li>Stay in sync with your lab community on Discord</li>'
-            + '        </ul>'
-            + '        <a href="' + DISCORD_URL + '" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center rounded-md text-sm font-semibold h-11 px-6 bg-[#5865F2] hover:bg-[#5865F2]/90 text-white">Join Discord Community</a>'
-            + '      </div>'
-            + '      <div class="bg-card border border-card-border rounded-xl shadow-2xl overflow-hidden">'
-            + '        <div class="h-10 bg-muted/50 border-b border-border flex items-center px-4 text-xs font-mono text-muted-foreground">#agent-trading-lab</div>'
-            + '        <div class="p-5 space-y-4 text-sm">'
-            + '          <div class="bg-muted p-3 rounded-lg text-foreground">Backtest a momentum strategy on NVDA. Buy when RSI crosses above 55, sell below 45.</div>'
-            + '          <div class="bg-card border border-card-border p-3 rounded-lg text-muted-foreground">Running backtest on NVDA (1H, YTD)… <span class="text-positive font-semibold">Done:</span> +14.2% return, Sharpe 1.84</div>'
-            + '        </div>'
-            + '      </div>'
-            + '    </div>'
-            + '  </div>'
-            + '</section>'
-            + '<section id="paper-trading" class="py-24 relative">'
-            + '  <div class="container mx-auto px-6">'
-            + '    <div class="grid lg:grid-cols-2 gap-16 items-center">'
-            + '      <div class="order-2 lg:order-1 bg-card border border-card-border rounded-xl shadow-2xl p-6 md:p-8">'
-            + '        <div class="grid grid-cols-2 gap-4 mb-6">'
-            + '          <div class="p-4 border border-border rounded-lg bg-background"><div class="text-xs text-muted-foreground mb-1">Portfolio Value</div><div class="text-2xl font-bold font-mono">$128,742</div></div>'
-            + '          <div class="p-4 border border-border rounded-lg bg-background"><div class="text-xs text-muted-foreground mb-1">Day P/L</div><div class="text-2xl font-bold font-mono text-positive">+$2,847</div></div>'
-            + '          <div class="p-4 border border-border rounded-lg bg-background"><div class="text-xs text-muted-foreground mb-1">Open Positions</div><div class="text-2xl font-bold font-mono">6</div></div>'
-            + '          <div class="p-4 border border-border rounded-lg bg-background"><div class="text-xs text-muted-foreground mb-1">Agent Status</div><div class="text-2xl font-bold font-mono text-positive">Live</div></div>'
-            + '        </div>'
-            + '        <p class="text-xs text-muted-foreground font-mono">Paper session active · decisions streaming to dashboard</p>'
-            + '      </div>'
-            + '      <div class="order-1 lg:order-2">'
-            + '        <h2 class="text-3xl md:text-4xl font-bold mb-4">Deploy to Live Paper Trading</h2>'
-            + '        <p class="text-muted-foreground mb-6 text-lg leading-relaxed">Once your agent passes backtests, deploy it to a live paper trading environment. Monitor portfolio value, positions, and every decision in real time — without risking capital.</p>'
-            + '        <ul class="space-y-3 mb-8 text-sm text-muted-foreground">'
-            + '          <li>One-click deploy from backtest to paper trading</li>'
-            + '          <li>Track equity curve, trades, and agent decisions live</li>'
-            + '          <li>Validate strategies in realistic market conditions safely</li>'
-            + '        </ul>'
-            + '        <button type="button" data-landing-auth="signup" class="inline-flex items-center justify-center rounded-md text-sm font-semibold h-11 px-6 bg-primary text-primary-foreground hover:bg-primary/90">Get Started</button>'
-            + '      </div>'
-            + '    </div>'
-            + '  </div>'
-            + '</section>';
-        }
-
-        function insertExtraSections() {
-          if (document.getElementById('discord-prompt')) return;
-          var anchor = document.getElementById('backtesting');
-          if (!anchor) return;
-          anchor.insertAdjacentHTML('afterend', extraSectionsHtml());
-        }
-
-        function lockPlaygroundWindow() {
-          if (document.getElementById('hero-playground-window')) return;
-          var nodes = document.querySelectorAll('div');
-          for (var i = 0; i < nodes.length; i++) {
-            if ((nodes[i].textContent || '').trim() !== 'agent-playground.exe') continue;
-            var card = nodes[i].closest('.bg-card') || (nodes[i].parentElement && nodes[i].parentElement.parentElement);
-            if (!card) return;
-            card.id = 'hero-playground-window';
-            return;
-          }
-        }
-
-        function patchLanding() {
-          document.querySelectorAll('main a, main button, footer a, footer button').forEach(function (el) {
-            var label = (el.textContent || '').trim();
-            if (label === 'Connect Discord' || label === 'Join the Discord') el.textContent = 'Join Discord Community';
-            if (label === 'Open Dashboard' || label === 'Open Playground') {
-              el.textContent = 'Get Started';
-              el.setAttribute('data-landing-auth', 'signup');
-              if (el.tagName === 'A') el.setAttribute('href', '#');
-            }
-          });
-
-          document.querySelectorAll('#community .flex.items-center').forEach(function (row) {
-            var text = (row.textContent || '').trim();
-            if (!text || /Prize Pool|badges for top/i.test(text)) row.remove();
-          });
-
-          document.querySelectorAll('footer p').forEach(function (p) {
-            if (/broker/i.test(p.textContent || '')) {
-              p.textContent = 'Start building and backtesting for free.';
-            }
-          });
-
-          document.querySelectorAll('#community p').forEach(function (p) {
-            if (/cash prizes|compute credits|leaderboard glory/i.test(p.textContent || '')) {
-              p.textContent = 'Join developers and traders. Deploy your agents in seasonal paper trading competitions and climb the leaderboard.';
-            }
-          });
-
-          var nav = document.querySelector('nav .container');
-          if (nav && nav.lastElementChild && !nav.lastElementChild.dataset.patchedNav) {
-            nav.lastElementChild.dataset.patchedNav = '1';
-            nav.lastElementChild.className = 'flex items-center gap-3';
-            nav.lastElementChild.innerHTML =
-              '<button type="button" data-landing-auth="login" class="inline-flex items-center justify-center rounded-md text-sm font-semibold h-9 px-4 border border-border bg-transparent text-foreground hover:bg-muted transition-colors">Sign In</button>'
-              + '<button type="button" data-landing-auth="signup" class="inline-flex items-center justify-center rounded-md text-sm font-semibold h-9 px-4 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">Get Started</button>';
-          }
-
-          insertExtraSections();
-          lockPlaygroundWindow();
-        }
-
         document.addEventListener('click', function (event) {
           var target = event.target;
           if (!target || !target.closest) return;
@@ -570,14 +405,6 @@
         });
 
         initAuthModal();
-
-        var root = document.getElementById('root');
-        if (!root) return;
-        var observer = new MutationObserver(function () { patchLanding(); });
-        observer.observe(root, { childList: true, subtree: true });
-        patchLanding();
-        setTimeout(patchLanding, 100);
-        setTimeout(patchLanding, 500);
       })();
     </script>
   </body>
