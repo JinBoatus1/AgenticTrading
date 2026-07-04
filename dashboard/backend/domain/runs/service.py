@@ -20,7 +20,9 @@ repository).
 from __future__ import annotations
 
 import math
+import os
 import threading
+import time
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -41,6 +43,20 @@ from dashboard.backend.domain.runs.repository import run_store
 
 _runs: Dict[str, "ProtocolRun"] = {}
 _registry_lock = threading.Lock()
+
+# Cap concurrent (non-terminal) runs per agent to bound resource use / abuse.
+MAX_ACTIVE_RUNS_PER_AGENT = int(os.getenv("MAX_ACTIVE_RUNS_PER_AGENT", "5"))
+# How often the background reaper drains abandoned runs and evicts terminal ones.
+REAPER_INTERVAL_SECONDS = float(os.getenv("RUN_REAPER_INTERVAL_SECONDS", "60"))
+# Startup recovery marks ALL non-terminal rows failed; only correct when a single
+# process owns the DB (the current single-instance deployment). A multi-worker or
+# overlapping rolling-deploy setup sharing one DB must disable it (set to 0).
+RUN_RECOVERY_ON_STARTUP = os.getenv("RUN_RECOVERY_ON_STARTUP", "1").lower() not in ("0", "false", "no")
+
+_reaper_thread: Optional[threading.Thread] = None
+_reaper_lock = threading.Lock()
+# Serializes create_run so the per-agent active-run cap can't be raced past.
+_create_lock = threading.Lock()
 
 # Engine status -> protocol run status
 _RUN_STATUS_MAP = {
@@ -134,6 +150,12 @@ def _get_run(run_id: str) -> "ProtocolRun":
         env = get_environment(record.get("environment_id")) or {}
         run = ProtocolRun(record=record, environment=env)
         with _registry_lock:
+            # Double-check under the lock: a concurrent caller may have built and
+            # registered the same run while we were constructing ours. Return the
+            # winner so both callers share one ProtocolRun (one lock, one cache).
+            existing = _runs.get(run_id)
+            if existing is not None:
+                return existing
             _runs[run_id] = run
     return run
 
@@ -158,6 +180,68 @@ def _sync_status(run: "ProtocolRun") -> Dict[str, Any]:
     elif estatus == "failed":
         run_store.update_run(run.run_id, status="failed")
     return {"engine_status": engine_status, "run_status": run.status}
+
+
+# ----------------------------------------------------------------------
+# Run lifecycle: startup recovery + background reaper
+# ----------------------------------------------------------------------
+
+
+def recover_orphaned_runs() -> int:
+    """Fail runs left non-terminal by a crash/restart (their in-memory engine
+    session is gone and cannot resume). Call once on process startup.
+
+    Marks EVERY non-terminal row failed, so it is only correct when a single
+    process owns the DB. Gated behind RUN_RECOVERY_ON_STARTUP for multi-worker
+    deployments (see the constant)."""
+    if not RUN_RECOVERY_ON_STARTUP:
+        return 0
+    return run_store.fail_unfinished_runs()
+
+
+def reap_runs() -> int:
+    """Drive abandoned runs forward through any elapsed decision deadlines, then
+    free the market-data buffers of terminal runs by evicting their engine
+    session. The lightweight ProtocolRun (step-id map + idempotency cache) is
+    deliberately KEPT in ``_runs`` so reads and idempotent retries keep working
+    after the heavy session is gone. Idempotent and safe to call periodically.
+    Returns the number of sessions evicted this pass."""
+    with _registry_lock:
+        runs = list(_runs.values())
+    reaped = 0
+    for run in runs:
+        try:
+            session = run.session()
+            if session is None:
+                continue  # already reaped — nothing heavy left to free
+            session.drain_expired()
+            _sync_status(run)
+            if run.status in ("completed", "failed") and run.backtest_id:
+                if ebs.evict_session(run.backtest_id):
+                    reaped += 1
+        except Exception as exc:  # a single wedged run must not stall the sweep
+            print(f"⚠️ reap_runs: skipping {run.run_id}: {exc}")
+    return reaped
+
+
+def start_reaper(interval_seconds: Optional[float] = None) -> None:
+    """Start the background reaper daemon (idempotent — a second call no-ops)."""
+    global _reaper_thread
+    interval = interval_seconds if interval_seconds is not None else REAPER_INTERVAL_SECONDS
+    with _reaper_lock:
+        if _reaper_thread is not None and _reaper_thread.is_alive():
+            return
+
+        def _loop() -> None:
+            while True:
+                time.sleep(interval)
+                try:
+                    reap_runs()
+                except Exception as exc:
+                    print(f"⚠️ run reaper pass failed: {exc}")
+
+        _reaper_thread = threading.Thread(target=_loop, daemon=True, name="run-reaper")
+        _reaper_thread.start()
 
 
 # ----------------------------------------------------------------------
@@ -222,30 +306,49 @@ def create_run(
     if mode not in ("safe_trading", "buy_and_hold"):
         raise ProtocolError("invalid_config", f"Unsupported mode '{mode}'", 400)
 
-    start_res = ebs.start_backtest(
-        session_id=agent["session_id"],
-        agent_name=agent.get("name") or "external-agent",
-        model_name=agent.get("model_name") or "local-model",
-        start_date=start_date,
-        end_date=end_date,
-        mode=mode,
-    )
-    backtest_id = start_res["backtest_id"]
+    # Bound concurrent resource use: refuse a new run once the agent already has
+    # MAX_ACTIVE_RUNS_PER_AGENT non-terminal runs (each pins an in-memory engine
+    # session holding market data). The reaper frees these as they finish.
+    # Serialize the cap check with the actual run creation so two concurrent
+    # creates from one agent can't both observe an under-limit count and both
+    # proceed past the cap (check-then-act TOCTOU).
+    agent_id = agent.get("agent_id")
+    with _create_lock:
+        if agent_id:
+            active = run_store.count_active_runs(agent_id)
+            if active >= MAX_ACTIVE_RUNS_PER_AGENT:
+                raise ProtocolError(
+                    "too_many_active_runs",
+                    f"Agent already has {active} active runs "
+                    f"(limit {MAX_ACTIVE_RUNS_PER_AGENT}); wait for one to finish",
+                    429,
+                    details={"active_runs": active, "limit": MAX_ACTIVE_RUNS_PER_AGENT},
+                )
 
-    record = run_store.create_run(
-        agent_id=agent.get("agent_id"),
-        agent_version_id=agent_version.get("agent_version_id") if agent_version else None,
-        session_id=agent["session_id"],
-        environment_id=environment_id,
-        environment_type=environment.get("type"),
-        config=config,
-        backtest_id=backtest_id,
-        status="running",
-    )
+        start_res = ebs.start_backtest(
+            session_id=agent["session_id"],
+            agent_name=agent.get("name") or "external-agent",
+            model_name=agent.get("model_name") or "local-model",
+            start_date=start_date,
+            end_date=end_date,
+            mode=mode,
+        )
+        backtest_id = start_res["backtest_id"]
 
-    run = ProtocolRun(record=record, environment=environment)
-    with _registry_lock:
-        _runs[run.run_id] = run
+        record = run_store.create_run(
+            agent_id=agent.get("agent_id"),
+            agent_version_id=agent_version.get("agent_version_id") if agent_version else None,
+            session_id=agent["session_id"],
+            environment_id=environment_id,
+            environment_type=environment.get("type"),
+            config=config,
+            backtest_id=backtest_id,
+            status="running",
+        )
+
+        run = ProtocolRun(record=record, environment=environment)
+        with _registry_lock:
+            _runs[run.run_id] = run
 
     return run_view(run.run_id)
 
@@ -300,6 +403,19 @@ def get_next_step(run_id: str) -> Dict[str, Any]:
     run = _get_run(run_id)
     session = run.session()
     if session is None:
+        # Session freed after completion (reaped) or gone after a restart —
+        # answer from persisted state instead of erroring on a finished run.
+        _sync_status(run)
+        if run.status == "completed" or run.result_run_id:
+            return {
+                "protocol_version": PROTOCOL_VERSION,
+                "run_id": run.run_id,
+                "status": "completed",
+                "result_run_id": run.result_run_id,
+                "message": "Run completed; no further steps.",
+            }
+        if run.status == "failed":
+            raise ProtocolError("run_failed", "Run failed", 500)
         raise ProtocolError("run_not_active", "Run session is no longer active", 409)
 
     step = session.get_current_step()
@@ -362,9 +478,11 @@ def get_step(run_id: str, step_id: str) -> Dict[str, Any]:
 def submit_decision(run_id: str, step_id: str, decision: DecisionIn) -> Dict[str, Any]:
     run = _get_run(run_id)
     with run.lock:
-        # Idempotent replay
-        if decision.idempotency_key in run.idempotency:
-            return run.idempotency[decision.idempotency_key]
+        # Idempotent replay, scoped to (step_id, key): the same idempotency_key
+        # reused on a *different* step must not replay the earlier step's result.
+        idem_key = (step_id, decision.idempotency_key)
+        if idem_key in run.idempotency:
+            return run.idempotency[idem_key]
 
         session = run.session()
         if session is None:
@@ -529,8 +647,8 @@ def submit_decision(run_id: str, step_id: str, decision: DecisionIn) -> Dict[str
             "run_status": "completed" if run_completed else "running",
         }
 
-        # Record finalization + idempotency.
-        run.idempotency[decision.idempotency_key] = result
+        # Record finalization + idempotency (scoped to this step_id).
+        run.idempotency[idem_key] = result
         run.step_results_by_seq[seq] = {
             "idempotency_key": decision.idempotency_key,
             "result": result,

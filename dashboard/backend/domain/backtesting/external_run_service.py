@@ -589,6 +589,16 @@ class ExternalBacktestSession:
                 base["error"] = self.error
             return base
 
+    def drain_expired(self) -> str:
+        """Apply any elapsed decision deadlines (auto-hold) without an agent,
+        driving an abandoned run forward. No-op unless the current step is past
+        its deadline. Returns the resulting status."""
+        with self._step_lock:
+            while self._maybe_apply_timeout():
+                if self.status == "completed":
+                    break
+            return self.status
+
     def get_decisions(self) -> List[Dict[str, Any]]:
         with self._step_lock:
             return list(self.decision_log)
@@ -757,6 +767,14 @@ def start_backtest(
 def get_session(backtest_id: str) -> Optional[ExternalBacktestSession]:
     with _lock:
         return _sessions.get(backtest_id)
+
+
+def evict_session(backtest_id: str) -> bool:
+    """Drop a finished session from memory (frees its market-data buffers).
+    Read paths for a completed run fall back to the persisted result run, so
+    evicting a terminal session is safe. Returns True if one was removed."""
+    with _lock:
+        return _sessions.pop(backtest_id, None) is not None
 
 
 def get_current_step(backtest_id: str) -> Optional[Dict[str, Any]]:

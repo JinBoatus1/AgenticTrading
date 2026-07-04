@@ -669,3 +669,179 @@ def test_orphaned_run_denied_fail_closed(client):
         f"/api/v1/runs/{orphan['run_id']}", headers={"X-API-Key": key}
     )
     assert resp.status_code == 403, resp.text
+
+
+# ----------------------------------------------------------------------
+# H4 — run lifecycle recovery, concurrency cap, idempotency scope, reaper
+# ----------------------------------------------------------------------
+
+
+def test_recover_orphaned_runs_fails_unfinished(client):
+    """A run left 'running' by a crash/restart is marked failed on recovery — it
+    can't resume (its in-memory engine session is gone) and must stop counting
+    against the per-agent active cap."""
+    import dashboard.backend.api.routers.runs as runs_api
+    import dashboard.backend.domain.runs.service as run_service
+
+    orphan = runs_api.run_store.create_run(
+        agent_id="ag_orphan",
+        agent_version_id=None,
+        session_id=str(uuid.uuid4()),
+        environment_id="us-equity-hourly-v1",
+        environment_type="backtest",
+        config={},
+        status="running",
+    )
+    assert orphan["status"] == "running"
+
+    recovered = run_service.recover_orphaned_runs()
+    assert recovered >= 1
+    assert runs_api.run_store.get_run(orphan["run_id"])["status"] == "failed"
+
+
+def test_concurrent_run_cap(client, monkeypatch):
+    """Once an agent has MAX_ACTIVE_RUNS_PER_AGENT non-terminal runs, another
+    create is refused with 429 too_many_active_runs."""
+    import dashboard.backend.domain.runs.service as run_service
+
+    monkeypatch.setattr(run_service, "MAX_ACTIVE_RUNS_PER_AGENT", 2)
+
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    _create_run(client, key, version_id)
+    _create_run(client, key, version_id)
+
+    third = client.post(
+        "/api/v1/runs",
+        json={
+            "agent_version_id": version_id,
+            "environment": {"type": "backtest", "environment_id": "us-equity-hourly-v1"},
+            "config": {"start_date": "2026-04-15", "end_date": "2026-04-16", "symbols": ["AAPL", "MSFT"]},
+        },
+        headers={"X-API-Key": key},
+    )
+    assert third.status_code == 429, third.text
+    assert third.json()["detail"]["error"]["code"] == "too_many_active_runs"
+
+
+def test_idempotency_scoped_to_step(client):
+    """The same idempotency_key reused on a DIFFERENT step must not replay the
+    earlier step's result."""
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+
+    step1 = _wait_for_step(client, run_id, key)
+    reused = str(uuid.uuid4())
+    r1 = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step1['step_id']}/decision",
+        json={"idempotency_key": reused, "orders": []},
+        headers={"X-API-Key": key},
+    )
+    assert r1.status_code == 200, r1.text
+    d1 = r1.json()["decision_id"]
+
+    step2 = _wait_for_step(client, run_id, key)
+    assert step2.get("status") == "awaiting_decision"
+    assert step2["step_id"] != step1["step_id"]
+    r2 = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step2['step_id']}/decision",
+        json={"idempotency_key": reused, "orders": []},
+        headers={"X-API-Key": key},
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["decision_id"] != d1, "reused key wrongly replayed step 1"
+
+
+def test_reaper_frees_session_but_preserves_reads(client):
+    """The reaper frees a completed run's heavy engine session (market data) but
+    keeps the lightweight ProtocolRun, so step queries, next-step polling, and
+    idempotent retries keep working after eviction — no post-eviction regression.
+    """
+    import dashboard.backend.domain.backtesting.external_run_service as ebs
+    import dashboard.backend.domain.runs.service as run_service
+
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+
+    # Drive the run to completion with holds; remember the final decision.
+    last_step_id = None
+    last_idem = None
+    last_decision_id = None
+    for _ in range(200):
+        body = _wait_for_step(client, run_id, key)
+        if body.get("status") == "completed":
+            break
+        last_step_id = body["step_id"]
+        last_idem = str(uuid.uuid4())
+        r = client.post(
+            f"/api/v1/runs/{run_id}/steps/{last_step_id}/decision",
+            json={"idempotency_key": last_idem, "orders": []},
+            headers={"X-API-Key": key},
+        )
+        assert r.status_code == 200, r.text
+        last_decision_id = r.json()["decision_id"]
+    else:
+        raise AssertionError("run did not complete")
+
+    run = run_service._runs[run_id]
+    bt_id = run.backtest_id
+    assert ebs.get_session(bt_id) is not None  # not evicted yet
+
+    reaped = run_service.reap_runs()
+    assert reaped >= 1
+    # Heavy session freed ...
+    assert ebs.get_session(bt_id) is None
+    # ... but the ProtocolRun (step maps + idempotency cache) is kept.
+    assert run_id in run_service._runs
+
+    # 1) get_step by a known step_id still works (in-memory map preserved).
+    s = client.get(
+        f"/api/v1/runs/{run_id}/steps/{last_step_id}", headers={"X-API-Key": key}
+    )
+    assert s.status_code == 200, s.text
+
+    # 2) next-step on a completed run returns "completed", not 409.
+    nxt = client.get(f"/api/v1/runs/{run_id}/steps/next", headers={"X-API-Key": key})
+    assert nxt.status_code == 200, nxt.text
+    assert nxt.json()["status"] == "completed"
+
+    # 3) idempotent retry of the final decision still replays (not 409).
+    retry = client.post(
+        f"/api/v1/runs/{run_id}/steps/{last_step_id}/decision",
+        json={"idempotency_key": last_idem, "orders": []},
+        headers={"X-API-Key": key},
+    )
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["decision_id"] == last_decision_id
+
+    # 4) DB-backed reads keep working too.
+    assert client.get(
+        f"/api/v1/runs/{run_id}/result", headers={"X-API-Key": key}
+    ).status_code == 200
+    status = client.get(f"/api/v1/runs/{run_id}/status", headers={"X-API-Key": key})
+    assert status.status_code == 200 and status.json()["status"] == "completed"
+
+
+def test_reaper_advances_abandoned_run(client, monkeypatch):
+    """The reaper drives an abandoned run forward through an elapsed decision
+    deadline with no agent polling (each past-due step auto-holds)."""
+    import dashboard.backend.domain.backtesting.external_run_service as ebs
+    import dashboard.backend.domain.runs.service as run_service
+
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    monkeypatch.setattr(ebs, "DECISION_TIMEOUT_SECONDS", 0.01)
+    run_id = _create_run(client, key, version_id)
+    _wait_for_step(client, run_id, key)
+
+    run = run_service._runs[run_id]
+    start_index = run.session().step_index
+
+    time.sleep(0.05)  # current step's deadline elapses
+    run_service.reap_runs()
+
+    session = run.session()
+    # Advanced on its own, or finished and was evicted — either is forward progress.
+    assert session is None or session.step_index > start_index

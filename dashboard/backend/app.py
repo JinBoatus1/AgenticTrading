@@ -185,6 +185,25 @@ async def startup_event():
     thread.start()
     # Don't wait - server starts immediately
 
+    # Protocol run lifecycle: fail runs orphaned by the previous process (their
+    # in-memory engine sessions did not survive the restart) and start the
+    # background reaper that drains/evicts abandoned runs. Kept in separate
+    # try/except blocks so a recovery failure can't prevent the reaper starting.
+    try:
+        from dashboard.backend.domain.runs.service import recover_orphaned_runs
+        recovered = recover_orphaned_runs()
+        if recovered:
+            print(f"🧹 Recovered {recovered} orphaned run(s) → failed")
+    except Exception as e:
+        print(f"⚠️ Orphaned-run recovery error: {e}")
+
+    try:
+        from dashboard.backend.domain.runs.service import start_reaper
+        start_reaper()
+        print("🧹 Run reaper started")
+    except Exception as e:
+        print(f"⚠️ Run reaper start error: {e}")
+
 
 # ============================================================================
 # Static Frontend Routes (must come AFTER API routes to not intercept them)

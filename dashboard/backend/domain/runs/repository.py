@@ -185,5 +185,43 @@ class RunStore:
         conn.close()
         return [_public_run(row) for row in rows]
 
+    # Runs that are still consuming resources (not yet terminal).
+    _ACTIVE_STATUSES = ("created", "loading", "running")
+
+    def count_active_runs(self, agent_id: str) -> int:
+        """Number of an agent's runs that are not yet completed/failed."""
+        placeholders = ",".join("?" for _ in self._ACTIVE_STATUSES)
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT COUNT(*) FROM protocol_runs "
+            f"WHERE agent_id = ? AND status IN ({placeholders})",
+            (agent_id, *self._ACTIVE_STATUSES),
+        )
+        (count,) = cursor.fetchone()
+        conn.close()
+        return int(count)
+
+    def fail_unfinished_runs(self) -> int:
+        """Mark runs left non-terminal by a crash/restart as failed.
+
+        The in-memory engine session does not survive a process restart, so a
+        run still marked running/loading/created can never resume — fail it so
+        it stops counting against the per-agent active-run cap and reads report
+        an honest terminal state. Returns the number of rows updated.
+        """
+        placeholders = ",".join("?" for _ in self._ACTIVE_STATUSES)
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            f"UPDATE protocol_runs SET status = 'failed', updated_at = ? "
+            f"WHERE status IN ({placeholders})",
+            (_utcnow_iso(), *self._ACTIVE_STATUSES),
+        )
+        updated = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return int(updated)
+
 
 run_store = RunStore()
