@@ -5,6 +5,11 @@ The ``/api/v2`` surface is a typed, versioned, MCP-shaped contract any agent can
 target. The agent's LLM runs **client-side**: the backend serves context and
 validates decisions; it never calls your model.
 
+``/api/v2`` is the **canonical** agent-facing surface. The older
+Agent–Environment Protocol (``/api/v1``, see ``docs/api/agent-environment-protocol-v1.md``)
+remains available as a compatibility surface for the shipping SDK and
+integrations; new agent-facing features land here.
+
 Four canonical verbs
 ---------------------
 

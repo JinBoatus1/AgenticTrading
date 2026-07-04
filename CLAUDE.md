@@ -83,6 +83,14 @@ Pipeline is **backtest → SQLite → API → dashboard**. The backend is layere
 - **External backtest engine** (`domain/backtesting/external_run_service.py`): the hour-by-hour session behind both the protocol and the legacy `/api/v1/backtest/*` routes.
 - **PyPI client** (`packaging/agentictrading/`): stdlib-only Python SDK + `AgentRunner`. Published via `.github/workflows/publish-pypi.yml`.
 
+### Agent API v2 (`/api/v2`) — the canonical agent-facing contract
+
+Two step-driven agent surfaces coexist; they are **not peers**:
+
+- **`/api/v2` is canonical** (`api/v2/*` routers + `execution/` backends over the same domain engines): typed Pydantic contract, per-agent scopes + token-bucket rate limits, canonical `run_id`, DB-backed idempotency (`(run_id, idem_key)`), `context_ref` provenance, self-describing `GET /api/v2/schema`. Spec/plan: `docs/superpowers/{specs,plans}/2026-06-23-agent-api-foundation-*`. New agent-facing features land here (Phase B: paper/live via `ExecutionBackend`; Phase C: MCP façade).
+- **`/api/v1` is the compatibility surface** for the shipping SDK (`packaging/agentictrading`), Discord bot, and built-in agents. Keep it working; do not grow it. Migrating the SDK to v2 is the gate for publishing `agentictrading` 0.2.0.
+- `execution/` sits at the backend root (not `domain/`) deliberately: the backends bind domain engines to the v2 API contract, and `test_architecture_boundaries` forbids `domain/` → `api/` imports.
+
 ## Deployment
 
 - **Backend** → Render (`render.yaml`): `uvicorn dashboard.backend.app:app`, persistent disk at `/data`, health check `/health`.

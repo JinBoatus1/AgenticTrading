@@ -12,6 +12,12 @@ The Run API (`/api/v1/runs/*`) is a thin layer over the existing backtest
 engine. The legacy backtest API (`/api/v1/backtest/*`) remains available for
 backward compatibility and shares the same engine.
 
+> **Status: compatibility surface.** `/api/v2` (see `docs/source/lab/agent_api.rst`)
+> is the canonical agent-facing contract; new agent-facing features land there.
+> v1 remains supported for the shipping `agentictrading` SDK, the Discord bot,
+> and built-in agents, but does not grow. The SDK's migration to v2 gates the
+> `agentictrading` 0.2.0 release.
+
 ---
 
 ## 1. Resources
@@ -335,7 +341,7 @@ All protocol errors use a consistent envelope (delivered as the HTTP `detail`):
 | 400  | `invalid_config`, `invalid_symbols`, `unsupported_environment`, `too_many_orders`, `run_id_mismatch`, `step_id_mismatch` | bad request |
 | 401  | (auth) | missing/invalid `X-API-Key` |
 | 403  | `forbidden` | run/agent belongs to a different agent |
-| 404  | `run_not_found`, `agent_version_not_found`, `unknown_step`, `unknown_environment`, `result_not_found` | not found |
+| 404  | `run_not_found`, `agent_version_not_found`, `unknown_step`, `unknown_environment`, `result_not_found` | not found — resource lookups by id answer identically for "doesn't exist" and "not yours" (no existence oracle) |
 | 409  | `step_already_finalized`, `step_not_active`, `run_not_active`, `run_completed` | state conflict on a step/run |
 | 409  | `decision_deadline_exceeded` | decision arrived after the deadline (step auto-held) |
 | 409  | `run_not_completed` | results requested before completion |
