@@ -258,6 +258,56 @@ def test_safe_trading_always_includes_current_holdings(monkeypatch):
     assert "HELD" in captured["top"]
 
 
+def test_safe_trading_ranking_survives_nan_indicator_bars(monkeypatch):
+    """Early bars have NaN indicators (e.g. sma50 before 50 periods). The trend
+    ranking must not crash and must rank such names out of the top-12 (a NaN
+    trend score sorts below real scores) rather than surfacing them."""
+    captured = _capture_top_signals(monkeypatch)
+    signals = {"GOOD": _trend_sig(110.0, 55.0, 100.0, 95.0)}
+    for i in range(12):
+        signals[f"F{i:02d}"] = _trend_sig(105.0, 50.0, 100.0, 98.0)
+    nan = float("nan")
+    signals["NANBAR"] = _trend_sig(nan, nan, nan, nan, macd=nan, macd_signal=nan)
+    state = {
+        "timestamp": datetime(2026, 1, 1), "cash": 100000, "positions": [],
+        "positions_value": 0, "total_equity": 100000, "market_signals": signals,
+    }
+    pm = CanonicalPortfolioManager(100000)
+    with pytest.raises(_StopAfterCapture):
+        pm.make_trading_decision_with_llm(state, llm_client=object(), mode="safe_trading")
+    top = captured["top"]
+    assert "GOOD" in top
+    assert "NANBAR" not in top  # NaN score ranked out, not surfaced
+    assert len(top) == 12
+
+
+def test_safe_trading_threads_custom_strategy_prompt(monkeypatch):
+    """A custom strategy_prompt is threaded through to create_prompt via
+    custom_prompt= (the 'My Trading Algo' / strategy-share path)."""
+    from dashboard.backend.domain.backtesting import portfolio_manager as pm_mod
+    captured = {}
+
+    def fake_create_prompt(snapshot, mode=None, custom_prompt=None):
+        captured["custom_prompt"] = custom_prompt
+        captured["mode"] = mode
+        raise _StopAfterCapture()
+
+    monkeypatch.setattr(pm_mod, "create_prompt", fake_create_prompt)
+    signals = {f"F{i:02d}": _trend_sig(105.0, 50.0, 100.0, 98.0) for i in range(3)}
+    state = {
+        "timestamp": datetime(2026, 1, 1), "cash": 100000, "positions": [],
+        "positions_value": 0, "total_equity": 100000, "market_signals": signals,
+    }
+    pm = CanonicalPortfolioManager(100000)
+    with pytest.raises(_StopAfterCapture):
+        pm.make_trading_decision_with_llm(
+            state, llm_client=object(), mode="safe_trading",
+            strategy_prompt="MY CUSTOM STRATEGY",
+        )
+    assert captured["custom_prompt"] == "MY CUSTOM STRATEGY"
+    assert captured["mode"] == "safe_trading"
+
+
 def test_module_docstring_no_longer_claims_verbatim_identity():
     import dashboard.backend.domain.backtesting.portfolio_manager as pm_mod
     doc = pm_mod.__doc__ or ""
