@@ -12,6 +12,7 @@ registered before ``/api/backtest/{run_id}`` and ``/runs/latest/metrics`` before
 ``/runs/{run_id}``.
 """
 
+import re
 import threading
 from functools import lru_cache
 from io import BytesIO
@@ -38,7 +39,6 @@ from dashboard.backend.database import db, DB_PATH
 from dashboard.backend.paths import DASHBOARD_DIR, REPO_ROOT, SCRIPTS_DIR
 from dashboard.backend.middleware import get_session_id_from_request
 from dashboard.backend.api.rate_limit import FixedWindowRateLimiter, client_key
-from dashboard.backend.infrastructure.llm.token_cost import is_known_model
 
 router = APIRouter()
 
@@ -276,9 +276,18 @@ class BacktestRunRequest(BaseModel):
 MAX_STRATEGY_PROMPT_CHARS = 4000
 MAX_BACKTEST_DAYS = 31
 
-# Per-client run budget (best-effort in-process; see api/rate_limit). The global
-# ``backtest_status["running"]`` flag already blocks *concurrent* runs; this caps
-# *serial* abuse (start, wait, start, ...).
+# A model id is a provider/model slug: letters, digits, and . _ / - only, bounded
+# length. This rejects a garbage/injection string reaching the backtest subprocess
+# — it deliberately does NOT gate model *tier*: the dashboard UI intentionally
+# offers expensive models (e.g. claude-opus), so tiering is a product/auth decision,
+# not enforced here, and gating by the pricing table would 422 the UI's own options.
+_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/\-]{0,63}$")
+
+# Per-client run budget: a best-effort throttle only. The global
+# ``backtest_status["running"]`` flag blocks *concurrent* runs; this throttles
+# *serial* abuse from a well-behaved client. A client rotating its self-minted
+# session id can evade it (see api/rate_limit) — the per-request caps above
+# (model shape, prompt length, date range) are the hard limits.
 _backtest_rate_limiter = FixedWindowRateLimiter(max_events=10, window_seconds=3600)
 
 
@@ -290,18 +299,19 @@ def _parse_ymd(value: str, field: str) -> datetime:
 
 
 def _validate_backtest_params(start_date, end_date, strategy_prompt, model) -> None:
-    """Reject cost-abuse inputs before scheduling the background run.
+    """Reject malformed / cost-abuse inputs before scheduling the background run.
 
-    - ``model`` must be a known/priced model id (or a free/local marker), so a
-      caller cannot force an arbitrary or the most expensive model.
+    - ``model`` must look like a model id (charset + length), which rejects an
+      arbitrary/garbage string reaching the backtest subprocess. It does NOT cap
+      model tier (the UI intentionally offers expensive models).
     - ``strategy_prompt`` is length-capped (it is injected into every LLM call).
     - the date range must be well-formed and bounded (each extra day is more
       hourly LLM calls).
     """
-    if model and not is_known_model(model):
+    if model and not _MODEL_ID_RE.match(model.strip()):
         raise HTTPException(
             status_code=422,
-            detail=f"Unsupported model '{model}'. Choose a known model id.",
+            detail=f"Invalid model id '{model}'.",
         )
     if strategy_prompt and len(strategy_prompt) > MAX_STRATEGY_PROMPT_CHARS:
         raise HTTPException(

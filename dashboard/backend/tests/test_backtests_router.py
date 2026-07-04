@@ -125,25 +125,36 @@ def test_backtest_run_valid_request_ok():
     assert resp.json()["success"] is True
 
 
-def test_backtest_run_accepts_known_model():
+@pytest.mark.parametrize("model", [
+    # Exactly the options the dashboard UI dropdown (app.html) offers. A pricing-
+    # table allowlist previously 422'd gpt-5.2 / gpt-5-mini / deepseek-* / gemini-*,
+    # breaking the UI's own model choices.
+    "claude-haiku-4.5", "claude-sonnet-4.6", "claude-opus-4.7",
+    "gpt-5.2", "gpt-5-mini", "deepseek-v4-flash", "deepseek-v4-pro",
+    "gemini-3.5-flash", "gemini-2.5-pro",
+    "openai/gpt-5.5", "google/gemini-3.1-pro-preview",
+])
+def test_backtest_run_accepts_frontend_model_options(model):
     resp = TestClient(app).post(
         "/backtest/run",
-        json={"start_date": "2026-05-01", "end_date": "2026-05-02", "model": "claude-haiku-4"},
+        json={"start_date": "2026-05-01", "end_date": "2026-05-02", "model": model},
         headers=_sess(),
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 200, (model, resp.text)
 
 
-def test_backtest_run_rejects_unlisted_model(monkeypatch):
+@pytest.mark.parametrize("model", [
+    "bad model with spaces", "x; rm -rf /", "a" * 100, "m\nnewline", "café",
+])
+def test_backtest_run_rejects_malformed_model(monkeypatch, model):
     spy = _Spy()
     monkeypatch.setattr(bt, "run_backtest_background", spy)
     resp = TestClient(app).post(
         "/backtest/run",
-        json={"start_date": "2026-05-01", "end_date": "2026-05-02",
-              "model": "totally-not-a-real-model-xyz"},
+        json={"start_date": "2026-05-01", "end_date": "2026-05-02", "model": model},
         headers=_sess(),
     )
-    assert resp.status_code == 422
+    assert resp.status_code == 422, (model, resp.text)
     assert spy.calls == 0  # nothing scheduled
 
 

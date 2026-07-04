@@ -75,22 +75,6 @@ def is_free_model(model: str | None) -> bool:
     return any(marker in name for marker in _FREE_MODEL_MARKERS)
 
 
-def is_known_model(model: str | None) -> bool:
-    """True when ``model`` is a recognized model id an endpoint may run.
-
-    A model is "known" if it is a free/local marker (or empty → "use default"),
-    or its name matches a family in ``_PRICING_TABLE`` (same substring rule
-    ``price_for_model`` uses). Public endpoints allowlist against this so an
-    anonymous caller cannot force an arbitrary/unpriced model and spend operator
-    credits. Kept here so the allowlist stays a single source of truth with the
-    pricing table.
-    """
-    if is_free_model(model):
-        return True
-    name = (model or "").strip().lower()
-    return any(needle in name for needle, _in, _out in _PRICING_TABLE)
-
-
 def estimate_tokens(value: Any) -> int:
     """Estimate the number of tokens in a string or JSON-serializable object."""
     if value is None:
