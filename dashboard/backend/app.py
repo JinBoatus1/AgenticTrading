@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pathlib import Path
 
 from dashboard.backend.database import db, DB_PATH
@@ -218,10 +218,22 @@ async def serve_root():
 
 
 @app.get("/app", include_in_schema=False)
-@app.get("/app/", include_in_schema=False)
 async def serve_app():
     """Serve the main dashboard application."""
     return FileResponse(frontend_path / "app.html")
+
+
+@app.get("/app/", include_in_schema=False)
+async def serve_app_trailing_slash():
+    """Redirect /app/ → /app (method-preserving 308).
+
+    app.html references its assets with relative paths (``styles.css``,
+    ``app.js``, ``images/...``). Served from ``/app/`` a browser resolves those
+    against the ``/app/`` base (``/app/styles.css`` → 404), so the dashboard
+    renders unstyled. Redirecting to ``/app`` makes relative assets resolve
+    against root.
+    """
+    return RedirectResponse(url="/app", status_code=308)
 
 @app.get("/favicon.svg", include_in_schema=False)
 @app.get("/favicon.ico", include_in_schema=False)
