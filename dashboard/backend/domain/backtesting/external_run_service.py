@@ -57,6 +57,20 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat()
 
 
+def _new_ext_run_id() -> str:
+    """Unique id for a finalized external run.
+
+    Second-resolution timestamp for human-readable ordering PLUS a uuid suffix.
+    The bare ``ext_<YYYYMMDD_HHMMSS>`` scheme used before collided when two runs
+    finalized in the same second: the id is a PRIMARY KEY written with
+    ``INSERT OR REPLACE``, so a collision silently overwrote the earlier run's
+    rows — and a cached ``/runs/{id}/plot.png`` would then serve the wrong run's
+    chart forever. Only ``str.startswith("ext_")`` and a ``created_at`` sort ever
+    depend on this value, so the suffix is safe.
+    """
+    return f"ext_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+
 class ExternalBacktestSession:
     """One external-agent backtest driven hour-by-hour through the API."""
 
@@ -467,7 +481,7 @@ class ExternalBacktestSession:
             if hasattr(entry["timestamp"], "isoformat"):
                 entry["timestamp"] = entry["timestamp"].isoformat()
 
-        self.run_id = f"ext_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self.run_id = _new_ext_run_id()
         initial_eq = equity_curve[0]["equity"] if equity_curve else INITIAL_CAPITAL
         final_eq = equity_curve[-1]["equity"] if equity_curve else INITIAL_CAPITAL
         total_return = (final_eq - INITIAL_CAPITAL) / INITIAL_CAPITAL
