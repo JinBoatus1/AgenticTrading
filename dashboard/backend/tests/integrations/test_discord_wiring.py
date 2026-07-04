@@ -6,6 +6,7 @@ so the wiring is locked even where discord is absent — the behavioral test liv
 in tests/domain/chat/test_discord_bot.py under ``importorskip('discord')``.
 """
 
+import re
 from pathlib import Path
 
 _DISCORD_BOT = (
@@ -45,9 +46,13 @@ def test_discord_dependency_is_declared():
     """
     req = _REPO_ROOT / "requirements-discord.txt"
     assert req.exists(), "requirements-discord.txt is missing"
-    text = req.read_text(encoding="utf-8")
-    assert "discord.py" in text, "requirements-discord.txt must pin discord.py"
-    # Keep it OUT of core requirements.txt (optional integration, not core).
+    lines = [ln.strip() for ln in req.read_text(encoding="utf-8").splitlines()]
+    # A real requirement line pinning discord.py (not merely a comment mention).
+    assert any(re.match(r"^discord\.py\s*[<>=~!]", ln) for ln in lines), \
+        "requirements-discord.txt must pin discord.py as a requirement"
+    # Self-contained: pulls core deps so the bot is runnable from this file alone.
+    assert "-r requirements.txt" in lines
+    # Keep discord.py OUT of core requirements.txt (optional integration, not core).
     core = (_REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
     assert "discord.py" not in core
     # CLAUDE.md must point contributors at the optional file.
