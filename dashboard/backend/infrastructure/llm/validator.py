@@ -42,6 +42,13 @@ class TradingAction(str, Enum):
     HOLD = "hold"
 
 
+# Hard per-order share ceiling enforced by ``LLMTradingDecision``. Exposed as a
+# module constant so upstream layers (e.g. the protocol Run service) can reject
+# an over-size order per-order *before* it reaches this all-or-nothing batch
+# validator, instead of letting it void an entire multi-order decision.
+MAX_ORDER_SHARES = 10000
+
+
 class LLMTradingDecision(BaseModel):
     """
     Strict schema for LLM trading responses.
@@ -97,8 +104,8 @@ class LLMTradingDecision(BaseModel):
             raise ValueError(f"Position size must be integer, got {type(v)}")
         if v < 0:
             raise ValueError(f"Position size cannot be negative: {v}")
-        if v > 10000:  # Reasonable max: no single position > 10k shares
-            raise ValueError(f"Position size too large: {v} > 10000")
+        if v > MAX_ORDER_SHARES:  # Reasonable max: no single position > 10k shares
+            raise ValueError(f"Position size too large: {v} > {MAX_ORDER_SHARES}")
         return v
     
     @field_validator('stop_loss_price', mode='before')

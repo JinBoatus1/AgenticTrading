@@ -282,7 +282,14 @@ def test_reject_invalid_symbol(client):
     assert body["fills"] == []
 
 
-def test_reject_insufficient_cash(client):
+def test_reject_oversized_order_position_cap(client):
+    """A single BUY that would exceed max_position_weight (0.25 of equity) is
+    rejected on its own and produces no fill.
+
+    With $100k equity the per-position cap ($25k) binds before cash ($100k), so
+    an over-cap order is rejected as ``exceeds_max_position_weight`` (H2/H3
+    constraint enforcement) rather than reaching the engine at all.
+    """
     agent_id, key, _ = _new_agent(client)
     version_id = _new_version(client, agent_id, key)
     run_id = _create_run(client, key, version_id)
@@ -299,8 +306,221 @@ def test_reject_insufficient_cash(client):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     rejections = body["validation"]["rejections"]
-    assert any(r["reason"] == "insufficient_cash" for r in rejections)
+    assert any(r["reason"] == "exceeds_max_position_weight" for r in rejections)
     assert body["fills"] == []
+
+
+def test_reject_symbol_outside_allowed_list(client):
+    """H2: symbols are validated against the run's constraint allow-list, not the
+    whole DJIA-30 universe. JPM is a real DJIA-30 member but is not in this run's
+    config.symbols (AAPL/MSFT), so it must be rejected as ``invalid_symbol``.
+    """
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+    step = _wait_for_step(client, run_id, key)
+
+    resp = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step['step_id']}/decision",
+        json={
+            "idempotency_key": str(uuid.uuid4()),
+            "orders": [{"symbol": "JPM", "side": "buy", "quantity": 5}],
+        },
+        headers={"X-API-Key": key},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    rejections = body["validation"]["rejections"]
+    assert any(r["reason"] == "invalid_symbol" for r in rejections)
+    assert body["fills"] == []
+
+
+def test_reject_too_many_orders(client):
+    """H2: a decision with more orders than max_orders (10) is rejected wholesale
+    with 400 too_many_orders; the step stays open for a corrected resubmission.
+    """
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+    step = _wait_for_step(client, run_id, key)
+
+    orders = [{"symbol": "AAPL", "side": "buy", "quantity": 1} for _ in range(11)]
+    resp = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step['step_id']}/decision",
+        json={"idempotency_key": str(uuid.uuid4()), "orders": orders},
+        headers={"X-API-Key": key},
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["error"]["code"] == "too_many_orders"
+
+
+def test_oversized_order_does_not_void_valid_orders(client):
+    """H3: one over-cap order is rejected on its own; the other valid order in
+    the same decision still executes (previously the batch could be voided).
+    """
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+    step = _wait_for_step(client, run_id, key)
+
+    resp = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step['step_id']}/decision",
+        json={
+            "idempotency_key": str(uuid.uuid4()),
+            "orders": [
+                {"symbol": "AAPL", "side": "buy", "quantity": 400},  # ~$40k > $25k cap
+                {"symbol": "MSFT", "side": "buy", "quantity": 5},    # ~$1k, well within cap
+            ],
+        },
+        headers={"X-API-Key": key},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    filled_symbols = {f["symbol"] for f in body["fills"]}
+    assert filled_symbols == {"MSFT"}, body
+    assert any(
+        r["reason"] == "exceeds_max_position_weight" and r["order"]["symbol"] == "AAPL"
+        for r in body["validation"]["rejections"]
+    )
+
+
+def test_reject_nonfinite_quantity(client):
+    """H3: a NaN/Infinity or absurd quantity is rejected at the schema boundary
+    (422) instead of overflowing int() with a 500.
+    """
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+    step = _wait_for_step(client, run_id, key)
+
+    # Over the finite upper bound (lt=1e12).
+    over = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step['step_id']}/decision",
+        json={
+            "idempotency_key": str(uuid.uuid4()),
+            "orders": [{"symbol": "AAPL", "side": "buy", "quantity": 1e13}],
+        },
+        headers={"X-API-Key": key},
+    )
+    assert over.status_code == 422, over.text
+
+    # Infinity: previously reached int(inf) -> OverflowError -> 500. The client
+    # JSON encoder refuses to emit `inf`, so post the raw `Infinity` token the
+    # way a hand-rolled agent might; the server's json.loads accepts it and
+    # Pydantic (allow_inf_nan=False) must reject it as 422, not 500.
+    raw = (
+        '{"idempotency_key": "%s", '
+        '"orders": [{"symbol": "AAPL", "side": "buy", "quantity": Infinity}]}'
+        % uuid.uuid4()
+    )
+    inf = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step['step_id']}/decision",
+        content=raw,
+        headers={"X-API-Key": key, "Content-Type": "application/json"},
+    )
+    assert inf.status_code == 422, inf.text
+
+
+def test_reject_nondefault_initial_cash(client):
+    """H2: create_run rejects a non-default config.initial_cash rather than
+    silently ignoring it (the engine's starting capital is fixed).
+    """
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+
+    resp = client.post(
+        "/api/v1/runs",
+        json={
+            "agent_version_id": version_id,
+            "environment": {"type": "backtest", "environment_id": "us-equity-hourly-v1"},
+            "config": {
+                "start_date": "2026-04-15",
+                "end_date": "2026-04-16",
+                "symbols": ["AAPL", "MSFT"],
+                "initial_cash": 50000,
+            },
+        },
+        headers={"X-API-Key": key},
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["error"]["code"] == "invalid_config"
+
+
+def test_position_cap_accounts_for_intra_decision_accumulation(client):
+    """H3 refinement: multiple BUYs of the same symbol in one decision are
+    capped by their COMBINED resulting position, not each in isolation. Two
+    AAPL buys of 200 (~$20k each) individually fit the $25k cap, but together
+    ($40k) breach it, so the second must be rejected — otherwise order-splitting
+    silently bypasses max_position_weight.
+    """
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+    step = _wait_for_step(client, run_id, key)
+
+    resp = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step['step_id']}/decision",
+        json={
+            "idempotency_key": str(uuid.uuid4()),
+            "orders": [
+                {"symbol": "AAPL", "side": "buy", "quantity": 200},
+                {"symbol": "AAPL", "side": "buy", "quantity": 200},
+            ],
+        },
+        headers={"X-API-Key": key},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # Only the first 200 shares fill; the accumulated 400 would breach the cap.
+    total_filled = sum(f["filled_quantity"] for f in body["fills"] if f["symbol"] == "AAPL")
+    assert total_filled == 200, body
+    assert any(
+        r["reason"] == "exceeds_max_position_weight" for r in body["validation"]["rejections"]
+    ), body
+    # Resulting AAPL position stays within the 25% cap ($25k of $100k equity).
+    aapl = [p for p in body["portfolio_after"]["positions"] if p["symbol"] == "AAPL"]
+    assert aapl and aapl[0]["market_value"] <= 25000, body
+
+
+def test_engine_share_cap_does_not_void_valid_orders(client, monkeypatch):
+    """H3 refinement: an order above the engine's hard 10k-share ceiling is
+    rejected per-order (exceeds_max_order_size) instead of tripping the engine's
+    all-or-nothing batch validator and voiding valid siblings.
+
+    The per-position weight cap normally binds long before 10k shares, so lift
+    it for this run to isolate the engine ceiling.
+    """
+    import dashboard.backend.domain.runs.environment as env_module
+
+    monkeypatch.setitem(
+        env_module.ENVIRONMENTS["us-equity-hourly-v1"]["constraints"],
+        "max_position_weight",
+        100.0,
+    )
+
+    agent_id, key, _ = _new_agent(client)
+    version_id = _new_version(client, agent_id, key)
+    run_id = _create_run(client, key, version_id)
+    step = _wait_for_step(client, run_id, key)
+
+    resp = client.post(
+        f"/api/v1/runs/{run_id}/steps/{step['step_id']}/decision",
+        json={
+            "idempotency_key": str(uuid.uuid4()),
+            "orders": [
+                {"symbol": "AAPL", "side": "buy", "quantity": 11000},  # > 10k ceiling
+                {"symbol": "MSFT", "side": "buy", "quantity": 5},       # valid sibling
+            ],
+        },
+        headers={"X-API-Key": key},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert {f["symbol"] for f in body["fills"]} == {"MSFT"}, body
+    assert any(
+        r["reason"] == "exceeds_max_order_size" and r["order"]["symbol"] == "AAPL"
+        for r in body["validation"]["rejections"]
+    ), body
 
 
 def test_idempotent_duplicate_submission(client):

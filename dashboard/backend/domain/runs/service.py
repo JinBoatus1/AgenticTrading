@@ -19,14 +19,16 @@ repository).
 
 from __future__ import annotations
 
+import math
 import threading
 import uuid
 from typing import Any, Dict, List, Optional
 
 import dashboard.backend.domain.backtesting.external_run_service as ebs
 from dashboard.backend.database import db
+from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
 from dashboard.backend.domain.runs.environment import get_environment
-from dashboard.backend.infrastructure.llm.validator import DJIA_30
+from dashboard.backend.infrastructure.llm.validator import DJIA_30, MAX_ORDER_SHARES
 from dashboard.backend.domain.runs.protocol import (
     PROTOCOL_VERSION,
     VALID_SIDES,
@@ -103,7 +105,15 @@ class ProtocolRun:
 
     def constraints(self) -> Dict[str, Any]:
         env_constraints = self.environment.get("constraints", {})
-        symbols = self.config.get("symbols") or self.environment.get("universe")
+        # Always resolve to a concrete allow-list so enforcement in
+        # ``submit_decision`` has something to check against (fall back to the
+        # full DJIA-30 universe when neither the run config nor the environment
+        # narrows it).
+        symbols = (
+            self.config.get("symbols")
+            or self.environment.get("universe")
+            or list(DJIA_30)
+        )
         return {
             "allowed_symbols": symbols,
             "allow_short": bool(env_constraints.get("allow_short", False)),
@@ -186,6 +196,26 @@ def create_run(
                 f"Symbols not in environment universe: {invalid}",
                 400,
                 details={"invalid_symbols": invalid},
+            )
+
+    # The engine hardcodes the starting capital; rather than silently ignore a
+    # requested override, reject a non-default value explicitly so the agent/SDK
+    # knows it was not honored. (The SDK sends the default 100000, which passes.)
+    initial_cash = config.get("initial_cash")
+    if initial_cash is not None:
+        try:
+            requested = float(initial_cash)
+        except (TypeError, ValueError):
+            raise ProtocolError(
+                "invalid_config", "config.initial_cash must be a number", 400
+            )
+        if requested != float(INITIAL_CAPITAL):
+            raise ProtocolError(
+                "invalid_config",
+                f"config.initial_cash is fixed at {INITIAL_CAPITAL} in this "
+                "environment; custom values are not yet supported",
+                400,
+                details={"initial_cash": INITIAL_CAPITAL},
             )
 
     mode = config.get("mode", "safe_trading")
@@ -366,9 +396,34 @@ def submit_decision(run_id: str, step_id: str, decision: DecisionIn) -> Dict[str
         cash_before = float(session.manager.cash)
         positions_before = dict(session.manager.positions)
 
+        # Enforce the constraints the environment advertises (previously
+        # returned to the agent but never checked). ``allowed_symbols`` is a
+        # concrete allow-list; ``max_orders`` is a decision-level cap;
+        # ``max_position_weight`` is enforced per order below.
+        constraints = run.constraints()
+        allowed_symbols = set(constraints.get("allowed_symbols") or DJIA_30)
+        max_orders = _coerce_nonneg_int(constraints.get("max_orders"))
+        max_position_weight = _coerce_positive_float(constraints.get("max_position_weight"))
+
+        # A decision that exceeds ``max_orders`` violates the advertised
+        # contract; reject the whole decision rather than silently truncating.
+        # This raises before any order is finalized, so the step stays open for
+        # a corrected resubmission (new idempotency_key).
+        if max_orders is not None and len(decision.orders) > max_orders:
+            raise ProtocolError(
+                "too_many_orders",
+                f"Decision has {len(decision.orders)} orders; max_orders is {max_orders}",
+                400,
+                details={"max_orders": max_orders, "submitted": len(decision.orders)},
+            )
+
         accepted_actions: List[Dict[str, Any]] = []
         rejections: List[Dict[str, Any]] = []
         confidence = decision.confidence if decision.confidence is not None else 0.75
+        # Buy shares provisionally accepted earlier in THIS decision, per symbol,
+        # so the position cap accounts for intra-decision accumulation (several
+        # buys of the same symbol) rather than judging each order in isolation.
+        pending_buy_shares: Dict[str, int] = {}
 
         for order in decision.orders:
             side = order.side.lower()
@@ -376,11 +431,12 @@ def submit_decision(run_id: str, step_id: str, decision: DecisionIn) -> Dict[str
             if side not in VALID_SIDES:
                 rejections.append({"order": order_repr, "reason": "invalid_side"})
                 continue
-            if order.symbol not in DJIA_30:
+            if order.symbol not in allowed_symbols:
                 rejections.append({"order": order_repr, "reason": "invalid_symbol"})
                 continue
+            price = prices.get(order.symbol, 0)
             shares, qerr = resolve_order_quantity(
-                order, price=prices.get(order.symbol, 0), equity=equity_before
+                order, price=price, equity=equity_before
             )
             if qerr:
                 rejections.append({"order": order_repr, "reason": qerr})
@@ -388,6 +444,32 @@ def submit_decision(run_id: str, step_id: str, decision: DecisionIn) -> Dict[str
             if shares <= 0:
                 rejections.append({"order": order_repr, "reason": "zero_quantity"})
                 continue
+            # Reject an over-cap order on its own (H2/H3): pre-filtering here
+            # keeps a single oversized order from voiding the whole decision —
+            # the remaining valid orders still reach the engine and execute.
+            # ``existing_shares`` folds in what's already held AND what earlier
+            # orders in this same decision provisionally bought.
+            held = (positions_before.get(order.symbol, 0) or 0) + pending_buy_shares.get(order.symbol, 0)
+            cap_reason = _exceeds_position_cap(
+                side,
+                order.symbol,
+                shares,
+                price,
+                equity=equity_before,
+                existing_shares=held,
+                max_position_weight=max_position_weight,
+            )
+            if cap_reason:
+                rejections.append({"order": order_repr, "reason": cap_reason})
+                continue
+            # A single order above the engine's hard per-order share ceiling
+            # would fail its all-or-nothing batch validator and void the WHOLE
+            # decision. Reject it per-order here so valid siblings still execute.
+            if shares > MAX_ORDER_SHARES:
+                rejections.append({"order": order_repr, "reason": "exceeds_max_order_size"})
+                continue
+            if side == "buy":
+                pending_buy_shares[order.symbol] = pending_buy_shares.get(order.symbol, 0) + shares
             accepted_actions.append(
                 order_to_action(
                     order, shares=shares, confidence=confidence, rationale=decision.rationale
@@ -627,6 +709,60 @@ def _normalize_live_trades(trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]
             "reason": t.get("reason"),
         })
     return out
+
+
+def _coerce_positive_float(value: Any) -> Optional[float]:
+    """Return ``value`` as a finite positive float, or None if it isn't one.
+
+    Constraint values come from a data-driven registry (and one day external
+    config), so tolerate strings/None/garbage instead of crashing on a bad type.
+    """
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(f) or f <= 0:
+        return None
+    return f
+
+
+def _coerce_nonneg_int(value: Any) -> Optional[int]:
+    """Return ``value`` as a non-negative int, or None if it can't be one."""
+    try:
+        i = int(value)
+    except (TypeError, ValueError):
+        return None
+    return i if i >= 0 else None
+
+
+def _exceeds_position_cap(
+    side: str,
+    symbol: str,
+    shares: int,
+    price: float,
+    *,
+    equity: float,
+    existing_shares: int,
+    max_position_weight: Optional[float],
+) -> Optional[str]:
+    """Return a rejection reason if a BUY would push the position past the cap.
+
+    ``max_position_weight`` is a fraction of total equity that any single
+    position may occupy (already coerced to a finite positive float or None).
+    Sells reduce exposure and are never capped here. The resulting position is
+    valued at the current price and includes ``existing_shares`` (held plus
+    already-accepted-this-decision).
+    """
+    if side != "buy":
+        return None
+    if not max_position_weight:
+        return None
+    if equity <= 0 or price <= 0:
+        return None
+    resulting_notional = (existing_shares + shares) * price
+    if resulting_notional > max_position_weight * equity:
+        return "exceeds_max_position_weight"
+    return None
 
 
 def _infer_rejection(action, cash_before, prices, positions_before) -> str:

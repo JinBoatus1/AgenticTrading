@@ -53,7 +53,11 @@ class OrderIn(BaseModel):
     symbol: str
     side: str = Field(description="buy or sell")
     quantity_type: str = Field(default="shares")
-    quantity: float = Field(ge=0)
+    # Bounded + finite: reject NaN/Infinity (which otherwise reach
+    # ``resolve_order_quantity`` and blow up ``int(inf)`` with a 500) and cap
+    # absurd magnitudes at the schema boundary so a single order can never
+    # overflow the engine's integer share math.
+    quantity: float = Field(ge=0, lt=1e12, allow_inf_nan=False)
     order_type: str = Field(default="market")
 
 
