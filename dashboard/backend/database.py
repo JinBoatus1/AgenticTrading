@@ -133,6 +133,7 @@ class BacktestDatabase:
                 decision_source TEXT NOT NULL,
                 actions_submitted TEXT,
                 actions_executed INTEGER DEFAULT 0,
+                context_ref TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
             )
@@ -142,7 +143,28 @@ class BacktestDatabase:
             CREATE INDEX IF NOT EXISTS idx_decisions_run
             ON backtest_decisions(run_id, step_index)
         """)
-        
+
+        # idempotency_keys: replay-safe decision submissions (v2)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS idempotency_keys (
+                run_id TEXT NOT NULL,
+                step_index INTEGER NOT NULL,
+                idem_key TEXT NOT NULL,
+                ack_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (run_id, idem_key)
+            )
+        """)
+
+        # run_manifest: reproducibility manifest per v2 run (written at creation)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS run_manifest (
+                run_id TEXT PRIMARY KEY,
+                manifest_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         conn.commit()
         conn.close()
     
@@ -226,6 +248,32 @@ class BacktestDatabase:
             if 'session_id' in columns and 'llm_model' in columns:
                 print("✅ Schema up-to-date (session_id, llm_model exist)")
 
+            cursor.execute("PRAGMA table_info(backtest_decisions)")
+            dec_cols = {row[1] for row in cursor.fetchall()}
+            if dec_cols and "context_ref" not in dec_cols:
+                print("🔄 Migrating: Adding context_ref to backtest_decisions...")
+                cursor.execute("ALTER TABLE backtest_decisions ADD COLUMN context_ref TEXT")
+                conn.commit()
+                print("✅ Added context_ref to backtest_decisions")
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS idempotency_keys (
+                    run_id TEXT NOT NULL,
+                    step_index INTEGER NOT NULL,
+                    idem_key TEXT NOT NULL,
+                    ack_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (run_id, idem_key)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS run_manifest (
+                    run_id TEXT PRIMARY KEY,
+                    manifest_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             self._ensure_decisions_table(cursor)
             self._migrate_trades_schema(cursor)
             conn.commit()
@@ -287,6 +335,7 @@ class BacktestDatabase:
                 decision_source TEXT NOT NULL,
                 actions_submitted TEXT,
                 actions_executed INTEGER DEFAULT 0,
+                context_ref TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (run_id) REFERENCES agent_runs(run_id)
             )
@@ -582,8 +631,8 @@ class BacktestDatabase:
         for entry in decisions:
             cursor.execute("""
                 INSERT INTO backtest_decisions
-                (run_id, step_index, timestamp, decision_source, actions_submitted, actions_executed)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (run_id, step_index, timestamp, decision_source, actions_submitted, actions_executed, context_ref)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
                 run_id,
                 entry.get("step_index", 0),
@@ -591,6 +640,7 @@ class BacktestDatabase:
                 entry.get("decision_source"),
                 json.dumps(entry.get("actions_submitted") or []),
                 entry.get("actions_executed", 0),
+                entry.get("context_ref"),
             ))
         conn.commit()
         conn.close()
@@ -620,7 +670,8 @@ class BacktestDatabase:
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT step_index, timestamp, decision_source, actions_submitted, actions_executed
+            SELECT step_index, timestamp, decision_source, actions_submitted,
+                   actions_executed, context_ref
             FROM backtest_decisions WHERE run_id = ?
             ORDER BY step_index ASC
         """, (run_id,))
@@ -635,6 +686,62 @@ class BacktestDatabase:
                 item["actions_submitted"] = []
             result.append(item)
         return result
+
+    def put_idempotency(self, run_id: str, step_index: int,
+                        idem_key: str, ack: Dict[str, Any]) -> None:
+        """Store the ack for an idempotency key. INSERT OR IGNORE keeps the first write."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR IGNORE INTO idempotency_keys
+            (run_id, step_index, idem_key, ack_json)
+            VALUES (?, ?, ?, ?)
+        """, (run_id, step_index, idem_key, json.dumps(ack)))
+        conn.commit()
+        conn.close()
+
+    def get_idempotency(self, run_id: str, step_index: int,
+                        idem_key: str) -> Optional[Dict[str, Any]]:
+        """Look up a stored ack by (run_id, idem_key).
+
+        The key scope is (run_id, idem_key), NOT the step. This realizes the spec
+        §5.2 *intent* — the idempotency_key enables "safe retries past the
+        step_already_closed race" — which per-step keying cannot provide: this
+        engine advances the step synchronously inside submit_decisions, so a retry
+        arriving after the advance would look up a later step and miss the record,
+        re-executing the decision. (The spec's §5.2 mechanism wording lists
+        step_index in the key; that contradicts its own stated intent for a
+        synchronous-advance engine.) step_index is accepted for call symmetry with
+        put_idempotency, where it is stored as audit metadata, but is not part of
+        the lookup key.
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT ack_json FROM idempotency_keys
+            WHERE run_id = ? AND idem_key = ?
+        """, (run_id, idem_key))
+        row = cursor.fetchone()
+        conn.close()
+        return json.loads(row["ack_json"]) if row else None
+
+    def insert_run_manifest(self, run_id: str, manifest: Dict[str, Any]) -> None:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO run_manifest (run_id, manifest_json)
+            VALUES (?, ?)
+        """, (run_id, json.dumps(manifest)))
+        conn.commit()
+        conn.close()
+
+    def get_run_manifest(self, run_id: str) -> Optional[Dict[str, Any]]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT manifest_json FROM run_manifest WHERE run_id = ?", (run_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return json.loads(row["manifest_json"]) if row else None
     
     def delete_run(self, run_id: str) -> None:
         """Delete a run and all its data."""

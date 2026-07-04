@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional
 
 from dashboard.backend.database import DB_PATH
 
+DEFAULT_SCOPES = "agents:register,runs:write,context:read,decisions:write,runs:read"
+
 
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -33,6 +35,7 @@ def _new_api_key() -> str:
 
 def _public_agent(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
     data = dict(row)
+    raw_scopes = data.get("scopes") or DEFAULT_SCOPES
     return {
         "agent_id": data["agent_id"],
         "name": data["name"],
@@ -42,6 +45,7 @@ def _public_agent(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
         "description": data.get("description"),
         "api_key_prefix": data.get("api_key_prefix") or "",
         "owner_user_id": data.get("owner_user_id"),
+        "scopes": [s for s in str(raw_scopes).split(",") if s],
         "created_at": data.get("created_at"),
         "last_used_at": data.get("last_used_at"),
     }
@@ -72,6 +76,7 @@ class AgentStore:
                 api_key_hash TEXT NOT NULL UNIQUE,
                 api_key_prefix TEXT NOT NULL,
                 model_name TEXT NOT NULL DEFAULT 'local-model',
+                scopes TEXT NOT NULL DEFAULT 'agents:register,runs:write,context:read,decisions:write,runs:read',
                 owner_user_id INTEGER,
                 owner_browser_session TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -105,6 +110,11 @@ class AgentStore:
         if "description" not in existing_columns:
             cursor.execute(
                 "ALTER TABLE external_agents ADD COLUMN description TEXT"
+            )
+        if "scopes" not in existing_columns:
+            cursor.execute(
+                "ALTER TABLE external_agents ADD COLUMN scopes TEXT "
+                f"NOT NULL DEFAULT '{DEFAULT_SCOPES}'"
             )
         cursor.execute(
             """

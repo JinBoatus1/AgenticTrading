@@ -7,13 +7,10 @@ configures middleware, registers routers, wires startup hooks, and serves the
 frontend. Backend API route bodies live in ``dashboard.backend.api.routers.*``.
 """
 
-import math
-
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pathlib import Path
 
 from dashboard.backend.database import db, DB_PATH
@@ -26,6 +23,7 @@ from dashboard.backend.api.routers.backtests import router as backtests_router
 from dashboard.backend.api.routers.config import router as config_router
 from dashboard.backend.api.routers.market import router as market_router
 from dashboard.backend.api.routers.admin import router as admin_router
+from dashboard.backend.api.v2.errors import ApiError, api_error_handler, validation_error_handler
 from dashboard.backend.domain.backtesting.baselines.paper import create_paper_baselines_if_not_exists
 
 # Load .env from project root (ANTHROPIC_API_KEY, ALPACA_*)
@@ -44,35 +42,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
-
-def _sanitize_nonfinite(obj):
-    """Recursively replace non-finite floats (inf/-inf/nan) with their string
-    form so a payload can always be JSON-serialized."""
-    if isinstance(obj, float):
-        return obj if math.isfinite(obj) else str(obj)
-    if isinstance(obj, dict):
-        return {k: _sanitize_nonfinite(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_sanitize_nonfinite(v) for v in obj]
-    return obj
-
-
-@app.exception_handler(RequestValidationError)
-async def _validation_exception_handler(request, exc: RequestValidationError):
-    """Return the standard 422 for request-validation failures.
-
-    FastAPI's default handler echoes the offending input back in the error
-    body. When that input is a non-finite float (e.g. a hand-rolled agent sends
-    the ``Infinity`` JSON token, which Python's lenient parser accepts), the
-    default ``JSONResponse`` serializer (``json.dumps(allow_nan=False)``) blows
-    up and the client gets a confusing 500. Sanitizing non-finite values keeps
-    the response a clean 422 while preserving the default error shape.
-    """
-    return JSONResponse(
-        status_code=422,
-        content={"detail": _sanitize_nonfinite(jsonable_encoder(exc.errors()))},
-    )
-
+# Uniform error envelope for the typed /api/v2 surface (spec §5.4). The same
+# handler keeps legacy routes on FastAPI's default {"detail": ...} shape; both
+# branches sanitize non-finite floats so an ``Infinity`` payload stays a 422.
+app.add_exception_handler(ApiError, api_error_handler)
+app.add_exception_handler(RequestValidationError, validation_error_handler)
 
 # Enable CORS for frontend
 app.add_middleware(

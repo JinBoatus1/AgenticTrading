@@ -10,6 +10,7 @@ from dashboard.backend.api.health import router as health_router
 from dashboard.backend.api.routers.leaderboard import router as leaderboard_router
 from dashboard.backend.api.routers.runs import router as runs_router
 from dashboard.backend.api.routers.strategies import router as strategies_router
+from dashboard.backend.api.v2.router import v2_router
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health_router)
@@ -22,3 +23,4 @@ api_router.include_router(runs_router)
 api_router.include_router(environments_router)
 api_router.include_router(leaderboard_router)
 api_router.include_router(strategies_router)
+api_router.include_router(v2_router)

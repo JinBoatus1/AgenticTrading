@@ -85,6 +85,7 @@ class ExternalBacktestSession:
         end_date: str,
         mode: str = "safe_trading",
         symbols: Optional[List[str]] = None,
+        run_id: Optional[str] = None,
     ):
         self.backtest_id = backtest_id
         self.session_id = session_id
@@ -103,8 +104,11 @@ class ExternalBacktestSession:
         self.error: Optional[str] = None
         self.step_index = 0
         self.total_steps = 0
-        self.run_id: Optional[str] = None
+        self.run_id: Optional[str] = run_id
         self.baseline_run_ids: Dict[str, str] = {}
+        # v2 backends record the hash of the exact context served per step here;
+        # threaded into the decision log so each decision traces to its context.
+        self.context_ref_by_step: Dict[int, str] = {}
 
         self.manager = PortfolioManager(initial_capital=INITIAL_CAPITAL)
         self.all_data: Dict[str, pd.DataFrame] = {}
@@ -352,6 +356,16 @@ class ExternalBacktestSession:
                     "session_id": self.session_id,
                 }
 
+            if self.status == "closed":
+                return {
+                    "status": "closed",
+                    "backtest_id": self.backtest_id,
+                    "run_id": self.run_id,
+                    "step_index": self.step_index,
+                    "total_steps": self.total_steps,
+                    "session_id": self.session_id,
+                }
+
             timestamp = self.timestamps[self.step_index]
             market_data = self._market_data_at(timestamp)
             state = self.manager.get_portfolio_state(
@@ -477,6 +491,7 @@ class ExternalBacktestSession:
             "decision_source": decision_source,
             "actions_submitted": raw_actions or [],
             "actions_executed": len(executable),
+            "context_ref": self.context_ref_by_step.get(self.step_index),
         })
         self.last_decision_source = decision_source
 
@@ -493,7 +508,10 @@ class ExternalBacktestSession:
             if hasattr(entry["timestamp"], "isoformat"):
                 entry["timestamp"] = entry["timestamp"].isoformat()
 
-        self.run_id = _new_ext_run_id()
+        # v2 backends pre-assign a canonical run_id at creation; only the
+        # legacy flow (no pre-set id) mints the collision-safe ext_ id here.
+        if not self.run_id:
+            self.run_id = _new_ext_run_id()
         initial_eq = equity_curve[0]["equity"] if equity_curve else INITIAL_CAPITAL
         final_eq = equity_curve[-1]["equity"] if equity_curve else INITIAL_CAPITAL
         total_return = (final_eq - INITIAL_CAPITAL) / INITIAL_CAPITAL
