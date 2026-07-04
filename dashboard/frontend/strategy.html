@@ -83,11 +83,11 @@
       <div class="row">
         <div class="field">
           <label for="start">Start date</label>
-          <input type="date" id="start" value="2026-05-01" />
+          <input type="date" id="start" />
         </div>
         <div class="field">
           <label for="end">End date</label>
-          <input type="date" id="end" value="2026-05-07" />
+          <input type="date" id="end" />
         </div>
         <button id="runBtn" disabled>Run backtest</button>
       </div>
@@ -99,7 +99,12 @@
   <script>
     const params = new URLSearchParams(location.search);
     const code = params.get("code");
-    const API = location.origin;
+    // Match app.js: same-origin locally, hosted backend on Vercel (where the
+    // static frontend and the API live on different origins, so location.origin
+    // would point at the frontend and every API call would 404).
+    const API = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+        ? window.location.origin
+        : "https://agentictrading.onrender.com";
 
     const $ = (id) => document.getElementById(id);
     const metaEl = $("meta");
@@ -199,7 +204,18 @@
       `;
     }
 
+    function initDateDefaults() {
+      // Default to the past 7 days (client clock); the user can still edit.
+      const end = new Date();
+      const start = new Date(end);
+      start.setDate(start.getDate() - 7);
+      const iso = (d) => d.toISOString().slice(0, 10);
+      $("start").value = iso(start);
+      $("end").value = iso(end);
+    }
+
     runBtn.addEventListener("click", runBacktest);
+    initDateDefaults();
     load();
   </script>
 </body>
