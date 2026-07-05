@@ -32,6 +32,10 @@ class MarketDataUnavailableError(RuntimeError):
     """
 
 
+class AlpacaCredentialsError(MarketDataUnavailableError):
+    """Raised when Alpaca API credentials are not configured."""
+
+
 class AlpacaDataLoader:
     """Fetches historical hourly bars from Alpaca API."""
 
@@ -77,7 +81,7 @@ class AlpacaDataLoader:
         if not creds_path.exists():
             print(f"❌ Credentials not found in environment variables or file: {creds_path}")
             print("   Set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables")
-            raise MarketDataUnavailableError(
+            raise AlpacaCredentialsError(
                 "Alpaca credentials not found (set ALPACA_API_KEY and "
                 f"ALPACA_SECRET_KEY, or provide {creds_path})"
             )
@@ -98,6 +102,10 @@ class AlpacaDataLoader:
         Returns:
             {symbol: DataFrame with timestamp, open, high, low, close, volume}
         """
+        if not self.client:
+            print("⚠️ Alpaca not configured — skipping bar fetch")
+            return {}
+
         print(f"\n📊 Fetching {len(symbols)} symbols from {start} to {end}...")
         print(f"   Timeframe: Hourly (1h) with forward-filled price cache\n")
 
