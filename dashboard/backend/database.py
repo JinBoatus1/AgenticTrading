@@ -80,6 +80,7 @@ class BacktestDatabase:
                 input_tokens INTEGER DEFAULT 0,
                 output_tokens INTEGER DEFAULT 0,
                 est_cost_usd REAL DEFAULT 0,
+                metadata TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -249,12 +250,15 @@ class BacktestDatabase:
                 conn.commit()
                 print("✅ Added baseline_buyhold_run_id to agent_runs")
 
-            # Token usage / cost tracking columns
+            # Token usage / cost tracking columns + the JSON config snapshot
+            # (metadata records env-dependent knobs like the effective
+            # LLM_MAX_OUTPUT_TOKENS that shaped the run).
             token_columns = [
                 ("llm_calls", "INTEGER DEFAULT 0"),
                 ("input_tokens", "INTEGER DEFAULT 0"),
                 ("output_tokens", "INTEGER DEFAULT 0"),
                 ("est_cost_usd", "REAL DEFAULT 0"),
+                ("metadata", "TEXT"),
             ]
             for col_name, col_def in token_columns:
                 if col_name not in columns:
@@ -381,23 +385,28 @@ class BacktestDatabase:
                    llm_calls: int = 0,
                    input_tokens: int = 0,
                    output_tokens: int = 0,
-                   est_cost_usd: float = 0.0) -> None:
-        """Insert a new backtest run with session_id, LLM model and token-cost tracking."""
+                   est_cost_usd: float = 0.0,
+                   metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Insert a new backtest run with session_id, LLM model and token-cost tracking.
+
+        ``metadata`` is an optional JSON config snapshot (e.g. the effective
+        LLM_MAX_OUTPUT_TOKENS in force during the run)."""
         conn = self._get_connection()
         cursor = conn.cursor()
-        
+
         cursor.execute("""
-            INSERT OR REPLACE INTO agent_runs 
-            (run_id, session_id, agent_name, mode, start_date, end_date, 
-             initial_equity, final_equity, total_return, sharpe_ratio, 
+            INSERT OR REPLACE INTO agent_runs
+            (run_id, session_id, agent_name, mode, start_date, end_date,
+             initial_equity, final_equity, total_return, sharpe_ratio,
              max_drawdown, num_trades, llm_model,
-             llm_calls, input_tokens, output_tokens, est_cost_usd)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             llm_calls, input_tokens, output_tokens, est_cost_usd, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (run_id, session_id, agent_name, mode, start_date, end_date,
               initial_equity, final_equity, total_return, sharpe_ratio,
               max_drawdown, num_trades, llm_model,
-              llm_calls, input_tokens, output_tokens, est_cost_usd))
-        
+              llm_calls, input_tokens, output_tokens, est_cost_usd,
+              json.dumps(metadata) if metadata is not None else None))
+
         conn.commit()
         conn.close()
 
@@ -467,6 +476,18 @@ class BacktestDatabase:
         conn.commit()
         conn.close()
     
+    @staticmethod
+    def _parse_run_row(run: Dict) -> Dict:
+        """Decode the JSON metadata column (SELECT * returns raw text) so
+        every agent_runs reader hands out the same parsed shape."""
+        raw = run.get("metadata")
+        if raw is not None:
+            try:
+                run["metadata"] = json.loads(raw)
+            except (TypeError, ValueError):
+                run["metadata"] = None
+        return run
+
     def get_all_runs(self) -> List[Dict]:
         """Get metadata for all runs."""
         conn = self._get_connection()
@@ -476,7 +497,7 @@ class BacktestDatabase:
         rows = cursor.fetchall()
         conn.close()
         
-        return [dict(row) for row in rows]
+        return [self._parse_run_row(dict(row)) for row in rows]
     
     def get_runs_by_session(self, session_id: str) -> List[Dict]:
         """Get all runs for a specific session."""
@@ -492,7 +513,7 @@ class BacktestDatabase:
         rows = cursor.fetchall()
         conn.close()
 
-        return [dict(row) for row in rows]
+        return [self._parse_run_row(dict(row)) for row in rows]
 
     def get_runs_by_sessions(self, session_ids: List[str]) -> Dict[str, List[Dict]]:
         """Get all runs for several sessions in one query, grouped by session.
@@ -519,7 +540,7 @@ class BacktestDatabase:
         conn.close()
 
         for row in rows:
-            run = dict(row)
+            run = self._parse_run_row(dict(row))
             grouped[run["session_id"]].append(run)
         return grouped
     
@@ -532,7 +553,7 @@ class BacktestDatabase:
         row = cursor.fetchone()
         conn.close()
         
-        return dict(row) if row else None
+        return self._parse_run_row(dict(row)) if row else None
     
     def get_run_with_session(self, run_id: str, session_id: str) -> Optional[Dict]:
         """Get a run, verifying it belongs to the session."""
@@ -546,7 +567,7 @@ class BacktestDatabase:
         row = cursor.fetchone()
         conn.close()
         
-        return dict(row) if row else None
+        return self._parse_run_row(dict(row)) if row else None
     
     def get_equity_curve(self, run_id: str) -> List[Dict]:
         """Get full equity curve for a run."""
