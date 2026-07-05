@@ -15,16 +15,59 @@ Links:
 
 from __future__ import annotations
 
+from .atl_client import ATLClient
 from .client import AgenticTradingClient, ApiError
+from .exceptions import (
+    ATLAPIError,
+    ATLAuthenticationError,
+    ATLConflictError,
+    ATLRunFailedError,
+    ATLTimeoutError,
+    ATLValidationError,
+)
+from .models import (
+    AgentVersion,
+    Decision,
+    ExecutionResult,
+    Observation,
+    Order,
+    Run,
+    RunResult,
+    RunStatus,
+    Step,
+)
+from .runner import AgentRunner, TradingAgentProtocol
 
 __all__ = [
+    # Protocol v1 SDK
+    "ATLClient",
+    "AgentRunner",
+    "TradingAgentProtocol",
+    "AgentVersion",
+    "Run",
+    "RunStatus",
+    "Step",
+    "Observation",
+    "Decision",
+    "Order",
+    "ExecutionResult",
+    "RunResult",
+    # Exceptions
+    "ATLAPIError",
+    "ATLAuthenticationError",
+    "ATLValidationError",
+    "ATLConflictError",
+    "ATLTimeoutError",
+    "ATLRunFailedError",
+    # Legacy client (backtest workflow)
     "AgenticTradingClient",
     "ApiError",
+    # Metadata
     "__version__",
     "info",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 LIVE_DEMO_URL = "https://agentic-trading-lab.vercel.app/"
 DOCS_URL = "https://finagent-orchestration.readthedocs.io/"

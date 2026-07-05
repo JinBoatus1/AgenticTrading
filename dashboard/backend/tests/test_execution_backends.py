@@ -1,12 +1,9 @@
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+import pytest
 
-import pytest  # noqa: E402
-
-from execution.base import ExecutionBackend  # noqa: E402
-from execution.paper_backend import PaperBackend  # noqa: E402
+from dashboard.backend.execution.base import ExecutionBackend
+from dashboard.backend.execution.paper_backend import PaperBackend
 
 
 def test_execution_backend_is_abstract():
@@ -21,11 +18,11 @@ def test_paper_backend_is_designed_for_stub():
         backend.build_context()
 
 
-import pandas as pd  # noqa: E402
+import pandas as pd
 
-import execution.backtest_backend as bb_mod  # noqa: E402
-from execution.backtest_backend import BacktestBackend, load_news_sentiment  # noqa: E402
-from api.v2.models import ContextEnvelope, SubmitAck  # noqa: E402
+import dashboard.backend.execution.backtest_backend as bb_mod
+from dashboard.backend.execution.backtest_backend import BacktestBackend, load_news_sentiment
+from dashboard.backend.api.v2.models import ContextEnvelope, SubmitAck
 
 
 def test_news_sentiment_fail_closed_when_plan1_absent(monkeypatch):
@@ -55,7 +52,7 @@ def test_backtest_backend_emits_typed_context(monkeypatch):
         def fetch_bars(self, syms, start, end):
             return _synthetic_bars(symbols)
 
-    monkeypatch.setattr(bb_mod.bha, "AlpacaDataLoader", lambda: _Loader())
+    monkeypatch.setattr(bb_mod.ext, "AlpacaDataLoader", lambda: _Loader())
     monkeypatch.setattr(bb_mod, "DJIA_30", symbols, raising=False)
 
     backend = BacktestBackend(
@@ -82,13 +79,13 @@ def test_news_sentiment_fail_closed_when_loader_raises(monkeypatch):
     # Plan 1 adapter exists but throws at call time → still fail-closed.
     import types
 
-    fake = types.ModuleType("integrations.news_sentiment")
+    fake = types.ModuleType("dashboard.backend.integrations.news_sentiment")
 
     def _boom(universe, timestamp):
         raise RuntimeError("news service down")
 
     fake.get_news_sentiment = _boom
-    monkeypatch.setitem(sys.modules, "integrations.news_sentiment", fake)
+    monkeypatch.setitem(sys.modules, "dashboard.backend.integrations.news_sentiment", fake)
 
     sentiment, overview = load_news_sentiment(["AAPL"], "2026-04-15T10:30:00+00:00")
     assert sentiment == {} and overview is None
@@ -128,7 +125,7 @@ def test_cancel_makes_context_report_closed(monkeypatch):
         def fetch_bars(self, syms, start, end):
             return _synthetic_bars(symbols)
 
-    monkeypatch.setattr(bb_mod.bha, "AlpacaDataLoader", lambda: _Loader())
+    monkeypatch.setattr(bb_mod.ext, "AlpacaDataLoader", lambda: _Loader())
     monkeypatch.setattr(bb_mod, "DJIA_30", symbols, raising=False)
 
     backend = BacktestBackend(

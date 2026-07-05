@@ -12,6 +12,8 @@ const ACTIVE_AGENT_KEY = 'active-agent-id';
 const ACTIVE_AGENT_NAME_KEY = 'active-agent-name';
 const BROWSER_OWNER_KEY = 'browser-owner-id';
 const SELECTED_BACKTEST_RUN_KEY = 'selected-backtest-run-id';
+const NAV_STATE_KEY = 'nav-state';
+const DISCORD_SERVER_URL = 'https://discord.gg/9HnQ6XDG98';
 
 function initSession() {
   // Stable browser identity — never changes when switching agents
@@ -123,11 +125,137 @@ function formatTokenCount(value) {
   return String(num);
 }
 
+// ============================================================================
+// Local mock agents — fallback used when the backend returns no agents (or is
+// unavailable). Lets the redesigned My Agents page render without a backend.
+// TODO: Replace mock agent data with backend API data later.
+// ============================================================================
+const MOCK_AGENTS = [
+  {
+    agent_id: 'mock-test-agent-2', name: 'test agent 2', agent_type: 'builtin',
+    model_name: 'anthropic/claude-haiku-4-5', run_count: 1,
+    latest_run: { total_return: 0.065, sharpe_ratio: 2.67 },
+    total_input_tokens: 41000, total_output_tokens: 21500, total_est_cost_usd: 0.085, runs: [],
+  },
+  {
+    agent_id: 'mock-test-agent', name: 'test agent', agent_type: 'builtin', is_active: true,
+    model_name: 'anthropic/claude-haiku-4-5', run_count: 1,
+    latest_run: { total_return: -0.004, sharpe_ratio: -16.84 },
+    total_input_tokens: 30000, total_output_tokens: 17500, total_est_cost_usd: 0.064, runs: [],
+  },
+  {
+    agent_id: 'mock-test', name: 'test', agent_type: 'external',
+    model_name: 'local-model', run_count: 0,
+    latest_run: {}, total_input_tokens: 0, total_output_tokens: 0, runs: [],
+  },
+  {
+    agent_id: 'mock-sdk-1', name: 'sdk-selftest-agent', agent_type: 'external',
+    model_name: 'rule-based', run_count: 1,
+    latest_run: { total_return: 0.02, sharpe_ratio: 4.25 },
+    total_input_tokens: 44800, total_output_tokens: 20000, total_est_cost_usd: 0.0, runs: [],
+  },
+  {
+    agent_id: 'mock-sdk-2', name: 'sdk-selftest-agent', agent_type: 'external',
+    model_name: 'rule-based', run_count: 1,
+    latest_run: { total_return: 0.022, sharpe_ratio: 8.89 },
+    total_input_tokens: 28400, total_output_tokens: 0, total_est_cost_usd: 0.0, runs: [],
+  },
+  {
+    agent_id: 'mock-sdk-3', name: 'sdk-selftest-agent', agent_type: 'external',
+    model_name: 'rule-based', run_count: 1,
+    latest_run: { total_return: 0.022, sharpe_ratio: 8.89 },
+    total_input_tokens: 21000, total_output_tokens: 0, total_est_cost_usd: 0.0, runs: [],
+  },
+  {
+    agent_id: 'mock-sdk-4', name: 'sdk-selftest-agent', agent_type: 'external',
+    model_name: 'rule-based', run_count: 1,
+    latest_run: { total_return: 0.012, sharpe_ratio: 8.89 },
+    total_input_tokens: 28400, total_output_tokens: 0, total_est_cost_usd: 0.0, runs: [],
+  },
+  {
+    agent_id: 'mock-protocol-demo', name: 'protocol-demo', agent_type: 'external',
+    model_name: 'rule-based-demo', run_count: 2,
+    latest_run: { total_return: 0.06, sharpe_ratio: 7.38 },
+    total_input_tokens: 0, total_output_tokens: 0, total_est_cost_usd: 0.0, runs: [],
+  },
+  {
+    agent_id: 'mock-test-2', name: 'test', agent_type: 'external',
+    model_name: 'local-model', run_count: 1,
+    latest_run: { total_return: 0.081, sharpe_ratio: 25.66 },
+    total_input_tokens: 7400, total_output_tokens: 0, total_est_cost_usd: 0.0, runs: [],
+  },
+];
+
+// Holds the most recently loaded agents so the toolbar can re-filter without refetching.
+let allAgents = [];
+let agentViewMode = 'grid';
+
+function applyAgentFilters() {
+  const filter = document.getElementById('agentFilterSelect')?.value || 'all';
+  const query = (document.getElementById('agentSearchInput')?.value || '').trim().toLowerCase();
+  const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
+
+  let list = allAgents.slice();
+  if (filter === 'builtin') {
+    list = list.filter((a) => a.agent_type === 'builtin');
+  } else if (filter === 'external') {
+    list = list.filter((a) => a.agent_type !== 'builtin');
+  } else if (filter === 'active') {
+    list = list.filter((a) => a.is_active || a.agent_id === activeId);
+  } else if (filter === 'registered') {
+    list = list.filter((a) => !(a.is_active || a.agent_id === activeId));
+  }
+
+  if (query) {
+    list = list.filter(
+      (a) =>
+        String(a.name || '').toLowerCase().includes(query) ||
+        String(a.model_name || '').toLowerCase().includes(query),
+    );
+  }
+
+  renderAgentsGrid(list);
+}
+
+function setAgentViewMode(mode) {
+  agentViewMode = mode === 'list' ? 'list' : 'grid';
+  const grid = document.getElementById('agentsGrid');
+  if (grid) grid.classList.toggle('agents-grid--list', agentViewMode === 'list');
+  document.getElementById('agentViewGrid')?.classList.toggle('active', agentViewMode === 'grid');
+  document.getElementById('agentViewList')?.classList.toggle('active', agentViewMode === 'list');
+}
+
+// Demo mode: only then may the page show illustrative MOCK_AGENTS. Real users
+// (production host, no ?demo flag) see the genuine empty/error states instead of
+// fabricated agents.
+function isDemoMode() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('demo')) return params.get('demo') !== '0';
+    return ['localhost', '127.0.0.1', ''].includes(window.location.hostname);
+  } catch (e) {
+    return false;
+  }
+}
+
+// Distinct error-state shown when the agents API is unreachable — never mask a
+// backend outage by rendering fake data.
+function renderAgentsError() {
+  const grid = document.getElementById('agentsGrid');
+  const empty = document.getElementById('agentsEmptyState');
+  const errorEl = document.getElementById('agentsErrorState');
+  if (grid) grid.innerHTML = '';
+  if (empty) empty.hidden = true;
+  if (errorEl) errorEl.hidden = false;
+}
+
 function renderAgentsGrid(agents) {
   const grid = document.getElementById('agentsGrid');
   const empty = document.getElementById('agentsEmptyState');
+  const errorEl = document.getElementById('agentsErrorState');
   if (!grid) return;
 
+  if (errorEl) errorEl.hidden = true;  // a successful render clears any prior error
   grid.innerHTML = '';
   if (!agents.length) {
     if (empty) empty.hidden = false;
@@ -141,9 +269,22 @@ function renderAgentsGrid(agents) {
     const latest = agent.latest_run || {};
     const totalReturn = latest.total_return;
     const sharpe = latest.sharpe_ratio;
-    const isActive = agent.agent_id === activeId;
+    const isActive = agent.is_active === true || agent.agent_id === activeId;
+    const isBuiltin = agent.agent_type === 'builtin';
     const card = document.createElement('div');
-    card.className = 'section-card agent-card';
+    card.className = `section-card agent-card agent-card--compact${isBuiltin ? ' agent-card-builtin' : ''}`;
+
+    const typeBadge = isBuiltin
+      ? '<span class="status-badge builtin">Built-in</span>'
+      : '<span class="agent-discord connected">External agent</span>';
+
+    const discordButton = isBuiltin
+      ? `<a class="agent-action-btn agent-action-discord" href="${DISCORD_SERVER_URL}" target="_blank" rel="noopener noreferrer">Chat on Discord</a>`
+      : '';
+    const apiKeyButton = isBuiltin
+      ? ''
+      : `<button class="agent-action-btn agent-action-secondary agent-rotate-key-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">New API key</button>`;
+
     card.innerHTML = `
       <div class="agent-card-head">
         <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
@@ -151,8 +292,9 @@ function renderAgentsGrid(agents) {
       </div>
       <div class="agent-meta">
         <span>${escapeHtml(agent.model_name || 'local-model')}</span>
-        <span class="agent-discord connected">External agent</span>
+        ${typeBadge}
       </div>
+      ${isBuiltin && agent.description ? `<p class="agent-description">${escapeHtml(agent.description)}</p>` : ''}
       <div class="agent-metrics">
         <div class="agent-metric">
           <span class="metric-label">Return</span>
@@ -170,7 +312,8 @@ function renderAgentsGrid(agents) {
       ${renderAgentRunList(agent)}
       <div class="agent-card-actions">
         <button class="agent-action-btn agent-select-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">View in Playground</button>
-        <button class="agent-action-btn agent-action-secondary agent-rotate-key-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">New API key</button>
+        ${discordButton}
+        ${apiKeyButton}
         <button class="agent-action-btn agent-action-secondary agent-delete-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">Remove</button>
       </div>
     `;
@@ -301,10 +444,25 @@ async function loadAgents() {
       }
     }
 
-    renderAgentsGrid(agents);
+    // Demo only: seed illustrative agents so the page has content without a
+    // backend. Real users get the genuine empty-state (rendered by
+    // renderAgentsGrid) instead of fabricated agents.
+    if (!agents.length && isDemoMode()) {
+      agents = MOCK_AGENTS;
+    }
+
+    allAgents = agents;
+    applyAgentFilters();
   } catch (error) {
     console.warn('Failed to load agents:', error.message);
-    renderAgentsGrid([]);
+    if (isDemoMode()) {
+      allAgents = MOCK_AGENTS;
+      applyAgentFilters();
+    } else {
+      // Real backend outage: show a distinct error-state, never fake data.
+      allAgents = [];
+      renderAgentsError();
+    }
   }
 }
 
@@ -321,6 +479,57 @@ function openCreateExternalAgentModal() {
 function closeCreateExternalAgentModal() {
   const modal = document.getElementById('createExternalAgentModal');
   if (modal) modal.hidden = true;
+}
+
+function openCreateBuiltinAgentModal() {
+  closeAddAgentModal();
+  const modal = document.getElementById('createBuiltinAgentModal');
+  const errorEl = document.getElementById('createBuiltinAgentError');
+  const form = document.getElementById('createBuiltinAgentForm');
+  if (errorEl) errorEl.hidden = true;
+  if (form) form.reset();
+  if (modal) modal.hidden = false;
+}
+
+function closeCreateBuiltinAgentModal() {
+  const modal = document.getElementById('createBuiltinAgentModal');
+  if (modal) modal.hidden = true;
+}
+
+async function submitCreateBuiltinAgent(event) {
+  event.preventDefault();
+  const nameInput = document.getElementById('builtinAgentName');
+  const modelInput = document.getElementById('builtinAgentModel');
+  const descInput = document.getElementById('builtinAgentDescription');
+  const errorEl = document.getElementById('createBuiltinAgentError');
+  const submitBtn = document.getElementById('createBuiltinAgentSubmit');
+
+  const name = nameInput?.value?.trim();
+  const model_name = modelInput?.value?.trim() || 'anthropic/claude-haiku-4-5';
+  const description = descInput?.value?.trim() || null;
+  if (!name) return;
+
+  if (errorEl) errorEl.hidden = true;
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const data = await API.post(`${API_BASE}/api/v1/agents`, {
+      name,
+      model_name,
+      agent_type: 'builtin',
+      description,
+    });
+    closeCreateBuiltinAgentModal();
+    if (data.agent) applyActiveAgent(data.agent);
+    await loadAgents();
+  } catch (error) {
+    if (errorEl) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
 }
 
 function showAgentCredentials(apiKey, options = {}) {
@@ -661,20 +870,23 @@ function clearAuthState() {
 function updateAuthUI() {
   const user = getStoredAuthUser();
   const label = document.getElementById('authUserLabel');
-  const openBtn = document.getElementById('authOpenBtn');
+  const signInBtn = document.getElementById('authSignInBtn');
+  const signUpBtn = document.getElementById('authSignUpBtn');
   const logoutBtn = document.getElementById('authLogoutBtn');
-  if (!label || !openBtn || !logoutBtn) {
+  if (!label || !signInBtn || !signUpBtn || !logoutBtn) {
     return;
   }
 
   if (user) {
     label.textContent = user.display_name || user.email;
     label.hidden = false;
-    openBtn.hidden = true;
+    signInBtn.hidden = true;
+    signUpBtn.hidden = true;
     logoutBtn.hidden = false;
   } else {
     label.hidden = true;
-    openBtn.hidden = false;
+    signInBtn.hidden = false;
+    signUpBtn.hidden = false;
     logoutBtn.hidden = true;
   }
 
@@ -691,14 +903,14 @@ function setAuthMode(mode) {
   const displayNameField = document.getElementById('authDisplayNameField');
   const displayNameInput = document.getElementById('authDisplayName');
 
-  if (title) title.textContent = mode === 'signup' ? 'Sign up' : 'Log in';
+  if (title) title.textContent = mode === 'signup' ? 'Sign up' : 'Sign in';
   if (subtitle) {
     subtitle.textContent = 'Optional — backtest and paper trading work without an account.';
   }
-  if (submitBtn) submitBtn.textContent = mode === 'signup' ? 'Create account' : 'Log in';
+  if (submitBtn) submitBtn.textContent = mode === 'signup' ? 'Create account' : 'Sign in';
   if (switchBtn) {
     switchBtn.textContent = mode === 'signup'
-      ? 'Already have an account? Log in'
+      ? 'Already have an account? Sign in'
       : 'Need an account? Sign up';
   }
   if (passwordInput) {
@@ -722,6 +934,28 @@ function openAuthModal(mode = 'login') {
   if (!modal) return;
   setAuthMode(mode);
   modal.hidden = false;
+}
+
+/** Open auth modal from landing-page links (?auth=login|signup). */
+function openAuthFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const auth = (params.get('auth') || '').toLowerCase();
+  if (auth !== 'login' && auth !== 'signup') return;
+
+  // Already signed in — stay on the dashboard, no modal.
+  if (localStorage.getItem(AUTH_TOKEN_KEY) && getStoredAuthUser()) {
+    params.delete('auth');
+    const clean = params.toString();
+    const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', next);
+    return;
+  }
+
+  openAuthModal(auth === 'signup' ? 'signup' : 'login');
+  params.delete('auth');
+  const clean = params.toString();
+  const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+  window.history.replaceState({}, '', next);
 }
 
 function closeAuthModal() {
@@ -754,14 +988,16 @@ async function refreshAuthUser() {
 }
 
 function initAuthUI() {
-  const openBtn = document.getElementById('authOpenBtn');
+  const signInBtn = document.getElementById('authSignInBtn');
+  const signUpBtn = document.getElementById('authSignUpBtn');
   const logoutBtn = document.getElementById('authLogoutBtn');
   const closeBtn = document.getElementById('authModalClose');
   const backdrop = document.getElementById('authModalBackdrop');
   const switchBtn = document.getElementById('authSwitchBtn');
   const form = document.getElementById('authForm');
 
-  openBtn?.addEventListener('click', () => openAuthModal('login'));
+  signInBtn?.addEventListener('click', () => openAuthModal('login'));
+  signUpBtn?.addEventListener('click', () => openAuthModal('signup'));
   logoutBtn?.addEventListener('click', async () => {
     try {
       await AuthAPI.logout();
@@ -820,6 +1056,7 @@ function initAuthUI() {
 
   window.AUTH_USER = getStoredAuthUser();
   updateAuthUI();
+  openAuthFromUrl();
   refreshAuthUser();
 }
 
@@ -829,9 +1066,8 @@ window.DEFAULT_RUNS = {};
 let chartInstance = null;
 let currentMode = "home";
 let currentPage = "home";
-let playgroundTab = "overview";
+let playgroundTab = "agents";
 let competitionTab = "leaderboard";
-let overviewChartInstance = null;
 let allRuns = [];
 let comparisonData = null;
 let defaultConfig = null;
@@ -841,6 +1077,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize session FIRST (before any API calls)
     initSession();
     initAuthUI();
+    applyInitialNavigation();
     await restoreActiveAgentSession();
     const config = loadConfigFromURL();
     window.CURRENT_CONFIG = config;
@@ -954,20 +1191,17 @@ document.addEventListener('DOMContentLoaded', async () => {
  */
 async function loadPerformanceMetrics() {
     try {
-        let metrics = null;
+        // Mirror the chart: show metrics for the selected run. window.SELECTED_RUN
+        // is set by loadData; resolve from session runs when called standalone.
+        let metrics = window.SELECTED_RUN || null;
 
-        try {
-            const sessionRuns = await API.get(`${API_BASE}/api/backtest/runs?t=${Date.now()}`);
-            const activeName = window.ACTIVE_AGENT?.name || localStorage.getItem(ACTIVE_AGENT_NAME_KEY);
-            const externalRuns = scopedExternalRuns(sessionRuns, activeName);
-            const myAlgoRuns = sessionRuns.filter(r => r.run_id && r.run_id.startsWith('algo_'));
-            if (externalRuns.length) {
-                metrics = resolveSelectedExternalRun(externalRuns);
-            } else if (myAlgoRuns.length) {
-                metrics = latestRun(myAlgoRuns);
+        if (!metrics) {
+            try {
+                const sessionRuns = await API.get(`${API_BASE}/api/backtest/runs?t=${Date.now()}`);
+                metrics = resolveSelectedRun(sessionRuns);
+            } catch (e) {
+                console.warn('Could not load session runs for metrics');
             }
-        } catch (e) {
-            console.warn('Could not load session runs for my algo metrics');
         }
 
         if (!metrics) {
@@ -1826,11 +2060,13 @@ async function pollBacktestStatus(btn) {
                         console.log('✅ Backtest completed:', status.message);
                         console.log(`   Found ${status.runs_count} runs`);
                         
-                        // CRITICAL: Reload data in correct order:
-                        // 1. Load all runs from /runs endpoint (populates allRuns)
-                        // 2. Load comparison data for chart display (uses allRuns run_ids)
-                        // 3. Load latest metrics for summary panel (from /runs/latest/metrics)
+                        // A fresh run should show the newest result: clear any
+                        // prior selection so resolveSelectedRun picks the latest.
                         console.log('→ Reloading backtest data...');
+                        localStorage.removeItem(SELECTED_BACKTEST_RUN_KEY);
+                        const runSelect = document.getElementById('backtestRunSelect');
+                        if (runSelect) runSelect.value = '';
+                        window.SELECTED_RUN = null;
                         await loadData();
                         
                         console.log('→ Refreshing performance metrics...');
@@ -1876,6 +2112,41 @@ function getSelectedSymbols() {
 /**
  * Resolve page from URL for legacy deep links.
  */
+// Persist the current tab so a page refresh restores it instead of going home.
+function persistNavigation() {
+    try {
+        localStorage.setItem(
+            NAV_STATE_KEY,
+            JSON.stringify({
+                page: currentPage,
+                playgroundTab,
+                competitionTab,
+            }),
+        );
+    } catch (error) {
+        /* localStorage unavailable — ignore */
+    }
+}
+
+function clearNavBootState() {
+    const html = document.documentElement;
+    html.removeAttribute('data-nav-boot');
+    html.removeAttribute('data-nav-page');
+    html.removeAttribute('data-nav-playground-tab');
+    html.removeAttribute('data-nav-competition-tab');
+}
+
+function applyInitialNavigation() {
+    const initial = resolveInitialNavigation();
+    navigateToPage(initial.page, {
+        playgroundTab: initial.playgroundTab || 'agents',
+        competitionTab: initial.competitionTab || 'leaderboard',
+    });
+    if (typeof initHomePage === 'function') {
+        initHomePage();
+    }
+}
+
 function resolveInitialNavigation() {
     const params = new URLSearchParams(window.location.search);
     const view = params.get('view') || params.get('mode');
@@ -1886,11 +2157,23 @@ function resolveInitialNavigation() {
         backtest: { page: 'playground', playgroundTab: 'backtest' },
         paper: { page: 'playground', playgroundTab: 'paper' },
         contest: { page: 'competition', competitionTab: 'leaderboard' },
-        'my-algo': { page: 'agents' },
+        'my-algo': { page: 'playground', playgroundTab: 'agents' },
     };
 
+    // An explicit URL view/hash always wins.
     if (legacy && legacyMap[legacy]) {
         return legacyMap[legacy];
+    }
+
+    // Otherwise restore the last visited tab across refreshes.
+    try {
+        const saved = JSON.parse(localStorage.getItem(NAV_STATE_KEY) || 'null');
+        const validPages = ['home', 'playground', 'competition', 'community'];
+        if (saved && validPages.includes(saved.page)) {
+            return saved;
+        }
+    } catch (error) {
+        /* corrupt/unavailable state — fall through to home */
     }
 
     return { page: 'home' };
@@ -1912,11 +2195,15 @@ function showPlaygroundPanel(tab) {
     playgroundTab = tab;
     updatePlaygroundSubtabs();
 
-    const overview = document.getElementById('playgroundOverviewPanel');
+    const agents = document.getElementById('playgroundAgentsPanel');
     const backtest = document.querySelector('.main-container');
     const paper = document.getElementById('paperTradingView');
+    const agentHeader = document.getElementById('playgroundAgentHeader');
 
-    if (overview) overview.style.display = tab === 'overview' ? 'block' : 'none';
+    // The agent/session header only applies to Backtest and Paper Trading.
+    if (agentHeader) agentHeader.style.display = tab === 'agents' ? 'none' : 'flex';
+
+    if (agents) agents.style.display = tab === 'agents' ? 'block' : 'none';
     if (backtest) backtest.style.display = tab === 'backtest' ? 'grid' : 'none';
     if (paper) paper.style.display = tab === 'paper' ? 'block' : 'none';
 
@@ -1928,9 +2215,12 @@ function showPlaygroundPanel(tab) {
         currentMode = 'paper';
         loadPaperTradingData();
     } else {
-        currentMode = 'overview';
-        initOverviewChart();
+        currentMode = 'agents';
+        if (typeof renderPortfolio === 'function') renderPortfolio();
+        loadAgents();
     }
+
+    persistNavigation();
 }
 
 function showCompetitionPanel(tab) {
@@ -1951,10 +2241,19 @@ function showCompetitionPanel(tab) {
     } else {
         currentMode = tab;
     }
+
+    persistNavigation();
 }
 
 function navigateToPage(page, options = {}) {
     console.log('Navigating to page:', page, options);
+
+    // "My Agents" now lives as a Playground subtab; redirect legacy links.
+    if (page === 'agents') {
+        page = 'playground';
+        options = { ...options, playgroundTab: options.playgroundTab || 'agents' };
+    }
+
     currentPage = page;
 
     if (options.playgroundTab) playgroundTab = options.playgroundTab;
@@ -1965,9 +2264,9 @@ function navigateToPage(page, options = {}) {
     });
 
     const homeView = document.getElementById('homeView');
-    const agentsView = document.getElementById('myAgentsView');
     const playgroundView = document.getElementById('playgroundView');
     const competitionView = document.getElementById('competitionView');
+    const communityView = document.getElementById('communityView');
     const backtestPanel = document.querySelector('.main-container');
     const paperView = document.getElementById('paperTradingView');
     const myAlgoView = document.getElementById('myTradingAlgoView');
@@ -1978,14 +2277,14 @@ function navigateToPage(page, options = {}) {
     };
 
     hide(homeView);
-    hide(agentsView);
     hide(playgroundView);
     hide(competitionView);
+    hide(communityView);
     hide(backtestPanel);
     hide(paperView);
     hide(myAlgoView);
     hide(leaderboardView);
-    hide(document.getElementById('playgroundOverviewPanel'));
+    hide(document.getElementById('playgroundAgentsPanel'));
     hide(document.getElementById('competitionParticipantsPanel'));
     hide(document.getElementById('competitionAboutPanel'));
 
@@ -1995,16 +2294,14 @@ function navigateToPage(page, options = {}) {
         if (typeof onHomePageShow === 'function') onHomePageShow();
     } else {
         if (typeof onHomePageHide === 'function') onHomePageHide();
-        if (page === 'agents') {
-            currentMode = 'agents';
-            if (agentsView) agentsView.style.display = 'block';
-            loadAgents();
-        } else if (page === 'playground') {
+        if (page === 'playground') {
             if (playgroundView) playgroundView.style.display = 'block';
             showPlaygroundPanel(playgroundTab);
         } else if (page === 'competition') {
             if (competitionView) competitionView.style.display = 'block';
             showCompetitionPanel(competitionTab);
+        } else if (page === 'community') {
+            if (communityView) communityView.style.display = 'block';
         }
     }
 
@@ -2012,6 +2309,9 @@ function navigateToPage(page, options = {}) {
     const menuToggle = document.getElementById('navMenuToggle');
     if (nav) nav.classList.remove('open');
     if (menuToggle) menuToggle.setAttribute('aria-expanded', 'false');
+
+    clearNavBootState();
+    persistNavigation();
 }
 
 function switchPlaygroundTab(tab) {
@@ -2040,43 +2340,6 @@ function closeAddAgentModal() {
     if (modal) modal.hidden = true;
 }
 
-function initOverviewChart() {
-    const canvas = document.getElementById('overviewChart');
-    if (!canvas || typeof Chart === 'undefined') return;
-    if (overviewChartInstance) return;
-
-    overviewChartInstance = new Chart(canvas.getContext('2d'), {
-        type: 'line',
-        data: {
-            labels: ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8'],
-            datasets: [{
-                label: 'Portfolio',
-                data: [100, 102, 101, 105, 108, 107, 110, 112.4],
-                borderColor: '#00bfff',
-                backgroundColor: 'rgba(0, 191, 255, 0.1)',
-                fill: true,
-                tension: 0.3,
-                pointRadius: 0,
-            }],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                x: {
-                    grid: { color: '#111827' },
-                    ticks: { color: '#9ca3af' },
-                },
-                y: {
-                    grid: { color: '#111827' },
-                    ticks: { color: '#9ca3af' },
-                },
-            },
-        },
-    });
-}
-
 function initNavigation() {
     document.querySelectorAll('.primary-nav .mode-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -2097,7 +2360,7 @@ function initNavigation() {
     });
 
     document.getElementById('homeOpenPlaygroundBtn')?.addEventListener('click', () => {
-        navigateToPage('playground', { playgroundTab: 'overview' });
+        navigateToPage('playground', { playgroundTab: 'agents' });
     });
 
     document.getElementById('homeViewCompetitionBtn')?.addEventListener('click', () => {
@@ -2105,16 +2368,16 @@ function initNavigation() {
     });
 
     document.getElementById('homeViewMarketPulseBtn')?.addEventListener('click', () => {
-        navigateToPage('playground', { playgroundTab: 'overview' });
+        navigateToPage('playground', { playgroundTab: 'agents' });
     });
 
     document.querySelectorAll('[data-home-nav]').forEach(btn => {
         btn.addEventListener('click', () => {
             const target = btn.dataset.homeNav;
             if (target === 'agents') {
-                navigateToPage('agents');
+                navigateToPage('playground', { playgroundTab: 'agents' });
             } else if (target === 'playground') {
-                navigateToPage('playground', { playgroundTab: 'overview' });
+                navigateToPage('playground', { playgroundTab: 'agents' });
             } else if (target === 'discord') {
                 const discordUrl = document.getElementById('homeConnectDiscordBtn')?.href
                     || document.getElementById('openDiscordBtn')?.href
@@ -2126,9 +2389,14 @@ function initNavigation() {
 
     document.querySelectorAll('.agent-view-playground').forEach(btn => {
         btn.addEventListener('click', () => {
-            navigateToPage('playground', { playgroundTab: 'overview' });
+            navigateToPage('playground', { playgroundTab: 'agents' });
         });
     });
+
+    document.getElementById('agentFilterSelect')?.addEventListener('change', applyAgentFilters);
+    document.getElementById('agentSearchInput')?.addEventListener('input', applyAgentFilters);
+    document.getElementById('agentViewGrid')?.addEventListener('click', () => setAgentViewMode('grid'));
+    document.getElementById('agentViewList')?.addEventListener('click', () => setAgentViewMode('list'));
 
     document.getElementById('addAgentBtn')?.addEventListener('click', openAddAgentModal);
     document.getElementById('addAgentModalClose')?.addEventListener('click', closeAddAgentModal);
@@ -2137,6 +2405,10 @@ function initNavigation() {
     document.getElementById('createExternalAgentModalClose')?.addEventListener('click', closeCreateExternalAgentModal);
     document.getElementById('createExternalAgentModalBackdrop')?.addEventListener('click', closeCreateExternalAgentModal);
     document.getElementById('createExternalAgentForm')?.addEventListener('submit', submitCreateExternalAgent);
+    document.getElementById('createBuiltinAgentBtn')?.addEventListener('click', openCreateBuiltinAgentModal);
+    document.getElementById('createBuiltinAgentModalClose')?.addEventListener('click', closeCreateBuiltinAgentModal);
+    document.getElementById('createBuiltinAgentModalBackdrop')?.addEventListener('click', closeCreateBuiltinAgentModal);
+    document.getElementById('createBuiltinAgentForm')?.addEventListener('submit', submitCreateBuiltinAgent);
     document.getElementById('agentCredentialsModalClose')?.addEventListener('click', closeAgentCredentialsModal);
     document.getElementById('agentCredentialsModalBackdrop')?.addEventListener('click', closeAgentCredentialsModal);
 
@@ -2156,14 +2428,6 @@ function initNavigation() {
         toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
     });
 
-    const initial = resolveInitialNavigation();
-    if (typeof initHomePage === 'function') {
-        initHomePage();
-    }
-    navigateToPage(initial.page, {
-        playgroundTab: initial.playgroundTab || 'overview',
-        competitionTab: initial.competitionTab || 'leaderboard',
-    });
 }
 
 /**
@@ -2176,10 +2440,10 @@ function switchMode(mode) {
         backtest: { page: 'playground', playgroundTab: 'backtest' },
         paper: { page: 'playground', playgroundTab: 'paper' },
         contest: { page: 'competition', competitionTab: 'leaderboard' },
-        'my-algo': { page: 'agents' },
+        'my-algo': { page: 'playground', playgroundTab: 'agents' },
         home: { page: 'home' },
-        agents: { page: 'agents' },
-        playground: { page: 'playground', playgroundTab: 'overview' },
+        agents: { page: 'playground', playgroundTab: 'agents' },
+        playground: { page: 'playground', playgroundTab: 'agents' },
         competition: { page: 'competition', competitionTab: 'leaderboard' },
     };
 
@@ -2310,6 +2574,55 @@ function findLatestRunByAgent(runs, agentName) {
     return matched.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0];
 }
 
+// Baseline comparison series. They appear on the plot but are never listed or
+// selectable as standalone runs.
+const BASELINE_AGENT_NAMES = ['DJIA', 'buy-and-hold'];
+
+function isBaselineRun(run) {
+    return !!run && BASELINE_AGENT_NAMES.includes(run.agent_name);
+}
+
+function _runTime(value) {
+    return new Date(String(value || '').replace(' ', 'T')).getTime() || 0;
+}
+
+// The selected run drives the whole backtest view. Built-in and external agents
+// take the same path: prefer the explicitly clicked/selected run_id, else the
+// agent's most recent (non-baseline) run.
+function resolveSelectedRun(sessionRuns) {
+    const realRuns = (sessionRuns || []).filter(r => !isBaselineRun(r));
+    if (!realRuns.length) return null;
+    const selectedId = localStorage.getItem(SELECTED_BACKTEST_RUN_KEY);
+    if (selectedId) {
+        const match = realRuns.find(r => r.run_id === selectedId);
+        if (match) return match;
+    }
+    return latestRun(realRuns);
+}
+
+// Find the DJIA / buy-and-hold runs that belong to a given run: same session,
+// same date window, created closest in time to the run (baselines are written
+// seconds apart from the agent run).
+function resolveBaselinesForRun(run, sessionRuns) {
+    if (!run) return { djia: null, buyhold: null };
+    const anchor = _runTime(run.created_at);
+    function pick(agentName, explicitId) {
+        if (explicitId) return explicitId;
+        const candidates = (sessionRuns || []).filter(r =>
+            r.agent_name === agentName &&
+            r.start_date === run.start_date &&
+            r.end_date === run.end_date);
+        if (!candidates.length) return null;
+        candidates.sort((a, b) =>
+            Math.abs(_runTime(a.created_at) - anchor) - Math.abs(_runTime(b.created_at) - anchor));
+        return candidates[0].run_id;
+    }
+    return {
+        djia: pick('DJIA', run.baseline_djia_run_id),
+        buyhold: pick('buy-and-hold', run.baseline_buyhold_run_id),
+    };
+}
+
 /**
  * Load dashboard data from backend API
  */
@@ -2325,60 +2638,39 @@ async function loadData() {
                 console.warn('Session runs unavailable:', e.message);
             }
 
-            const myAlgoRuns = sessionRuns.filter(isMyAlgoRun);
-            const latestMyAlgo = latestRun(myAlgoRuns);
+            // Selectable runs are the agent's own runs; baselines are plotted
+            // for comparison but never listed/selected. Built-in and external
+            // agents share this path: the selected run_id drives everything.
+            const selectableRuns = sessionRuns.filter(r => !isBaselineRun(r));
+            populateBacktestRunSelector(selectableRuns);
+            const selectedRun = resolveSelectedRun(sessionRuns);
 
-            const activeName = window.ACTIVE_AGENT?.name || localStorage.getItem(ACTIVE_AGENT_NAME_KEY);
-            const scopedExternal = scopedExternalRuns(sessionRuns, activeName);
-            populateBacktestRunSelector(scopedExternal);
-            const selectedExternal = resolveSelectedExternalRun(scopedExternal);
+            window.SELECTED_RUN = selectedRun;
+            window.MY_ALGO_RUN_ID = isMyAlgoRun(selectedRun) ? selectedRun.run_id : null;
+            window.EXTERNAL_AGENT_RUN_ID = isExternalAgentRun(selectedRun) ? selectedRun.run_id : null;
 
-            if (latestMyAlgo) {
-                window.MY_ALGO_RUN_ID = latestMyAlgo.run_id;
-            } else {
-                window.MY_ALGO_RUN_ID = null;
-            }
-
-            allRuns = await API.get(`${API_BASE}/runs?t=${Date.now()}`);
-            console.log('Loaded runs:', allRuns.length);
-
-            if (allRuns.length === 0 && !latestMyAlgo && !selectedExternal) {
-                console.warn('No runs available');
+            if (!selectedRun) {
+                console.warn('No backtest runs for this session');
+                comparisonData = null;
+                displayNoMetrics();
                 return;
             }
 
-            let runIds;
-            if (selectedExternal) {
-                const baselines = resolveBaselineRunIds(selectedExternal, sessionRuns);
-                runIds = [
-                    selectedExternal.run_id,
-                    baselines.djia,
-                    baselines.buyhold,
-                ]
-                    .filter(Boolean)
-                    .join(',');
-                window.EXTERNAL_AGENT_RUN_ID = selectedExternal.run_id;
-                console.log('External agent compare IDs:', runIds, baselines);
-            } else if (latestMyAlgo) {
-                const buyhold = findLatestRunByAgent(allRuns, 'buy-and-hold');
-                const djia = findLatestRunByAgent(allRuns, 'DJIA');
-                runIds = [latestMyAlgo.run_id, djia?.run_id, buyhold?.run_id].filter(Boolean).join(',');
-                console.log('My Algo compare IDs:', runIds);
-            } else {
-                runIds = allRuns.map(r => r.run_id).join(',');
-            }
+            localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, selectedRun.run_id);
 
-            if (!runIds) {
-                console.warn('No run IDs to compare');
-                return;
-            }
+            // Plot the selected run plus its own baselines (same session/window).
+            const baselines = resolveBaselinesForRun(selectedRun, sessionRuns);
+            const runIds = [selectedRun.run_id, baselines.djia, baselines.buyhold]
+                .filter(Boolean)
+                .join(',');
+            console.log('Compare IDs for selected run:', runIds);
 
             const compareUrl = `${API_BASE}/compare?run_ids=${encodeURIComponent(runIds)}&t=${Date.now()}`;
             comparisonData = await API.get(compareUrl);
             console.log('Loaded comparison data:', comparisonData);
 
             initializeCharts();
-            await loadPerformanceMetrics();
+            displayPerformanceMetrics(selectedRun);
         }
         
     } catch (error) {
@@ -2459,7 +2751,7 @@ function initializeCharts() {
                     borderColor: color,
                     backgroundColor: 'transparent',
                     borderWidth: 2.5,
-                    tension: 0.3,
+                    tension: 0,
                     fill: false,
                     pointRadius: 0,
                     pointHoverRadius: 5,
@@ -2815,7 +3107,7 @@ async function displayEquityCurve(equityCurve) {
         backgroundColor: 'transparent',
         borderWidth: 2.5,
         fill: false,
-        tension: 0.3,
+        tension: 0,
         pointRadius: 0,
         pointHoverRadius: 5
     }];
@@ -2829,7 +3121,7 @@ async function displayEquityCurve(equityCurve) {
             backgroundColor: 'transparent',
             borderWidth: 2.5,
             fill: false,
-            tension: 0.3,
+            tension: 0,
             pointRadius: 0,
             pointHoverRadius: 5
         });

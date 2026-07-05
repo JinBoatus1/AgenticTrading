@@ -1,9 +1,6 @@
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from api.v2.leaderboard import build_leaderboard  # noqa: E402
+from dashboard.backend.api.v2.leaderboard import build_leaderboard
 
 
 def test_build_leaderboard_ranks_v2_runs_by_return():

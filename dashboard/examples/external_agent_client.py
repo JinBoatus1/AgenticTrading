@@ -5,14 +5,30 @@ Minimal external-agent backtest client.
 Uses simple RSI rules (no LLM required). Point at your API server and reuse
 the dashboard session id so results appear on the website.
 
+Two modes:
+
+  * --protocol v1  (recommended) uses the versioned Agent-Environment Protocol:
+      AgentVersion -> Run -> Step -> Decision -> ExecutionResult.
+      Authenticates directly with the Agent API key (X-API-Key); no session id.
+
+  * --protocol legacy (default, kept for backward compatibility) uses the
+      original /api/v1/backtest/* endpoints with X-Session-Id.
+
 Usage:
-  # Recommended: register agent on website (My Agents), then use API key:
+  # New Run API (protocol v1) — only needs the agent API key:
   python3 examples/external_agent_client.py \\
+    --protocol v1 \\
     --api https://agentictrading.onrender.com \\
     --api-key ag_xxxxxxxx \\
     --start 2026-04-15 --end 2026-04-16
 
-  # Or pass session id manually:
+  # Legacy backtest API with an API key (auto-resolves session):
+  python3 examples/external_agent_client.py \\
+    --api http://localhost:8000 \\
+    --api-key ag_xxxxxxxx \\
+    --start 2026-04-15 --end 2026-04-16
+
+  # Legacy with a manual session id:
   python3 examples/external_agent_client.py \\
     --api http://localhost:8000 \\
     --session-id "$SESSION_ID" \\
@@ -130,6 +146,152 @@ def resolve_api_key(base: str, api_key: str) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+# ---------------------------------------------------------------------------
+# Protocol v1 (Run API) helpers
+# ---------------------------------------------------------------------------
+
+
+def api_request_key(
+    method: str,
+    url: str,
+    api_key: str,
+    body: dict | None = None,
+    timeout: int = 120,
+) -> dict:
+    """Authenticated request for the Run API using the Agent API key."""
+    data = None
+    headers = {"X-API-Key": api_key, "Accept": "application/json"}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(detail)
+            detail = parsed.get("detail", parsed)
+        except json.JSONDecodeError:
+            pass
+        raise RuntimeError(f"HTTP {exc.code} {url}: {detail}") from exc
+
+
+def rule_based_orders(observation: dict) -> list[dict]:
+    """Demo agent: translate features into protocol orders (orders-v1)."""
+    orders = []
+    features = (observation.get("market") or {}).get("features") or {}
+    holdings = {
+        p["symbol"]: p
+        for p in (observation.get("portfolio", {}).get("positions") or [])
+    }
+    for symbol, sig in features.items():
+        rsi = float(sig.get("rsi") or 50)
+        price = float(sig.get("price") or 0)
+        if price <= 0:
+            continue
+        owned = symbol in holdings and holdings[symbol].get("quantity", 0) > 0
+        if not owned and rsi < 35:
+            orders.append({
+                "symbol": symbol,
+                "side": "buy",
+                "quantity_type": "shares",
+                "quantity": max(1, int(2000 / price)),
+                "order_type": "market",
+            })
+        elif owned and rsi > 65:
+            orders.append({
+                "symbol": symbol,
+                "side": "sell",
+                "quantity_type": "shares",
+                "quantity": holdings[symbol]["quantity"],
+                "order_type": "market",
+            })
+    return orders
+
+
+def run_protocol_v1(base: str, api_key: str, args) -> int:
+    resolved = resolve_api_key(base, api_key)
+    agent_id = resolved["agent_id"]
+    print(f"Agent: {resolved.get('name')} ({agent_id})")
+
+    version = api_request_key(
+        "POST",
+        f"{base}/api/v1/agents/{agent_id}/versions",
+        api_key,
+        {
+            "version": "0.1.0",
+            "execution_mode": "external",
+            "architecture": "single_agent_rule_based",
+            "model_backbones": [resolved.get("model_name") or "rule-based"],
+            "decision_frequency": "1h",
+        },
+    )["agent_version"]
+    agent_version_id = version["agent_version_id"]
+    print(f"AgentVersion: {agent_version_id}")
+
+    run = api_request_key(
+        "POST",
+        f"{base}/api/v1/runs",
+        api_key,
+        {
+            "agent_version_id": agent_version_id,
+            "environment": {"type": "backtest", "environment_id": "us-equity-hourly-v1"},
+            "config": {"start_date": args.start, "end_date": args.end},
+        },
+        timeout=60,
+    )
+    run_id = run["run_id"]
+    print(f"Run: {run_id} (status={run.get('status')})")
+
+    idem = 0
+    while True:
+        step = api_request_key("GET", f"{base}/api/v1/runs/{run_id}/steps/next", api_key)
+        status = step.get("status")
+        if status == "loading":
+            print("  Loading market data…")
+            time.sleep(2)
+            continue
+        if status == "completed":
+            break
+        if status != "awaiting_decision":
+            time.sleep(0.5)
+            continue
+
+        step_id = step["step_id"]
+        seq = step.get("sequence")
+        print(f"Step seq={seq} step_id={step_id} deadline={step.get('deadline_at')}")
+        orders = rule_based_orders(step.get("observation") or {})
+        idem += 1
+        result = api_request_key(
+            "POST",
+            f"{base}/api/v1/runs/{run_id}/steps/{step_id}/decision",
+            api_key,
+            {
+                "idempotency_key": f"{run_id}-{seq}-{idem}",
+                "run_id": run_id,
+                "step_id": step_id,
+                "orders": orders,
+                "confidence": 0.7,
+                "rationale": "rule-based demo decision",
+            },
+        )
+        fills = result.get("fills") or []
+        rejections = result.get("validation", {}).get("rejections") or []
+        print(f"  fills={len(fills)} rejections={len(rejections)}")
+        for fill in fills:
+            print(f"    {fill['side'].upper()} {fill['symbol']} x{fill['filled_quantity']} @ {fill['fill_price']}")
+
+    print("\nDone!")
+    result = api_request_key("GET", f"{base}/api/v1/runs/{run_id}/result", api_key)
+    metrics = result.get("metrics") or {}
+    print(f"Total return: {metrics.get('total_return')}")
+    print(f"Sharpe: {metrics.get('sharpe_ratio')}  Trades: {metrics.get('num_trades')}")
+    print(f"\nView on website: My Agents → View in Playground")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="External agent backtest client (demo)")
     parser.add_argument("--api", default="http://localhost:8000", help="API base URL")
@@ -139,9 +301,20 @@ def main() -> int:
     parser.add_argument("--model-name", default="rule-based-demo")
     parser.add_argument("--start", default="2026-04-15")
     parser.add_argument("--end", default="2026-04-16")
+    parser.add_argument(
+        "--protocol",
+        choices=["legacy", "v1"],
+        default="legacy",
+        help="legacy=/api/v1/backtest/* (session), v1=/api/v1/runs/* (Agent-Environment Protocol)",
+    )
     args = parser.parse_args()
 
     base = args.api.rstrip("/")
+
+    if args.protocol == "v1":
+        if not args.api_key:
+            parser.error("--protocol v1 requires --api-key")
+        return run_protocol_v1(base, args.api_key, args)
 
     session_id = args.session_id
     agent_name = args.agent_name

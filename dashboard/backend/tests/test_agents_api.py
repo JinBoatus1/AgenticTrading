@@ -7,24 +7,22 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from app import app
-from agent_store import AgentStore
+from dashboard.backend.app import app
+from dashboard.backend.domain.agents.repository import AgentStore
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    import agent_store as agent_store_module
-    import api.agents as agents_api
-    import database as db_module
+    import dashboard.backend.domain.agents.repository as agent_store_module
+    import dashboard.backend.api.routers.agents as agents_api
+    import dashboard.backend.database as db_module
 
     db_path = tmp_path / "test.db"
     test_agents = AgentStore(db_path=db_path)
     test_db = db_module.BacktestDatabase(db_path=db_path)
     monkeypatch.setattr(agent_store_module, "agent_store", test_agents)
-    monkeypatch.setattr(agents_api, "agent_store", test_agents)
-    monkeypatch.setattr(agents_api, "db", test_db)
+    monkeypatch.setattr(agents_api.agent_service, "agents", test_agents)
+    monkeypatch.setattr(agents_api.agent_service, "db", test_db)
     monkeypatch.setattr(db_module, "db", test_db)
     return TestClient(app)
 
@@ -49,6 +47,81 @@ def test_create_and_list_agents(client):
     agents = listed.json()["agents"]
     assert len(agents) == 1
     assert agents[0]["agent_id"] == body["agent"]["agent_id"]
+
+
+def test_create_builtin_agent_and_public_listing(client):
+    browser_session = str(uuid.uuid4())
+    headers = {"X-Session-Id": browser_session}
+
+    created = client.post(
+        "/api/v1/agents",
+        json={
+            "name": "Momentum Alpha",
+            "model_name": "anthropic/claude-haiku-4-5",
+            "agent_type": "builtin",
+            "description": "Trend-following hosted agent",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200
+    agent = created.json()["agent"]
+    assert agent["agent_type"] == "builtin"
+    assert agent["description"] == "Trend-following hosted agent"
+
+    # The public builtin listing requires no auth/session and exposes the agent.
+    listing = client.get("/api/v1/agents/builtin")
+    assert listing.status_code == 200
+    builtin = listing.json()["agents"]
+    assert any(a["agent_id"] == agent["agent_id"] for a in builtin)
+    entry = next(a for a in builtin if a["agent_id"] == agent["agent_id"])
+    assert entry["model_name"] == "anthropic/claude-haiku-4-5"
+    assert "api_key" not in entry and "owner_user_id" not in entry
+
+
+def test_builtin_agent_card_counts_website_runs(client):
+    """Built-in agents surface all session runs, not only ext_ ones."""
+    browser_session = str(uuid.uuid4())
+    headers = {"X-Session-Id": browser_session}
+
+    created = client.post(
+        "/api/v1/agents",
+        json={"name": "WebBot", "agent_type": "builtin"},
+        headers=headers,
+    ).json()["agent"]
+
+    import dashboard.backend.database as db_module
+
+    db_module.db.insert_run(
+        run_id="run_website_1",  # NOT an ext_ run — produced by /backtest/run.
+        session_id=created["session_id"],
+        agent_name="WebBot",
+        mode="backtest",
+        start_date="2026-04-15",
+        end_date="2026-04-16",
+        initial_equity=100000,
+        final_equity=102000,
+        total_return=0.02,
+        sharpe_ratio=0.8,
+        max_drawdown=-0.01,
+        num_trades=4,
+        llm_model="anthropic/claude-haiku-4-5",
+    )
+
+    # Matching real frontend usage: X-Session-Id is scoped to the active agent's
+    # trading session, while X-Browser-Id carries the stable owner credential the
+    # dashboard sends on every request (owner_browser_session), which is what
+    # authorizes access — the session_id alone is not an ownership credential.
+    active_headers = {
+        "X-Session-Id": created["session_id"],
+        "X-Browser-Id": browser_session,
+    }
+    fetched = client.get(
+        f"/api/v1/agents/{created['agent_id']}", headers=active_headers
+    )
+    assert fetched.status_code == 200
+    enriched = fetched.json()["agent"]
+    assert enriched["run_count"] == 1
+    assert enriched["latest_run"]["run_id"] == "run_website_1"
 
 
 def test_resolve_api_key(client):
@@ -79,7 +152,7 @@ def test_import_session_from_backtest_runs(client):
     browser_session = str(uuid.uuid4())
     headers = {"X-Session-Id": browser_session}
 
-    import database as db_module
+    import dashboard.backend.database as db_module
 
     db_module.db.insert_run(
         run_id="ext_test_import",
@@ -168,3 +241,88 @@ def test_rotate_api_key(client):
     resolved = client.get("/api/v1/agents/resolve", headers={"X-API-Key": new_key})
     assert resolved.status_code == 200
     assert resolved.json()["agent_id"] == agent_id
+
+
+def test_builtin_listing_does_not_leak_session_id(client):
+    """The public /builtin listing must not expose the ownership-sensitive
+    session_id (regression for the unauthenticated-takeover vulnerability)."""
+    owner = str(uuid.uuid4())
+    created = client.post(
+        "/api/v1/agents",
+        json={"name": "victim-bot", "agent_type": "builtin"},
+        headers={"X-Session-Id": owner},
+    ).json()
+    agent_id = created["agent"]["agent_id"]
+
+    listing = client.get("/api/v1/agents/builtin")
+    assert listing.status_code == 200
+    entry = next(a for a in listing.json()["agents"] if a["agent_id"] == agent_id)
+    assert "session_id" not in entry, "public builtin listing leaks session_id"
+
+
+def test_leaked_session_id_cannot_take_over_agent(client):
+    """Even if an attacker learns an agent's session_id, replaying it as
+    X-Session-Id must not grant ownership on state-changing routes."""
+    owner = str(uuid.uuid4())
+    created = client.post(
+        "/api/v1/agents",
+        json={"name": "victim-bot", "agent_type": "builtin"},
+        headers={"X-Session-Id": owner},
+    ).json()
+    agent_id = created["agent"]["agent_id"]
+    leaked_session_id = created["session_id"]
+
+    attacker = {"X-Session-Id": leaked_session_id}
+    assert client.delete(f"/api/v1/agents/{agent_id}", headers=attacker).status_code == 403
+    assert (
+        client.post(f"/api/v1/agents/{agent_id}/rotate-api-key", headers=attacker).status_code
+        == 403
+    )
+
+    # The legitimate owner (real browser session) still manages the agent.
+    owner_headers = {"X-Session-Id": owner}
+    rotated = client.post(f"/api/v1/agents/{agent_id}/rotate-api-key", headers=owner_headers)
+    assert rotated.status_code == 200
+
+    # The agent's own API key is a valid credential for state-changing routes.
+    new_key = rotated.json()["api_key"]
+    deleted = client.delete(f"/api/v1/agents/{agent_id}", headers={"X-API-Key": new_key})
+    assert deleted.status_code == 200
+
+
+def test_builtin_listing_batches_run_stats_queries(client, monkeypatch):
+    """LOW #9 — the public, unauthenticated /agents/builtin listing must not
+    issue one runs-by-session query per agent (N+1): the stats lookup happens
+    in a single batched query no matter how many builtin agents exist."""
+    headers = {"X-Session-Id": str(uuid.uuid4())}
+    for i in range(3):
+        resp = client.post(
+            "/api/v1/agents",
+            json={"name": f"builtin-{i}", "agent_type": "builtin"},
+            headers={"X-Session-Id": str(uuid.uuid4())},
+        )
+        assert resp.status_code == 200, resp.text
+
+    import dashboard.backend.api.routers.agents as agents_api
+
+    svc_db = agents_api.agent_service.db
+    calls = {"per_session": 0, "batch": 0}
+    orig_single = svc_db.get_runs_by_session
+    orig_batch = svc_db.get_runs_by_sessions  # must exist — AttributeError = RED
+
+    def counting_single(session_id):
+        calls["per_session"] += 1
+        return orig_single(session_id)
+
+    def counting_batch(session_ids):
+        calls["batch"] += 1
+        return orig_batch(session_ids)
+
+    monkeypatch.setattr(svc_db, "get_runs_by_session", counting_single)
+    monkeypatch.setattr(svc_db, "get_runs_by_sessions", counting_batch)
+
+    listing = client.get("/api/v1/agents/builtin")
+    assert listing.status_code == 200
+    assert len(listing.json()["agents"]) == 3
+    assert calls["per_session"] == 0, "listing still queries per agent (N+1)"
+    assert calls["batch"] == 1, "listing must fetch all stats in one query"

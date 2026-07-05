@@ -17,10 +17,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
 
 # Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from fastapi.testclient import TestClient
-from llm_validator import validate_llm_response, LLMTradingDecision
+from dashboard.backend.infrastructure.llm.validator import validate_llm_response, LLMTradingDecision
 
 
 # ============================================================================
@@ -29,7 +27,7 @@ from llm_validator import validate_llm_response, LLMTradingDecision
 # In a real scenario, this would be in app.py. For testing, we create a minimal version.
 
 from fastapi import FastAPI, Request, HTTPException
-from llm_validator import validate_llm_response
+from dashboard.backend.infrastructure.llm.validator import validate_llm_response
 
 test_app = FastAPI()
 

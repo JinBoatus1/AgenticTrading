@@ -23,10 +23,9 @@ The backend now provides **safe LLM integration** that:
 
 | File | Purpose |
 |------|---------|
-| `llm_validator.py` | Validation engine (schema, constraints, tool rejection) |
+| `infrastructure/llm/validator.py` | Validation engine (schema, constraints, tool rejection) |
 | `llm_integration_example.py` | Example endpoint to add to app.py |
-| `test_llm_validator.py` | 50+ unit tests (all cases including security) |
-| `../SECURITY_AUDIT.md` | Full risk analysis and remediation plan |
+| `tests/test_llm_validator.py` | 50+ unit tests (all cases including security) |
 
 ---
 
@@ -36,14 +35,14 @@ The backend now provides **safe LLM integration** that:
 # Install pytest if not present
 pip install pytest
 
-# Run all validator tests
-pytest tests/test_llm_validator.py -v
+# Run all validator tests (from the repo root)
+pytest dashboard/backend/tests/test_llm_validator.py -v
 
 # Run specific test category
-pytest tests/test_llm_validator.py::TestToolCallingRejection -v
+pytest dashboard/backend/tests/test_llm_validator.py::TestToolCallingRejection -v
 
 # Check test coverage
-pytest tests/test_llm_validator.py --cov=llm_validator
+pytest dashboard/backend/tests/test_llm_validator.py --cov=dashboard.backend.infrastructure.llm.validator
 ```
 
 **Expected:** All tests pass ✅
@@ -55,7 +54,7 @@ pytest tests/test_llm_validator.py --cov=llm_validator
 ### In Your Code
 
 ```python
-from llm_validator import validate_llm_response
+from dashboard.backend.infrastructure.llm.validator import validate_llm_response
 
 # Get response from LLM
 raw_response = llm.call(prompt)  # JSON string from LLM
@@ -101,6 +100,34 @@ The LLM **must** respond with JSON matching this schema:
   "position_size": 100
 }
 ```
+
+---
+
+## Exemption: the backtest engine's LLM loop (incl. custom `strategy_prompt`)
+
+The hourly backtest engine (`domain/backtesting/portfolio_manager.py`,
+`make_trading_decision_with_llm`) — including runs driven by a user's
+free-form `strategy_prompt` ("My Trading Algo") — does **not** route parsed
+decisions through `validate_llm_response`. It predates the validator and its
+behavior is intentionally preserved byte-for-byte for backtest reproducibility.
+
+It applies these constraints inline instead:
+
+| Constraint | Enforcement |
+|------------|-------------|
+| JSON-only, no tools | Prompt scaffold pins the output contract; response is parsed as JSON only (`parse_llm_response`), never executed |
+| Symbol allowlist | Non-DJIA-30 symbols skipped |
+| Action count | Capped at one action per DJIA symbol (`len(DJIA_30)`); excess entries ignored |
+| Per-order size | `position_size > MAX_ORDER_SHARES` (10k, same constant as the validator) skipped; unparseable/non-finite sizes skipped |
+| Cash bound | Buys must fit in available cash; sells limited to held shares |
+| Confidence floor | Actions with confidence < 0.3 skipped |
+
+A custom `strategy_prompt` replaces only the *strategy* section of the prompt;
+the market snapshot, symbol allowlist, and strict JSON output contract are
+appended by fixed scaffolding (`create_custom_prompt`) and cannot be overridden
+by the user text. If you need the stricter schema validation (tool-call
+rejection, audit logging), route through `validate_llm_response` as below —
+new endpoints must not copy this exemption.
 
 ---
 
@@ -292,22 +319,22 @@ All decisions logged:
 ### Run All Tests
 
 ```bash
-pytest tests/test_llm_validator.py -v
+pytest dashboard/backend/tests/test_llm_validator.py -v
 ```
 
-Output:
+Output (node IDs are shown with the full repo-root path):
 ```
-tests/test_llm_validator.py::TestValidResponses::test_valid_buy_decision PASSED
-tests/test_llm_validator.py::TestValidResponses::test_valid_sell_decision PASSED
-tests/test_llm_validator.py::TestValidResponses::test_valid_hold_decision PASSED
-tests/test_llm_validator.py::TestInvalidJSON::test_malformed_json PASSED
-tests/test_llm_validator.py::TestToolCallingRejection::test_tool_use_block_rejected PASSED
-tests/test_llm_validator.py::TestToolCallingRejection::test_tool_calls_attribute_rejected PASSED
-tests/test_llm_validator.py::TestToolCallingRejection::test_function_calls_rejected PASSED
-tests/test_llm_validator.py::TestToolCallingRejection::test_api_access_attempt_rejected PASSED
-tests/test_llm_validator.py::TestInvalidSchema::test_invalid_symbol PASSED
-tests/test_llm_validator.py::TestInvalidSchema::test_confidence_out_of_range PASSED
-tests/test_llm_validator.py::TestPortfolioConstraints::test_insufficient_cash PASSED
+dashboard/backend/tests/test_llm_validator.py::TestValidResponses::test_valid_buy_decision PASSED
+dashboard/backend/tests/test_llm_validator.py::TestValidResponses::test_valid_sell_decision PASSED
+dashboard/backend/tests/test_llm_validator.py::TestValidResponses::test_valid_hold_decision PASSED
+dashboard/backend/tests/test_llm_validator.py::TestInvalidJSON::test_malformed_json PASSED
+dashboard/backend/tests/test_llm_validator.py::TestToolCallingRejection::test_tool_use_block_rejected PASSED
+dashboard/backend/tests/test_llm_validator.py::TestToolCallingRejection::test_tool_calls_attribute_rejected PASSED
+dashboard/backend/tests/test_llm_validator.py::TestToolCallingRejection::test_function_calls_rejected PASSED
+dashboard/backend/tests/test_llm_validator.py::TestToolCallingRejection::test_api_access_attempt_rejected PASSED
+dashboard/backend/tests/test_llm_validator.py::TestInvalidSchema::test_invalid_symbol PASSED
+dashboard/backend/tests/test_llm_validator.py::TestInvalidSchema::test_confidence_out_of_range PASSED
+dashboard/backend/tests/test_llm_validator.py::TestPortfolioConstraints::test_insufficient_cash PASSED
 ... (35+ more tests)
 
 ====== 50 passed in 1.23s ======
@@ -318,7 +345,7 @@ tests/test_llm_validator.py::TestPortfolioConstraints::test_insufficient_cash PA
 This is the most critical test. Ensure it passes:
 
 ```bash
-pytest tests/test_llm_validator.py::TestToolCallingRejection -v
+pytest dashboard/backend/tests/test_llm_validator.py::TestToolCallingRejection -v
 ```
 
 Must see:
@@ -431,7 +458,7 @@ Use for:
 
 ## Troubleshooting Checklist
 
-- [ ] Tests pass: `pytest tests/test_llm_validator.py -v`
+- [ ] Tests pass: `pytest dashboard/backend/tests/test_llm_validator.py -v`
 - [ ] Environment variable set: `echo $ANTHROPIC_API_KEY`
 - [ ] Anthropic SDK installed: `pip list | grep anthropic`
 - [ ] No tools in API call (removed `tools=[...]`)
@@ -444,25 +471,23 @@ Use for:
 
 ## Next Steps
 
-1. **Run tests:** `pytest tests/test_llm_validator.py -v`
-2. **Review:** Read `../SECURITY_AUDIT.md` for full context
-3. **Integrate:** Use `llm_integration_example.py` as template
-4. **Test endpoint:** Make sample API call to `/api/llm-trading-decision`
-5. **Monitor:** Check logs for `AUDIT:` entries
+1. **Run tests:** `pytest dashboard/backend/tests/test_llm_validator.py -v`
+2. **Integrate:** Use `llm_integration_example.py` as template
+3. **Test endpoint:** Make sample API call to `/api/llm-trading-decision`
+4. **Monitor:** Check logs for `AUDIT:` entries
 
 ---
 
 ## References
 
-- **SECURITY_AUDIT.md** — Full risk analysis and remediation plan
-- **llm_validator.py** — Source code for validation
+- **infrastructure/llm/validator.py** — Source code for validation
 - **llm_integration_example.py** — Integration pattern
-- **test_llm_validator.py** — Test coverage (50+ tests)
+- **tests/test_llm_validator.py** — Test coverage (50+ tests)
 
 ---
 
-**Questions?** Check the source files or review SECURITY_AUDIT.md.
+**Questions?** Check the source files above.
 
-**Security concern?** Update llm_validator.py and re-run tests.
+**Security concern?** Update `infrastructure/llm/validator.py` and re-run tests.
 
 **New constraints?** Modify `PortfolioConstraints` and add tests.

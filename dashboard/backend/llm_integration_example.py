@@ -23,7 +23,7 @@ import asyncio
 from anthropic import Anthropic
 
 # Import validation (from the same backend)
-from llm_validator import (
+from dashboard.backend.infrastructure.llm.validator import (
     validate_llm_response,
     create_safe_prompt,
     log_audit_trail,
@@ -186,7 +186,7 @@ If you cannot make a valid decision, respond with: {"action": "hold"}""",
 EXAMPLE_ENDPOINT = '''
 # Add this to dashboard/backend/app.py
 
-from llm_integration_example import SafeTradingLLMIntegration
+from dashboard.backend.llm_integration_example import SafeTradingLLMIntegration
 import os
 
 # Initialize LLM integration (once at startup)

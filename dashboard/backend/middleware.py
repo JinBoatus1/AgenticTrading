@@ -13,13 +13,18 @@ import uuid
 EXEMPT_PATHS = {
     '/',
     '/index.html',
+    '/app',
+    '/app/',
+    '/app.html',
     '/favicon.ico',
+    '/favicon.svg',
     '/health',
     '/api/health',
     '/ticker',
     '/config/defaults',  # Default configuration (public, no session needed)
     '/compare',  # Public equity comparison (browser-friendly links)
     '/runs',  # Public backtest run listing
+    '/strategy',  # Public strategy viewer page (shared links, no session needed)
 }
 
 EXEMPT_EXTENSIONS = {'.js', '.css', '.png', '.jpg', '.gif', '.svg', '.woff', '.woff2', '.ttf'}
@@ -30,7 +35,7 @@ def is_exempt(path: str) -> bool:
         return True
     if any(path.endswith(ext) for ext in EXEMPT_EXTENSIONS):
         return True
-    if path.startswith(('/static/', '/public/', '/assets/')):
+    if path.startswith(('/static/', '/public/', '/assets/', '/js/', '/market-events/', '/images/')):
         return True
     return False
 
@@ -104,3 +109,18 @@ class SessionMiddleware(BaseHTTPMiddleware):
         print(f"✅ Session: {session_id[:8]}... | Route: {path}")
         
         return await call_next(request)
+
+
+# CSP Middleware: Permit Chart.js and inline scripts (for development)
+class CSPHeaderMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        # Allow Chart.js and scripts from same origin, plus unsafe-inline for development
+        response.headers["Content-Security-Policy"] = (
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "connect-src *; img-src * data:;"
+        )
+        # DO NOT override CORS headers here — let CORSMiddleware handle them
+        return response

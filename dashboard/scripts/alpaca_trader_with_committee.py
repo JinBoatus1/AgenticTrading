@@ -16,8 +16,12 @@ import sys
 from pathlib import Path
 from datetime import datetime, time
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
-from paths import DATA_DIR, DASHBOARD_DIR
+# Direct-execution bootstrap: make the repo root importable so canonical
+# `dashboard.backend.*` imports resolve (no-op when run as part of the package).
+from _bootstrap import ensure_repo_root
+
+ensure_repo_root()
+from dashboard.backend.paths import DATA_DIR, DASHBOARD_DIR
 
 LOG_FILE = DATA_DIR / "trading_log.json"
 SENTIMENT_FILE = DASHBOARD_DIR / "sentiment_scores.json"

@@ -1,11 +1,8 @@
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-from app import app  # noqa: E402
+from dashboard.backend.app import app
 
 client = TestClient(app)
 

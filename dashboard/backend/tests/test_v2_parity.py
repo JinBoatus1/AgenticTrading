@@ -1,10 +1,7 @@
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from api.v2.models import ContextEnvelope, ResultEnvelope, SubmitAck  # noqa: E402
-from tests._v2_fakes import FakeBackend  # noqa: E402
+from dashboard.backend.api.v2.models import ContextEnvelope, ResultEnvelope, SubmitAck
+from dashboard.backend.tests._v2_fakes import FakeBackend
 
 
 def test_fake_backend_envelopes_validate_against_models():

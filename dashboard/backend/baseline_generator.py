@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 import sys
 
-from paths import CREDENTIALS_DIR
+from dashboard.backend.paths import CREDENTIALS_DIR
 
 # Try to import numpy
 try:

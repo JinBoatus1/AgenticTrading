@@ -40,11 +40,13 @@ except ImportError:
 
 from backtest_engine import BacktestEngine, TradeType
 
-# Import database
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
-from paths import CREDENTIALS_DIR, DATA_DIR
-from database import db
+# Direct-execution bootstrap: make the repo root importable so canonical
+# `dashboard.backend.*` imports resolve (no-op when run as part of the package).
+from _bootstrap import ensure_repo_root
+
+ensure_repo_root()
+from dashboard.backend.paths import CREDENTIALS_DIR, DATA_DIR
+from dashboard.backend.database import db
 
 # ============================================================================
 # Configuration

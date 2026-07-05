@@ -6,12 +6,12 @@ from typing import Any, Dict
 
 from fastapi import APIRouter
 
-from api.v2.errors import ERROR_CODES
-from api.v2.models import (
+from dashboard.backend.api.v2.errors import ERROR_CODES
+from dashboard.backend.api.v2.models import (
     SCHEMA_VERSION, UNIVERSE, UNIVERSE_KEY, ActionItem, ContextEnvelope,
     DecisionRequest, ResultEnvelope, SubmitAck,
 )
-from auth_scopes import SCOPES
+from dashboard.backend.api.v2.auth_scopes import SCOPES
 
 router = APIRouter(prefix="/v2", tags=["v2-schema"])
 

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from llm_validator import DJIA_30
+from dashboard.backend.infrastructure.llm.validator import DJIA_30
 
 SCHEMA_VERSION = "2.0"
 UNIVERSE_KEY = "djia_30"

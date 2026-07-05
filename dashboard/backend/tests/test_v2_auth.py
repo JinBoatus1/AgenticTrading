@@ -1,10 +1,6 @@
-import sys
 import uuid
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from agent_store import AgentStore  # noqa: E402
+from dashboard.backend.domain.agents.repository import AgentStore
 
 
 def _store(tmp_path):
@@ -28,10 +24,10 @@ def test_resolve_api_key_returns_scopes(tmp_path):
     assert "decisions:write" in resolved["scopes"]
 
 
-import pytest  # noqa: E402
+import pytest
 
-from api.v2.errors import ApiError  # noqa: E402
-from auth_scopes import SCOPES, parse_scopes, require_scope  # noqa: E402
+from dashboard.backend.api.v2.errors import ApiError
+from dashboard.backend.api.v2.auth_scopes import SCOPES, parse_scopes, require_scope
 
 
 def test_scopes_constant_is_the_five():
@@ -54,7 +50,7 @@ def test_require_scope_rejects_missing_key():
 
 
 def test_require_scope_rejects_bad_scope(tmp_path, monkeypatch):
-    import agent_store as agent_store_mod
+    from dashboard.backend.domain.agents import repository as agent_store_mod
     store = AgentStore(db_path=tmp_path / "a.db")
     created = store.create_agent(name="limited", session_id=str(uuid.uuid4()))
     # Narrow the agent's scopes so the requested one is absent
@@ -64,7 +60,7 @@ def test_require_scope_rejects_bad_scope(tmp_path, monkeypatch):
     conn.commit()
     conn.close()
     monkeypatch.setattr(agent_store_mod, "agent_store", store)
-    import auth_scopes
+    from dashboard.backend.api.v2 import auth_scopes
     monkeypatch.setattr(auth_scopes, "agent_store", store)
 
     dep = require_scope("decisions:write")
@@ -74,7 +70,7 @@ def test_require_scope_rejects_bad_scope(tmp_path, monkeypatch):
     assert exc.value.code == "forbidden_scope"
 
 
-from rate_limit import TokenBucketLimiter  # noqa: E402
+from dashboard.backend.api.v2.rate_limit import TokenBucketLimiter
 
 
 def test_rate_limiter_allows_then_blocks():

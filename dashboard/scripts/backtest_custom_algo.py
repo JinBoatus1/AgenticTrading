@@ -22,11 +22,14 @@ from typing import Dict, List
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
-sys.path.insert(0, str(Path(__file__).parent))
+# Direct-execution bootstrap: make the repo root importable so canonical
+# `dashboard.backend.*` imports resolve (no-op when run as part of the package).
+from _bootstrap import ensure_repo_root
 
-from algo_prompt import create_custom_algo_prompt, parse_risk_rules
-from database import db
+ensure_repo_root()
+
+from dashboard.backend.infrastructure.llm.prompts import create_custom_algo_prompt, parse_risk_rules
+from dashboard.backend.database import db
 
 from backtest_hourly_agent import (  # noqa: E402
     DJIA_30,

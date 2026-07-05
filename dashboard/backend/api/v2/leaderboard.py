@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter
 
-from database import db
+from dashboard.backend.database import db
 
 router = APIRouter(prefix="/v2", tags=["v2-leaderboard"])
 

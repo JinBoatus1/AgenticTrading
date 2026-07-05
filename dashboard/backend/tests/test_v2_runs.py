@@ -1,10 +1,7 @@
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import api.v2.runs as runs_mod  # noqa: E402
-from tests._v2_fakes import FakeBackend  # noqa: E402
+import dashboard.backend.api.v2.runs as runs_mod
+from dashboard.backend.tests._v2_fakes import FakeBackend
 
 
 def _register_fake(run_id="run_unit_1", session_id="sess_unit_1"):
@@ -32,7 +29,7 @@ def test_lifecycle_create_context_decide_result():
 def test_wrong_session_cannot_read_run():
     _register_fake(run_id="run_unit_2", session_id="owner")
     import pytest
-    from api.v2.errors import ApiError
+    from dashboard.backend.api.v2.errors import ApiError
     with pytest.raises(ApiError) as exc:
         runs_mod._context_for("run_unit_2", "intruder")
     assert exc.value.status == 404

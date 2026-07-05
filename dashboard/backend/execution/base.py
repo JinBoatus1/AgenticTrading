@@ -31,6 +31,14 @@ class ExecutionBackend(ABC):
         """Per-decision log for this run (empty if the backend keeps none)."""
         return []
 
+    def is_active(self) -> bool:
+        """Cheap, side-effect-free liveness peek (used by the active-run cap).
+
+        Must not take engine locks or advance state — status() is NOT a
+        substitute: on a live session it can cascade into deadline handling
+        and finalization."""
+        return True
+
     def advance(self) -> None:
         """Lockstep stepping hook. Realtime backends are wall-clock driven (no-op)."""
         return None

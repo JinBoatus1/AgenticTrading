@@ -1,12 +1,9 @@
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import pytest  # noqa: E402
-from pydantic import ValidationError  # noqa: E402
+import pytest
+from pydantic import ValidationError
 
-from api.v2.models import (  # noqa: E402
+from dashboard.backend.api.v2.models import (
     SCHEMA_VERSION, UNIVERSE, ActionItem, ContextEnvelope,
     DecisionRequest, ErrorEnvelope, NewsSentimentEntry, SubmitAck,
 )
@@ -41,7 +38,7 @@ def test_decision_request_requires_idempotency_key():
 
 
 def test_validate_actions_splits_valid_and_invalid():
-    from api.v2.models import validate_actions
+    from dashboard.backend.api.v2.models import validate_actions
     valid, rejected = validate_actions([
         {"action": "buy", "symbol": "AAPL", "confidence": 0.7,
          "reasoning": "valid reason", "position_size": 3},

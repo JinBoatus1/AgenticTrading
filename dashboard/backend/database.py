@@ -13,7 +13,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 
-from paths import DEFAULT_DB_PATH
+from dashboard.backend.paths import DEFAULT_DB_PATH
 
 # Use persistent disk path if set (Render), otherwise local dashboard storage path
 DB_PATH = Path(os.getenv("DATABASE_PATH", str(DEFAULT_DB_PATH)))
@@ -462,17 +462,46 @@ class BacktestDatabase:
         """Get all runs for a specific session."""
         conn = self._get_connection()
         cursor = conn.cursor()
-        
+
         cursor.execute("""
-            SELECT * FROM agent_runs 
+            SELECT * FROM agent_runs
             WHERE session_id = ?
             ORDER BY created_at DESC
         """, (session_id,))
-        
+
         rows = cursor.fetchall()
         conn.close()
-        
+
         return [dict(row) for row in rows]
+
+    def get_runs_by_sessions(self, session_ids: List[str]) -> Dict[str, List[Dict]]:
+        """Get all runs for several sessions in one query, grouped by session.
+
+        Batch companion to ``get_runs_by_session`` so listings that enrich many
+        agents don't issue one query per agent. Every requested session id is
+        present in the result (empty list when it has no runs); per-session
+        ordering matches ``get_runs_by_session`` (created_at DESC).
+        """
+        grouped: Dict[str, List[Dict]] = {sid: [] for sid in session_ids if sid}
+        if not grouped:
+            return grouped
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        placeholders = ",".join("?" * len(grouped))
+        cursor.execute(f"""
+            SELECT * FROM agent_runs
+            WHERE session_id IN ({placeholders})
+            ORDER BY created_at DESC
+        """, list(grouped))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        for row in rows:
+            run = dict(row)
+            grouped[run["session_id"]].append(run)
+        return grouped
     
     def get_run(self, run_id: str) -> Optional[Dict]:
         """Get metadata for a specific run (no session check)."""

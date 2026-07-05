@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from api.v2.models import SCHEMA_VERSION, UNIVERSE
-from execution.base import ExecutionBackend
+from dashboard.backend.api.v2.models import SCHEMA_VERSION, UNIVERSE
+from dashboard.backend.execution.base import ExecutionBackend
 
 
 class FakeBackend(ExecutionBackend):

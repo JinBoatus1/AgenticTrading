@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from execution.base import ExecutionBackend
+from dashboard.backend.execution.base import ExecutionBackend
 
 _NOT_BUILT = "PaperBackend is a designed-for stub (Phase B); not built in v1."
 

@@ -1,9 +1,6 @@
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from external_backtest_service import ExternalBacktestSession  # noqa: E402
+from dashboard.backend.domain.backtesting.external_run_service import ExternalBacktestSession
 
 
 def _session(**kw):

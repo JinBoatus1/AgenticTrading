@@ -1,9 +1,6 @@
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from api.v2.schema import build_schema  # noqa: E402
+from dashboard.backend.api.v2.schema import build_schema
 
 
 def test_schema_publishes_contract_metadata():

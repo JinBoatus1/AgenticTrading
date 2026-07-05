@@ -8,8 +8,9 @@ services:
     # Build and run from repository root (dashboard lives under dashboard/)
     buildCommand: pip install -r requirements.txt
     
-    # Start command
-    startCommand: python dashboard/backend/app.py
+    # Start command (canonical ASGI package target; runs via Render's shell,
+    # which expands $PORT). No import-path workarounds needed.
+    startCommand: uvicorn dashboard.backend.app:app --host 0.0.0.0 --port $PORT
     
     # Port
     envVars:

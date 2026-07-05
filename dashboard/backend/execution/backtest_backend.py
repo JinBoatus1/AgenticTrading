@@ -11,25 +11,23 @@ import json
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
-from api.v2.models import SCHEMA_VERSION
-from database import db
-from execution.base import ExecutionBackend
-from llm_validator import DJIA_30
-import external_backtest_service as ext
-
-# Re-export so tests can monkeypatch the loader / universe on this module.
-bha = ext.bha
+from dashboard.backend.api.v2.errors import ApiError
+from dashboard.backend.api.v2.models import SCHEMA_VERSION
+from dashboard.backend.database import db
+from dashboard.backend.execution.base import ExecutionBackend
+from dashboard.backend.infrastructure.llm.validator import DJIA_30
+from dashboard.backend.domain.backtesting import external_run_service as ext
 
 
 def load_news_sentiment(universe: List[str], timestamp: Any) -> Tuple[Dict[str, Any], Optional[str]]:
     """Populate the news_sentiment slot from Plan 1's adapter, fail-closed.
 
-    Plan 1 (integrations/news_sentiment.py) is expected to expose
+    Plan 1 (dashboard/backend/integrations/news_sentiment.py) is expected to expose
     get_news_sentiment(universe, timestamp) -> {"news_sentiment": {...}, "news_overview": str|None}.
     Until it lands, the slot is guaranteed present and empty.
     """
     try:
-        from integrations.news_sentiment import get_news_sentiment  # type: ignore
+        from dashboard.backend.integrations.news_sentiment import get_news_sentiment  # type: ignore
     except Exception:
         return {}, None
     try:
@@ -67,7 +65,10 @@ class BacktestBackend(ExecutionBackend):
         def _load() -> None:
             try:
                 self.session.load_market_data()
-            except Exception as exc:  # mirror v1 start_backtest behavior
+            except (Exception, SystemExit) as exc:  # mirror v1 start_backtest behavior
+                # SystemExit too: AlpacaDataLoader sys.exit()s when creds are
+                # absent, and a daemon thread swallows an uncaught SystemExit
+                # silently — the run would sit in "loading" forever.
                 # Take the session lock: HTTP readers inspect status/error under
                 # the same lock (get_current_step/get_status), so the writer must
                 # hold it too to avoid a data race on these fields.
@@ -124,11 +125,44 @@ class BacktestBackend(ExecutionBackend):
 
     # -- decisions ---------------------------------------------------------
 
+    @staticmethod
+    def _raise_rejection(result: Dict[str, Any]) -> None:
+        """Map the engine's non-accepted submit results to typed v2 errors.
+
+        Flattening them into the ack shape would report a refused submission
+        as an accepted-looking decision attributed to "external_agent"."""
+        err = str(result.get("error") or "invalid_status")
+        if err == "step_already_closed":
+            raise ApiError(
+                "step_already_closed",
+                "The step closed before the decision arrived (step auto-held)",
+                status=409, retryable=True,
+                details={"outcome": result.get("outcome"),
+                         "next_step": result.get("next_step")},
+            )
+        if err == "backtest_already_completed":
+            raise ApiError("invalid_status", "Run already completed", status=409)
+        if err.startswith("invalid_status:"):
+            state = err.split(":", 1)[1]
+            raise ApiError(
+                "invalid_status",
+                f"Run is not awaiting a decision (status: {state})", status=409,
+                retryable=state == "loading",
+            )
+        # Engine-level payload rejection (parse failure etc.) — the step was
+        # auto-held with decision_source="validation_hold" by the engine.
+        raise ApiError(
+            "validation_failed", err, status=422,
+            details={"outcome": result.get("outcome")},
+        )
+
     def apply_decisions(self, actions: List[Dict[str, Any]]) -> Dict[str, Any]:
         # Actions arrive pre-validated from the v2 boundary (validate_actions);
         # this backend executes them and reports execution results. Schema-level
         # rejections are merged in by the boundary.
         result = self.session.submit_decisions({"actions": actions})
+        if not result.get("accepted", True):
+            self._raise_rejection(result)
 
         executed = [
             {"action": e.get("action"), "symbol": e.get("symbol"),
@@ -164,6 +198,13 @@ class BacktestBackend(ExecutionBackend):
         s["mode"] = "backtest"
         s["loop"] = self.loop
         return s
+
+    def is_active(self) -> bool:
+        # Deliberately an unlocked attribute read: the cap check runs under the
+        # global create lock and must never take _step_lock (get_status can
+        # cascade into _maybe_apply_timeout/_finalize). Worst case the cap
+        # briefly counts a just-finished run — fine for a resource cap.
+        return self.session.status not in ("completed", "failed", "closed")
 
     def result(self) -> Optional[Dict[str, Any]]:
         if not self.session.run_id:

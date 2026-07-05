@@ -1,0 +1,33 @@
+import { Route, Switch, Router as WouterRouter } from 'wouter';
+import LandingPage from '@/pages/landing-page';
+
+// Simplified fallback for NotFound just in case
+function NotFound() {
+  return (
+    <div className="flex h-screen w-full items-center justify-center bg-background text-foreground">
+      <div className="text-center font-mono">
+        <h1 className="text-4xl font-bold text-primary mb-4">404</h1>
+        <p className="text-muted-foreground">ROUTE_NOT_FOUND</p>
+      </div>
+    </div>
+  );
+}
+
+function Router() {
+  return (
+    <Switch>
+      <Route path="/" component={LandingPage} />
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
+function App() {
+  return (
+    <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+      <Router />
+    </WouterRouter>
+  );
+}
+
+export default App;

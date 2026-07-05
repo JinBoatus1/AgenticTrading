@@ -9,11 +9,9 @@ import sys
 from pathlib import Path
 
 # Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from fastapi.testclient import TestClient
-from app import app
-from database import BacktestDatabase
+from dashboard.backend.app import app
+from dashboard.backend.database import BacktestDatabase
 import uuid
 
 @pytest.fixture
@@ -29,8 +27,8 @@ def temp_db():
 def client(temp_db, monkeypatch):
     """Test client with temporary database."""
     # Patch the database module to use temp DB
-    import app as app_module
-    import database as db_module
+    import dashboard.backend.app as app_module
+    import dashboard.backend.database as db_module
     
     monkeypatch.setattr(app_module, "db", temp_db)
     monkeypatch.setattr(db_module, "db", temp_db)
@@ -177,3 +175,11 @@ def test_paper_trading_no_session_required(client):
     # Should not return 400 for missing header
     response = client.get('/paper/account')
     assert response.status_code != 400
+
+
+def test_app_dashboard_no_session_required(client):
+    """Dashboard HTML at /app must load without X-Session-Id (browser navigation)."""
+    response = client.get('/app')
+    assert response.status_code == 200
+    assert 'text/html' in response.headers.get('content-type', '')
+    assert 'Missing X-Session-Id' not in response.text

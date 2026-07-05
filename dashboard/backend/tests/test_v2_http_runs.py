@@ -6,19 +6,15 @@ FakeBackend under a run_id whose session_id matches a freshly-registered
 agent. This avoids Alpaca/network while still exercising the wire contract.
 """
 
-import sys
 import time
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from fastapi.testclient import TestClient
 
-from fastapi.testclient import TestClient  # noqa: E402
-
-import api.v2.runs as runs_mod  # noqa: E402
-import rate_limit  # noqa: E402
-from agent_store import agent_store  # noqa: E402
-from app import app  # noqa: E402
-from tests._v2_fakes import FakeBackend  # noqa: E402
+import dashboard.backend.api.v2.runs as runs_mod
+from dashboard.backend.api.v2 import rate_limit
+from dashboard.backend.domain.agents.repository import agent_store
+from dashboard.backend.app import app
+from dashboard.backend.tests._v2_fakes import FakeBackend
 
 client = TestClient(app)
 

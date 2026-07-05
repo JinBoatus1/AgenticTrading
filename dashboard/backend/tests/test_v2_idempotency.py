@@ -1,10 +1,7 @@
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import api.v2.runs as runs_mod  # noqa: E402
-from tests._v2_fakes import FakeBackend  # noqa: E402
+import dashboard.backend.api.v2.runs as runs_mod
+from dashboard.backend.tests._v2_fakes import FakeBackend
 
 
 def test_replayed_key_returns_original_ack_no_double_execute():
