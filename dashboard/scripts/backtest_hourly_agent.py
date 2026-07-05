@@ -289,4 +289,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    from dashboard.backend.infrastructure.market_data.alpaca_bars import (
+        MarketDataUnavailableError,
+    )
+
+    try:
+        main()
+    except MarketDataUnavailableError as exc:
+        # Library code raises (so server threads can catch it); the CLI
+        # boundary is where the process exit belongs.
+        print(f"❌ {exc}")
+        sys.exit(1)

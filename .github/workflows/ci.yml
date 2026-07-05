@@ -29,6 +29,11 @@ jobs:
           pip install pytest pytest-timeout matplotlib
 
       - name: Run backend tests
+        # DATABASE_PATH is a belt-and-suspenders backstop: tests/conftest.py
+        # already self-isolates into a tempdir, but if that fixture ever
+        # regresses, this keeps CI from writing into the committed seed DB.
+        env:
+          DATABASE_PATH: ${{ runner.temp }}/ci-backtest.db
         run: pytest dashboard/backend/tests/ --timeout=180 -p no:cacheprovider
 
   packaging-tests:

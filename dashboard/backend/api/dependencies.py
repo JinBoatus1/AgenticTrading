@@ -35,6 +35,12 @@ def _owner_context(request: Request, authorization: Optional[str]) -> Dict[str, 
     trading_session = request.headers.get("x-session-id") or request.headers.get("X-Session-Id")
     browser_owner = request.headers.get("x-browser-id") or request.headers.get("X-Browser-Id")
     if not browser_owner:
+        # Fallback: with no X-Browser-Id, the X-Session-Id doubles as the owner
+        # identity. For agents created via import_session (which stores
+        # owner_browser_session = session_id) the session id therefore IS an
+        # ownership credential — "session_id is never a credential" only holds
+        # for built-in agents. Clients that can send X-Browser-Id should; this
+        # branch exists for API-only importers with no browser identity.
         browser_owner = trading_session
     user = _optional_user(authorization)
     return {

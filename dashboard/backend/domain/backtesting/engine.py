@@ -14,10 +14,9 @@ Baseline methods and result assembly intentionally remain here for now; they can
 be extracted in a later phase.
 """
 
-import sys
 import uuid
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from dashboard.backend.database import db
 import dashboard.backend.infrastructure.llm.token_cost as token_cost
@@ -30,7 +29,11 @@ from dashboard.backend.domain.backtesting.metrics import (
     calculate_max_drawdown,
 )
 from dashboard.backend.domain.backtesting.portfolio_manager import PortfolioManager
-from dashboard.backend.infrastructure.market_data.alpaca_bars import AlpacaDataLoader
+from dashboard.backend.infrastructure.market_data.alpaca_bars import (
+    AlpacaDataLoader,
+    MarketDataUnavailableError,
+)
+import dashboard.backend.infrastructure.llm.backtest_harness as llm_harness
 from dashboard.backend.infrastructure.llm.backtest_harness import (
     HAS_ANTHROPIC,
     default_model_name,
@@ -85,8 +88,13 @@ class HourlyBacktester:
         """Fetch hourly data from Alpaca."""
         self.all_data = self.data_loader.fetch_bars(DJIA_30, self.start_date, self.end_date)
         if not self.all_data:
-            print("❌ No data fetched. Exiting.")
-            sys.exit(1)
+            # Raise, don't sys.exit(1): this runs inside server threads
+            # (external runs, algo service) where SystemExit evades
+            # `except Exception` and strands the run (the B0 class).
+            print("❌ No data fetched.")
+            raise MarketDataUnavailableError(
+                f"No market data available for {self.start_date}..{self.end_date}"
+            )
     
     def calculate_indicators(self):
         """Calculate technical indicators for all symbols."""
@@ -99,6 +107,17 @@ class HourlyBacktester:
                 print(f"  ✅ {count}/{len(self.all_data)} symbols...")
         print(f"  ✅ All indicators calculated\n")
     
+    def _llm_run_metadata(self) -> Optional[Dict]:
+        """Config snapshot recorded on the agent run row.
+
+        LLM_MAX_OUTPUT_TOKENS is an env knob that changes a run's spend and
+        response truncation; recording the EFFECTIVE value (post defensive
+        parse) makes runs auditable after the env changes. Rule-based runs
+        record nothing."""
+        if not self.use_llm:
+            return None
+        return {"llm_max_output_tokens": llm_harness.DEFAULT_MAX_OUTPUT_TOKENS}
+
     def run_agent_backtest(self) -> Tuple[str, List[Dict]]:
         """Run backtest with agent making hourly decisions."""
         print("🤖 Running Agent backtest (hourly decisions)...\n")
@@ -245,8 +264,9 @@ class HourlyBacktester:
             input_tokens=manager.input_tokens,
             output_tokens=manager.output_tokens,
             est_cost_usd=est_cost,
+            metadata=self._llm_run_metadata(),
         )
-        
+
         db.insert_equity_points(run_id, equity_curve)
         
         print(f"\n  ✅ Agent backtest complete")

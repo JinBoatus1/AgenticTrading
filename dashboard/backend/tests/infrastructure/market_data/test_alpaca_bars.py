@@ -124,14 +124,21 @@ def test_credentials_from_file_fallback(fake_alpaca, monkeypatch, tmp_path):
     assert loader.secret_key == "file-s"
 
 
-def test_missing_credentials_exits(fake_alpaca, monkeypatch, tmp_path):
+def test_missing_credentials_raises(fake_alpaca, monkeypatch, tmp_path):
+    """Missing credentials raise MarketDataUnavailableError — deliberately NOT
+    SystemExit (B0 deep fix): a plain exception is catchable by the server's
+    `except Exception` boundaries. See tests/test_market_data_errors.py."""
+    from dashboard.backend.infrastructure.market_data.alpaca_bars import (
+        MarketDataUnavailableError,
+    )
+
     monkeypatch.delenv("ALPACA_API_KEY", raising=False)
     monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
     monkeypatch.setattr(
         "dashboard.backend.infrastructure.market_data.alpaca_bars.CREDENTIALS_DIR",
         tmp_path,  # no alpaca.json here
     )
-    with pytest.raises(SystemExit):
+    with pytest.raises(MarketDataUnavailableError):
         AlpacaDataLoader()
 
 

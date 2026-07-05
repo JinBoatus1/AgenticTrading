@@ -14,9 +14,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from dashboard.backend.api.v2.errors import ApiError
 from dashboard.backend.api.v2.models import SCHEMA_VERSION
 from dashboard.backend.database import db
-from dashboard.backend.execution.base import ExecutionBackend
+from dashboard.backend.execution.base import ExecutionBackend, TERMINAL_STATUSES
 from dashboard.backend.infrastructure.llm.validator import DJIA_30
 from dashboard.backend.domain.backtesting import external_run_service as ext
+# Late-bound module reference (run_repo.run_store) so tests that swap the
+# run_store singleton cover this module too.
+from dashboard.backend.domain.runs import repository as run_repo
 
 
 def load_news_sentiment(universe: List[str], timestamp: Any) -> Tuple[Dict[str, Any], Optional[str]]:
@@ -66,15 +69,39 @@ class BacktestBackend(ExecutionBackend):
             try:
                 self.session.load_market_data()
             except (Exception, SystemExit) as exc:  # mirror v1 start_backtest behavior
-                # SystemExit too: AlpacaDataLoader sys.exit()s when creds are
-                # absent, and a daemon thread swallows an uncaught SystemExit
-                # silently — the run would sit in "loading" forever.
+                # Missing creds now raise MarketDataUnavailableError (plain
+                # Exception, B0 deep fix); the SystemExit catch stays as
+                # defense-in-depth — a daemon thread swallows an uncaught
+                # SystemExit silently and the run would sit in "loading" forever.
                 # Take the session lock: HTTP readers inspect status/error under
                 # the same lock (get_current_step/get_status), so the writer must
-                # hold it too to avoid a data race on these fields.
+                # hold it too to avoid a data race on these fields. A cancel()
+                # that won during the load already wrote a terminal "closed";
+                # don't clobber it (mirror cancel()'s own terminal guard).
                 with self.session._step_lock:
-                    self.session.status = "failed"
-                    self.session.error = str(exc)
+                    if self.session.status not in TERMINAL_STATUSES:
+                        self.session.status = "failed"
+                        self.session.error = str(exc)
+                    final_status = self.session.status
+                # Mirror the run's true terminal state into its protocol_runs row
+                # so the unified active-run cap frees this slot without waiting
+                # for the reaper's next reconcile pass.
+                try:
+                    run_repo.run_store.update_run(self.run_id, status=final_status)
+                except Exception:
+                    pass  # row bookkeeping is best-effort; the sweep reconciles
+                return
+            # Loaded. Advance the row to 'running' only if the run wasn't
+            # cancelled/finished while loading — load_market_data leaves a
+            # terminal status untouched under the lock, so reviving it to
+            # 'running' here would resurrect a run the agent already cancelled.
+            with self.session._step_lock:
+                status_now = self.session.status
+            if status_now not in TERMINAL_STATUSES:
+                try:
+                    run_repo.run_store.update_run(self.run_id, status="running")
+                except Exception:
+                    pass  # best-effort; both statuses count as active anyway
 
         self.session.status = "loading"
         threading.Thread(target=_load, daemon=True).start()
@@ -170,7 +197,7 @@ class BacktestBackend(ExecutionBackend):
             for e in (result.get("executed") or [])
         ]
 
-        return {
+        ack = {
             "accepted": bool(result.get("accepted", True)),
             "executed": executed,
             "rejected": [],
@@ -180,16 +207,45 @@ class BacktestBackend(ExecutionBackend):
             "run_id": self.run_id,
             "metrics": result.get("metrics"),
         }
+        if ack["status"] == "completed":
+            # The final submit finalized the run — record the terminal state on
+            # its protocol_runs row so cap counting and restart recovery see it.
+            try:
+                run_repo.run_store.update_run(
+                    self.run_id,
+                    status="completed",
+                    result_run_id=self.session.run_id or self.run_id,
+                )
+            except Exception:
+                pass  # best-effort; the reaper sweep reconciles
+        return ack
 
     def decisions(self) -> List[Dict[str, Any]]:
         return self.session.get_decisions()
 
     def advance(self) -> None:
-        # Lockstep engine advances inside submit; this only applies a pending timeout.
-        self.session.get_current_step()
+        # Lockstep engine advances inside submit; this only applies a pending
+        # timeout. drain_expired() does exactly that (same auto-hold loop the v1
+        # reaper uses) without get_current_step()'s discarded market-snapshot
+        # rebuild — this runs every reaper pass, per live run, under _step_lock.
+        self.session.drain_expired()
 
     def cancel(self) -> None:
-        self.session.status = "closed"
+        # Cancel only closes a run that is still running — never clobber a
+        # terminal state. A finalizing submit racing a cancel would otherwise
+        # flip completed → closed, and every later read (row reconcile,
+        # archive, metrics) derives from this field.
+        #
+        # Fast path: a lock-free status read (same pattern as is_active). If the
+        # run is already terminal — including "completed", which _finalize
+        # publishes BEFORE its slow baseline block — return without taking the
+        # lock, so a cancel never blocks for the finalize/baseline duration
+        # (seconds-to-minutes held under _step_lock).
+        if self.session.status in TERMINAL_STATUSES:
+            return
+        with self.session._step_lock:
+            if self.session.status not in TERMINAL_STATUSES:
+                self.session.status = "closed"
 
     # -- status / result ---------------------------------------------------
 
@@ -204,12 +260,159 @@ class BacktestBackend(ExecutionBackend):
         # global create lock and must never take _step_lock (get_status can
         # cascade into _maybe_apply_timeout/_finalize). Worst case the cap
         # briefly counts a just-finished run — fine for a resource cap.
-        return self.session.status not in ("completed", "failed", "closed")
+        return self.session.status not in TERMINAL_STATUSES
 
     def result(self) -> Optional[Dict[str, Any]]:
         if not self.session.run_id:
             return None
         base = ext.get_run_result(self.session.run_id, self.session.session_id)
+        if base is None:
+            return None
+        base["manifest"] = db.get_run_manifest(self.run_id)
+        return base
+
+
+class ArchivedBacktestBackend(ExecutionBackend):
+    """DB-backed tombstone for a terminal run whose engine session was freed.
+
+    The reaper swaps this in for a finished BacktestBackend (releasing the
+    market-data buffers — ~99% of a session's memory), and the v2 API
+    rehydrates one from a terminal protocol_runs row after a restart. Reads
+    (status/result/decisions and DB-cached idempotent replays) keep working;
+    new decisions get the same invalid_status rejection the live path gives
+    for a terminal run.
+    """
+
+    loop = "lockstep"
+
+    _TERMINAL = TERMINAL_STATUSES
+
+    def __init__(self, *, run_id: str, session_id: str, status: str,
+                 error: Optional[str] = None, step_index: int = 0,
+                 total_steps: int = 0, result_run_id: Optional[str] = None):
+        self.run_id = run_id
+        self.session_id = session_id
+        self.terminal_status = status if status in self._TERMINAL else "failed"
+        self.error = error
+        self.step_index = int(step_index or 0)
+        self.total_steps = int(total_steps or 0)
+        self.result_run_id = result_run_id or run_id
+
+    @classmethod
+    def from_record(cls, record: Dict[str, Any]) -> "ArchivedBacktestBackend":
+        """Rebuild from a terminal protocol_runs row (post-restart reads).
+
+        Step counts are persisted on the row at archive time (step_index /
+        total_steps), so a failed/closed run reports its real progress instead
+        of 0/0. Legacy rows that predate those columns fall back to the
+        completed run's decision log (one row per executed step); a legacy
+        failed run has no such log and stays 0/0, which is genuinely
+        unrecoverable."""
+        status = record.get("status") or "failed"
+        result_run_id = record.get("result_run_id") or record["run_id"]
+        step_index = record.get("step_index")
+        total_steps = record.get("total_steps")
+        if (step_index is None or total_steps is None) and status == "completed":
+            try:
+                count = len(db.get_decisions(result_run_id))
+                step_index = count if step_index is None else step_index
+                total_steps = count if total_steps is None else total_steps
+            except Exception:
+                pass
+        step_index = step_index or 0
+        total_steps = total_steps or 0
+        return cls(
+            run_id=record["run_id"],
+            session_id=record["session_id"],
+            status=status,
+            result_run_id=record.get("result_run_id"),
+            step_index=step_index,
+            total_steps=total_steps,
+        )
+
+    # -- lifecycle: everything is over -------------------------------------
+
+    def is_active(self) -> bool:
+        return False
+
+    def current_step_index(self) -> int:
+        return self.step_index
+
+    def advance(self) -> None:
+        return None
+
+    def cancel(self) -> None:
+        return None  # already terminal; do not clobber completed → closed
+
+    # -- reads --------------------------------------------------------------
+
+    def build_context(self) -> Dict[str, Any]:
+        # Mirrors the live backend's non-waiting envelope.
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "run_id": self.run_id,
+            "mode": "backtest",
+            "loop": self.loop,
+            "universe": list(DJIA_30),
+            "status": self.terminal_status,
+            "step_index": self.step_index,
+            "total_steps": self.total_steps,
+            "news_sentiment": {},
+            "news_overview": None,
+        }
+
+    def apply_decisions(self, actions: List[Dict[str, Any]]) -> Dict[str, Any]:
+        # Same errors the live path raises for a terminal session (via
+        # _raise_rejection), so archival is invisible to error handling.
+        if self.terminal_status == "completed":
+            raise ApiError("invalid_status", "Run already completed", status=409)
+        raise ApiError(
+            "invalid_status",
+            f"Run is not awaiting a decision (status: {self.terminal_status})",
+            status=409,
+        )
+
+    def status(self) -> Dict[str, Any]:
+        base: Dict[str, Any] = {
+            "backtest_id": self.run_id,
+            "status": self.terminal_status,
+            "step_index": self.step_index,
+            "total_steps": self.total_steps,
+            "run_id": self.result_run_id,
+            "mode": "backtest",
+            "loop": self.loop,
+        }
+        manifest = db.get_run_manifest(self.run_id) or {}
+        base["agent_name"] = manifest.get("agent_name")
+        base["model_name"] = manifest.get("model_name")
+        if self.terminal_status == "completed":
+            row = db.get_run(self.result_run_id)
+            if row:
+                base["metrics"] = ext.build_final_metrics(row)
+                # The live get_status() carries baseline_run_ids + compare_url
+                # for a completed run; rebuild them from the persisted baseline
+                # columns so archival doesn't silently drop those fields.
+                baseline_run_ids: Dict[str, str] = {}
+                if row.get("baseline_buyhold_run_id"):
+                    baseline_run_ids["buy_and_hold"] = row["baseline_buyhold_run_id"]
+                if row.get("baseline_djia_run_id"):
+                    baseline_run_ids["djia"] = row["baseline_djia_run_id"]
+                base["baseline_run_ids"] = baseline_run_ids
+                base["compare_url"] = ext.build_compare_url(
+                    self.result_run_id, baseline_run_ids
+                )
+        if self.error:
+            base["error"] = self.error
+        return base
+
+    def decisions(self) -> List[Dict[str, Any]]:
+        try:
+            return db.get_decisions(self.result_run_id)
+        except Exception:
+            return []
+
+    def result(self) -> Optional[Dict[str, Any]]:
+        base = ext.get_run_result(self.result_run_id, self.session_id)
         if base is None:
             return None
         base["manifest"] = db.get_run_manifest(self.run_id)

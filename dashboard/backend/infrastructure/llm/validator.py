@@ -592,6 +592,10 @@ Confidence:
 - HOLD confidence should usually be 0.30 to 0.60.
 - Use confidence above 0.85 only for very clear setups.
 
+Constraints (fixed):
+- Use ONLY the provided market_snapshot. No internet, tools, APIs, or code.
+- Trade ONLY symbols listed in VALID SYMBOLS.
+
 MARKET SNAPSHOT:
 {market_snapshot}
 
