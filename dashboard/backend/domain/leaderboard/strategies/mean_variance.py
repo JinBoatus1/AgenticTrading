@@ -1,11 +1,11 @@
 """Mean-variance (Markowitz) optimal portfolio over a universe (default DJIA 30).
 
-Estimates the long-only maximum-Sharpe portfolio from the window's hourly
-returns, allocates capital by those weights at the start, and holds.
+Estimates the long-only maximum-Sharpe portfolio from the **prior-month
+reference window** (see ``reference_start_date`` in leaderboard config),
+then allocates at the contest open and holds through the contest window.
 
-Note: weights are estimated in-sample over the contest window, so this is an
-idealized "mean-variance optimal" reference baseline rather than a tradeable
-out-of-sample strategy. It is intentionally self-contained (numpy only).
+Weights are out-of-sample: covariance/returns use only reference-period bars,
+not the contest month being evaluated.
 """
 
 from __future__ import annotations
@@ -22,7 +22,10 @@ from ._common import (
     build_price_cache,
     equity_curve_from_positions,
     market_timestamps,
+    reference_start_date,
     subset_bars,
+    timestamps_in_contest,
+    timestamps_in_reference,
 )
 
 
@@ -68,26 +71,36 @@ class MeanVarianceStrategy(BaselineStrategy):
         if not bars_subset:
             return []
 
-        timestamps = market_timestamps(bars_subset)
-        if not timestamps:
+        all_timestamps = market_timestamps(bars_subset)
+        if not all_timestamps:
             return []
 
-        price_cache = build_price_cache(bars_subset, timestamps)
+        ref_start = reference_start_date(start_date, self.config)
+        ref_timestamps = timestamps_in_reference(all_timestamps, ref_start, start_date)
+        contest_timestamps = timestamps_in_contest(all_timestamps, start_date, end_date)
+        if len(ref_timestamps) < 3 or not contest_timestamps:
+            return []
+
+        price_cache = build_price_cache(bars_subset, all_timestamps)
         active_symbols = sorted(price_cache.keys())
         if not active_symbols:
             return []
 
-        price_matrix = np.array(
-            [[price_cache[sym][ts] for sym in active_symbols] for ts in timestamps],
+        ref_matrix = np.array(
+            [[price_cache[sym][ts] for sym in active_symbols] for ts in ref_timestamps],
             dtype=float,
         )
-        if price_matrix.shape[0] < 3:
+        if ref_matrix.shape[0] < 3:
             return []
 
-        returns = price_matrix[1:] / price_matrix[:-1] - 1.0
-        weights = self._optimal_weights(returns)
+        ref_returns = ref_matrix[1:] / ref_matrix[:-1] - 1.0
+        weights = self._optimal_weights(ref_returns)
 
-        first_prices = price_matrix[0]
+        first_contest_ts = contest_timestamps[0]
+        first_prices = np.array(
+            [price_cache[sym][first_contest_ts] for sym in active_symbols],
+            dtype=float,
+        )
         positions: Dict[str, int] = {}
         cash = float(initial_capital)
         for idx, symbol in enumerate(active_symbols):
@@ -106,9 +119,16 @@ class MeanVarianceStrategy(BaselineStrategy):
         self._num_positions = len(positions)
         print(
             f"\n   📋 Mean-variance baseline: {len(positions)} positions, "
-            f"top weight {weights.max():.1%}"
+            f"top weight {weights.max():.1%} "
+            f"(weights from {ref_start} → {start_date}, contest {start_date} → {end_date})"
         )
-        return equity_curve_from_positions(positions, cash, price_cache, timestamps)
+        contest_price_cache = {
+            sym: {ts: prices[ts] for ts in contest_timestamps if ts in prices}
+            for sym, prices in price_cache.items()
+        }
+        return equity_curve_from_positions(
+            positions, cash, contest_price_cache, contest_timestamps
+        )
 
     def num_trades(self) -> int:
         return getattr(self, "_num_positions", 0)

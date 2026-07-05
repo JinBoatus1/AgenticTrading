@@ -24,6 +24,10 @@ from dashboard.backend.infrastructure.market_data.alpaca_bars import (
     MarketDataUnavailableError,
 )
 
+# NOTE: domain.leaderboard.strategies._common is imported lazily inside the
+# methods that need it — the strategies package imports this module back
+# (buy_hold et al.), so a top-level import here is a circular import.
+
 # Try to import numpy
 try:
     import numpy as np
@@ -195,12 +199,16 @@ class BaselineGenerator:
                 market_hours_only.append(ts)
         
         all_timestamps = market_hours_only
-        
+        from dashboard.backend.domain.leaderboard.strategies._common import (
+            timestamps_in_contest,
+        )
+        all_timestamps = timestamps_in_contest(all_timestamps, start_date, end_date)
+
         if not all_timestamps:
             return []
-        
+
         first_ts = all_timestamps[0]
-        
+
         # Buy equal amounts of available stocks
         positions = {}
         cash = initial_capital
@@ -324,12 +332,16 @@ class BaselineGenerator:
                 market_hours_only.append(ts)
         
         all_timestamps = market_hours_only
-        
+        from dashboard.backend.domain.leaderboard.strategies._common import (
+            timestamps_in_contest,
+        )
+        all_timestamps = timestamps_in_contest(all_timestamps, start_date, end_date)
+
         if not all_timestamps:
             return []
-        
+
         first_ts = all_timestamps[0]
-        
+
         # Get initial prices
         initial_prices = {}
         for symbol, df in bars_subset.items():

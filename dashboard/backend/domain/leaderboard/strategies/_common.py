@@ -6,12 +6,58 @@ bars. They contain no strategy logic, so individual strategies stay independent.
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import pytz
 
 _ET = pytz.timezone("US/Eastern")
+
+
+def parse_config_date(date_str: str) -> dt.date:
+    return dt.datetime.strptime(date_str, "%Y-%m-%d").date()
+
+
+def reference_start_date(contest_start: str, config: Optional[Dict[str, Any]] = None) -> str:
+    """Prior-month reference window start (defaults to one calendar month before contest)."""
+    if config and config.get("reference_start_date"):
+        return str(config["reference_start_date"])
+    start = parse_config_date(contest_start)
+    month = start.month - 1
+    year = start.year
+    if month < 1:
+        month = 12
+        year -= 1
+    return f"{year}-{month:02d}-{start.day:02d}"
+
+
+def timestamp_date(ts: Any) -> dt.date:
+    if hasattr(ts, "astimezone"):
+        return ts.astimezone(_ET).date()
+    return parse_config_date(str(ts)[:10])
+
+
+def timestamps_in_contest(
+    timestamps: List[Any],
+    start_date: str,
+    end_date: str,
+) -> List[Any]:
+    """Keep timestamps whose calendar date falls within [start_date, end_date]."""
+    start = parse_config_date(start_date)
+    end = parse_config_date(end_date)
+    return [ts for ts in timestamps if start <= timestamp_date(ts) <= end]
+
+
+def timestamps_in_reference(
+    timestamps: List[Any],
+    reference_start: str,
+    contest_start: str,
+) -> List[Any]:
+    """Keep timestamps in [reference_start, contest_start) — prior month only."""
+    ref_start = parse_config_date(reference_start)
+    contest = parse_config_date(contest_start)
+    return [ts for ts in timestamps if ref_start <= timestamp_date(ts) < contest]
 
 
 def filter_market_hours(timestamps: List[Any]) -> List[Any]:

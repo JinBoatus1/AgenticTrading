@@ -22,6 +22,7 @@ from dashboard.backend.domain.leaderboard.baselines import (
     downsample_daily,
     fetch_hourly_bars,
 )
+from dashboard.backend.domain.leaderboard.strategies._common import reference_start_date
 from dashboard.backend.domain.leaderboard.strategies import get_strategy
 from dashboard.backend.paths import CONFIG_DIR
 
@@ -71,6 +72,33 @@ def _symbols_for_config(config: Dict[str, Any]) -> List[str]:
     return sorted(symbols)
 
 
+def _config_needs_alpaca(config: Dict[str, Any]) -> bool:
+    """True when any auto-compute strategy requires Alpaca hourly stock bars."""
+    for strategy in config.get("strategies", []):
+        if not _auto_compute(strategy):
+            continue
+        if get_strategy(strategy).required_symbols():
+            return True
+    return False
+
+
+def _alpaca_bars_start(config: Dict[str, Any]) -> str:
+    """Earliest date for Alpaca fetch — includes prior-month reference when configured."""
+    contest_start = config["start_date"]
+    if config.get("reference_start_date") or _config_needs_mean_variance(config):
+        return reference_start_date(contest_start, config)
+    return contest_start
+
+
+def _config_needs_mean_variance(config: Dict[str, Any]) -> bool:
+    for strategy in config.get("strategies", []):
+        if not _auto_compute(strategy):
+            continue
+        if strategy.get("strategy") == "mean_variance":
+            return True
+    return False
+
+
 def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
     """Compute and persist leaderboard baselines if missing."""
     config = load_leaderboard_config()
@@ -89,13 +117,24 @@ def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
             needs_fetch = True
             break
 
-    bars_by_symbol = None
+    bars_by_symbol: Optional[Dict[str, Any]] = None
     if needs_fetch:
-        bars_by_symbol = fetch_hourly_bars(_symbols_for_config(config), start_date, end_date)
-        if not bars_by_symbol:
-            raise RuntimeError("No market data returned for leaderboard window")
+        if _config_needs_alpaca(config):
+            fetch_start = _alpaca_bars_start(config)
+            bars_by_symbol = fetch_hourly_bars(
+                _symbols_for_config(config), fetch_start, end_date
+            )
+            if not bars_by_symbol:
+                print(
+                    "⚠️ No Alpaca market data — skipping stock-based baselines "
+                    "(index lines still use Yahoo Finance)"
+                )
+                bars_by_symbol = {}
+        else:
+            bars_by_symbol = {}
 
     created = 0
+    skipped = 0
     for strategy in config.get("strategies", []):
         strategy_id = strategy["id"]
         if not _auto_compute(strategy):
@@ -107,12 +146,22 @@ def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
             continue
 
         strategy_impl = get_strategy(strategy)
-        bars = bars_by_symbol or fetch_hourly_bars(
-            _symbols_for_config(config), start_date, end_date
-        )
+        required = strategy_impl.required_symbols()
+        if bars_by_symbol is not None:
+            bars = bars_by_symbol
+        else:
+            bars = fetch_hourly_bars(required, start_date, end_date) if required else {}
+
+        if required and not bars:
+            print(f"⚠️ Skipping {strategy_id}: no Alpaca bars for contest window")
+            skipped += 1
+            continue
+
         curve = strategy_impl.run(bars, start_date, end_date, initial_capital)
         if not curve:
-            raise RuntimeError(f"No equity curve for strategy {strategy_id}")
+            print(f"⚠️ Skipping {strategy_id}: empty equity curve")
+            skipped += 1
+            continue
 
         metrics = calc_metrics(curve, initial_capital)
         run_id = _run_id(strategy_id, start_date, end_date)
@@ -151,6 +200,7 @@ def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
         "start_date": start_date,
         "end_date": end_date,
         "created": created,
+        "skipped": skipped,
         "refreshed_at": _utcnow_iso(),
     }
 

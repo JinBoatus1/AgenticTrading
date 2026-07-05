@@ -3,7 +3,8 @@
   "initial_capital": 100000,
   "start_date": "2026-04-15",
   "end_date": "2026-05-15",
-  "description": "One-month contest window (backtest data)",
+  "reference_start_date": "2026-03-15",
+  "description": "One-month contest window; stock baselines use prior-month data only as reference (no in-window look-ahead)",
   "strategies": [
     {
       "id": "spy_index",

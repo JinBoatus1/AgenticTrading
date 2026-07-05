@@ -311,6 +311,7 @@ function renderAgentsGrid(agents) {
       </div>
       ${renderAgentRunList(agent)}
       <div class="agent-card-actions">
+        <button class="agent-action-btn agent-edit-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">Edit</button>
         <button class="agent-action-btn agent-select-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">View in Playground</button>
         ${discordButton}
         ${apiKeyButton}
@@ -318,6 +319,16 @@ function renderAgentsGrid(agents) {
       </div>
     `;
     grid.appendChild(card);
+  });
+
+  grid.querySelectorAll('.agent-edit-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const agent = agents.find((a) => a.agent_id === btn.dataset.agentId);
+      if (!agent || !window.AgentEditor) return;
+      navigateToPage('playground', { playgroundTab: 'agents' });
+      showPlaygroundPanel('agents');
+      window.AgentEditor.open(agent);
+    });
   });
 
   grid.querySelectorAll('.agent-select-btn').forEach((btn) => {
