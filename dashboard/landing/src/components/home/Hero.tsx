@@ -5,33 +5,25 @@ import { useState, useEffect } from "react";
 
 export function Hero() {
   return (
-    <section className="relative pt-32 pb-20 md:pt-40 md:pb-32 overflow-hidden min-h-[90vh] flex items-center">
+    <section className="relative pt-36 pb-20 md:pt-44 md:pb-32 overflow-hidden min-h-[90vh] flex items-center">
       <div className="absolute inset-0 bg-grid-pattern opacity-30 [mask-image:radial-gradient(ellipse_at_center,black,transparent_80%)]" />
 
       <div className="container mx-auto px-6 relative z-10 flex flex-col lg:flex-row items-center gap-16">
         <div className="flex-1 text-center lg:text-left">
           <motion.h1
-            className="text-5xl md:text-7xl font-bold tracking-tighter leading-[1.1] mb-6"
+            className="mb-8 max-w-xl text-[clamp(2.5rem,3.2vw,3.625rem)] font-extrabold leading-[1.05] tracking-[-0.04em] text-[#e5e7eb] mx-auto lg:mx-0"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
           >
-            Talk to agents<br />
-            Test trading ideas
+            Talk to Agents<br />
+            <span className="text-[#22d3ee]">Test Trading Ideas</span>
           </motion.h1>
-          <motion.p
-            className="text-lg md:text-xl text-muted-foreground mb-8 max-w-xl mx-auto lg:mx-0 leading-relaxed"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
-          >
-            Connect your financial agent, interact through Discord, and review its decisions, trades, and performance in the lab.
-          </motion.p>
           <motion.div
             className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
           >
             <Button size="lg" className="w-full sm:w-auto bg-primary text-primary-foreground glow-primary hover:bg-primary/90 text-base h-12 px-8" asChild>
               <a href="/app">Get Started</a>
