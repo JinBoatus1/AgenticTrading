@@ -18,7 +18,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[5]
 _RUN_KEYS = {
     "run_id", "agent_id", "agent_version_id", "session_id", "environment_id",
     "environment_type", "config", "backtest_id", "result_run_id", "status",
-    "created_at", "updated_at",
+    "step_index", "total_steps", "created_at", "updated_at",
 }
 
 

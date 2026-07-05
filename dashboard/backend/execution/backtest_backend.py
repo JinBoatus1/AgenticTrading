@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from dashboard.backend.api.v2.errors import ApiError
 from dashboard.backend.api.v2.models import SCHEMA_VERSION
 from dashboard.backend.database import db
-from dashboard.backend.execution.base import ExecutionBackend
+from dashboard.backend.execution.base import ExecutionBackend, TERMINAL_STATUSES
 from dashboard.backend.infrastructure.llm.validator import DJIA_30
 from dashboard.backend.domain.backtesting import external_run_service as ext
 # Late-bound module reference (run_repo.run_store) so tests that swap the
@@ -75,24 +75,33 @@ class BacktestBackend(ExecutionBackend):
                 # SystemExit silently and the run would sit in "loading" forever.
                 # Take the session lock: HTTP readers inspect status/error under
                 # the same lock (get_current_step/get_status), so the writer must
-                # hold it too to avoid a data race on these fields.
+                # hold it too to avoid a data race on these fields. A cancel()
+                # that won during the load already wrote a terminal "closed";
+                # don't clobber it (mirror cancel()'s own terminal guard).
                 with self.session._step_lock:
-                    self.session.status = "failed"
-                    self.session.error = str(exc)
-                # Mirror the failure into the run's protocol_runs row so the
-                # unified active-run cap frees this slot without waiting for
-                # the reaper's next reconcile pass.
+                    if self.session.status not in TERMINAL_STATUSES:
+                        self.session.status = "failed"
+                        self.session.error = str(exc)
+                    final_status = self.session.status
+                # Mirror the run's true terminal state into its protocol_runs row
+                # so the unified active-run cap frees this slot without waiting
+                # for the reaper's next reconcile pass.
                 try:
-                    run_repo.run_store.update_run(self.run_id, status="failed")
+                    run_repo.run_store.update_run(self.run_id, status=final_status)
                 except Exception:
                     pass  # row bookkeeping is best-effort; the sweep reconciles
                 return
-            # Loaded: leave 'loading' so row readers (v1 listing, recovery
-            # diagnostics) see an honest 'running' for the run's active life.
-            try:
-                run_repo.run_store.update_run(self.run_id, status="running")
-            except Exception:
-                pass  # best-effort; both statuses count as active anyway
+            # Loaded. Advance the row to 'running' only if the run wasn't
+            # cancelled/finished while loading — load_market_data leaves a
+            # terminal status untouched under the lock, so reviving it to
+            # 'running' here would resurrect a run the agent already cancelled.
+            with self.session._step_lock:
+                status_now = self.session.status
+            if status_now not in TERMINAL_STATUSES:
+                try:
+                    run_repo.run_store.update_run(self.run_id, status="running")
+                except Exception:
+                    pass  # best-effort; both statuses count as active anyway
 
         self.session.status = "loading"
         threading.Thread(target=_load, daemon=True).start()
@@ -222,10 +231,17 @@ class BacktestBackend(ExecutionBackend):
         # Cancel only closes a run that is still running — never clobber a
         # terminal state. A finalizing submit racing a cancel would otherwise
         # flip completed → closed, and every later read (row reconcile,
-        # archive, metrics) derives from this field. Same lock as the
-        # finalizing writer.
+        # archive, metrics) derives from this field.
+        #
+        # Fast path: a lock-free status read (same pattern as is_active). If the
+        # run is already terminal — including "completed", which _finalize
+        # publishes BEFORE its slow baseline block — return without taking the
+        # lock, so a cancel never blocks for the finalize/baseline duration
+        # (seconds-to-minutes held under _step_lock).
+        if self.session.status in TERMINAL_STATUSES:
+            return
         with self.session._step_lock:
-            if self.session.status not in ("completed", "failed"):
+            if self.session.status not in TERMINAL_STATUSES:
                 self.session.status = "closed"
 
     # -- status / result ---------------------------------------------------
@@ -241,7 +257,7 @@ class BacktestBackend(ExecutionBackend):
         # global create lock and must never take _step_lock (get_status can
         # cascade into _maybe_apply_timeout/_finalize). Worst case the cap
         # briefly counts a just-finished run — fine for a resource cap.
-        return self.session.status not in ("completed", "failed", "closed")
+        return self.session.status not in TERMINAL_STATUSES
 
     def result(self) -> Optional[Dict[str, Any]]:
         if not self.session.run_id:
@@ -266,7 +282,7 @@ class ArchivedBacktestBackend(ExecutionBackend):
 
     loop = "lockstep"
 
-    _TERMINAL = ("completed", "failed", "closed")
+    _TERMINAL = TERMINAL_STATUSES
 
     def __init__(self, *, run_id: str, session_id: str, status: str,
                  error: Optional[str] = None, step_index: int = 0,
@@ -283,17 +299,25 @@ class ArchivedBacktestBackend(ExecutionBackend):
     def from_record(cls, record: Dict[str, Any]) -> "ArchivedBacktestBackend":
         """Rebuild from a terminal protocol_runs row (post-restart reads).
 
-        The row does not store step counts, but a completed run's decision
-        log has exactly one row per executed step — recover the counts from
-        there instead of reporting a misleading 0/0."""
+        Step counts are persisted on the row at archive time (step_index /
+        total_steps), so a failed/closed run reports its real progress instead
+        of 0/0. Legacy rows that predate those columns fall back to the
+        completed run's decision log (one row per executed step); a legacy
+        failed run has no such log and stays 0/0, which is genuinely
+        unrecoverable."""
         status = record.get("status") or "failed"
         result_run_id = record.get("result_run_id") or record["run_id"]
-        step_index = total_steps = 0
-        if status == "completed":
+        step_index = record.get("step_index")
+        total_steps = record.get("total_steps")
+        if (step_index is None or total_steps is None) and status == "completed":
             try:
-                step_index = total_steps = len(db.get_decisions(result_run_id))
+                count = len(db.get_decisions(result_run_id))
+                step_index = count if step_index is None else step_index
+                total_steps = count if total_steps is None else total_steps
             except Exception:
                 pass
+        step_index = step_index or 0
+        total_steps = total_steps or 0
         return cls(
             run_id=record["run_id"],
             session_id=record["session_id"],
@@ -372,6 +396,18 @@ class ArchivedBacktestBackend(ExecutionBackend):
                     "output_tokens": row.get("output_tokens"),
                     "est_cost_usd": row.get("est_cost_usd"),
                 }
+                # The live get_status() carries baseline_run_ids + compare_url
+                # for a completed run; rebuild them from the persisted baseline
+                # columns so archival doesn't silently drop those fields.
+                baseline_run_ids: Dict[str, str] = {}
+                if row.get("baseline_buyhold_run_id"):
+                    baseline_run_ids["buy_and_hold"] = row["baseline_buyhold_run_id"]
+                if row.get("baseline_djia_run_id"):
+                    baseline_run_ids["djia"] = row["baseline_djia_run_id"]
+                base["baseline_run_ids"] = baseline_run_ids
+                base["compare_url"] = ext.build_compare_url(
+                    self.result_run_id, baseline_run_ids
+                )
         if self.error:
             base["error"] = self.error
         return base

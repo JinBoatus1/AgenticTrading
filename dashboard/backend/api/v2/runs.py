@@ -40,6 +40,7 @@ from dashboard.backend.execution.backtest_backend import (
     ArchivedBacktestBackend,
     BacktestBackend,
 )
+from dashboard.backend.execution.base import TERMINAL_STATUSES as _TERMINAL_STATUSES
 from dashboard.backend.api.v2.rate_limit import enforce
 
 router = APIRouter(prefix="/v2/runs", tags=["v2-runs"])
@@ -47,8 +48,6 @@ router = APIRouter(prefix="/v2/runs", tags=["v2-runs"])
 # run_id -> {"backend": ExecutionBackend, "session_id": str, "agent_id": str|None}
 _runs: Dict[str, Dict[str, Any]] = {}
 _lock = threading.Lock()
-
-_TERMINAL_STATUSES = ("completed", "failed", "closed")
 
 # MAX_ACTIVE_RUNS_PER_AGENT (imported from the v1 run service — one knob for
 # both surfaces): each active run pins an in-memory engine session holding
@@ -99,11 +98,23 @@ def _archive_run(run_id: str, entry: Dict[str, Any], backend: Any) -> None:
     status = _terminal_status(backend)
     session = getattr(backend, "session", None)
     result_run_id = getattr(session, "run_id", None) or run_id
+    step_index = (getattr(session, "step_index", None)
+                  if session is not None else None)
+    if step_index is None:
+        step_index = getattr(backend, "step_index", None)
+    total_steps = (getattr(session, "total_steps", None)
+                   if session is not None else None)
+    if total_steps is None:
+        total_steps = getattr(backend, "total_steps", None)
     try:
         run_repo.run_store.update_run(
             run_id,
             status=status,
             result_run_id=result_run_id if status == "completed" else None,
+            # Persist step counts so a post-restart from_record reports real
+            # progress for a failed/closed run instead of a misleading 0/0.
+            step_index=step_index,
+            total_steps=total_steps,
         )
     except Exception as exc:
         # Do NOT swap in the tombstone: with the backend gone nothing would
@@ -212,10 +223,12 @@ def reap_v2_runs() -> int:
     with _lock:
         items = list(_runs.items())
     live_ids = []
+    prunable = []  # tombstones archived in a PRIOR pass — safe to evict now
     reaped = 0
     for run_id, entry in items:
         backend = entry["backend"]
         if isinstance(backend, ArchivedBacktestBackend):
+            prunable.append((run_id, backend))
             continue
         try:
             backend.advance()  # applies any pending deadline auto-hold
@@ -230,6 +243,17 @@ def reap_v2_runs() -> int:
         else:
             _archive_run(run_id, entry, backend)
             reaped += 1
+    # Evict prior-pass tombstones so _runs is bounded by ACTIVE runs, not by
+    # total historical runs. The terminal row is DB-backed, so a later read
+    # rebuilds an equivalent tombstone via _rehydrate_terminal_run. Runs
+    # archived THIS pass stay one interval, so an immediately-following read is
+    # still served in-process (and single-pass tests see the tombstone).
+    if prunable:
+        with _lock:
+            for run_id, backend in prunable:
+                cur = _runs.get(run_id)
+                if cur is not None and cur["backend"] is backend:
+                    _runs.pop(run_id, None)
     if live_ids:
         try:
             run_repo.run_store.heartbeat_runs(live_ids)

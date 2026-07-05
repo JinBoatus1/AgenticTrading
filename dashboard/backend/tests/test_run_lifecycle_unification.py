@@ -610,7 +610,7 @@ def test_runstore_migration_tolerates_losing_the_alter_race(tmp_path):
     conn = sqlite3.connect(str(store.db_path))
     try:
         # Simulate the raced probe: a stale 'nothing exists yet' snapshot.
-        store._add_heartbeat_columns(conn.cursor(), existing_columns=set())
+        store._add_recovery_columns(conn.cursor(), existing_columns=set())
     finally:
         conn.close()
 

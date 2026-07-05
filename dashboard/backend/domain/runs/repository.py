@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from dashboard.backend.database import DB_PATH
+from dashboard.backend.database import DB_PATH, enable_wal
 
 # Identifies this process in protocol_runs.owner_instance. Fresh per process on
 # purpose: after a crash/restart the old instance's rows stop being heartbeated
@@ -55,6 +55,8 @@ def _public_run(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
         "backtest_id": data.get("backtest_id"),
         "result_run_id": data.get("result_run_id"),
         "status": data.get("status"),
+        "step_index": data.get("step_index"),
+        "total_steps": data.get("total_steps"),
         "created_at": data.get("created_at"),
         "updated_at": data.get("updated_at"),
     }
@@ -66,20 +68,8 @@ class RunStore:
     def __init__(self, db_path: Path | None = None):
         self.db_path = Path(db_path or DB_PATH)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._enable_wal()
+        enable_wal(self.db_path)  # shared helper — one definition for both layers
         self._init_schema()
-
-    def _enable_wal(self) -> None:
-        """Best-effort switch to WAL so step reads don't block on finalize
-        writes; persisted in the file (see BacktestDatabase._enable_wal)."""
-        try:
-            conn = sqlite3.connect(str(self.db_path))
-            try:
-                conn.execute("PRAGMA journal_mode=WAL")
-            finally:
-                conn.close()
-        except sqlite3.Error:
-            pass
 
     def _get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path))
@@ -108,16 +98,18 @@ class RunStore:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 owner_instance TEXT,
-                heartbeat_at TEXT
+                heartbeat_at TEXT,
+                step_index INTEGER,
+                total_steps INTEGER
             )
             """
         )
-        # Existing DBs predate the heartbeat columns; CREATE TABLE IF NOT
+        # Existing DBs predate the recovery/step columns; CREATE TABLE IF NOT
         # EXISTS won't add them, so probe and ALTER (same pattern as the
         # main DB's _migrate_schema).
         cursor.execute("PRAGMA table_info(protocol_runs)")
         columns = {row[1] for row in cursor.fetchall()}
-        self._add_heartbeat_columns(cursor, columns)
+        self._add_recovery_columns(cursor, columns)
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_protocol_runs_agent ON protocol_runs(agent_id)"
         )
@@ -149,14 +141,22 @@ class RunStore:
         conn.close()
 
     @staticmethod
-    def _add_heartbeat_columns(cursor, existing_columns) -> None:
-        """ALTER in the heartbeat columns missing from ``existing_columns``.
+    def _add_recovery_columns(cursor, existing_columns) -> None:
+        """ALTER in the recovery + step-count columns missing from
+        ``existing_columns`` (owner_instance/heartbeat_at for multi-worker
+        recovery; step_index/total_steps so a rehydrated terminal run reports
+        real progress instead of 0/0).
 
         Tolerates losing the probe→ALTER race to a concurrently-starting
         sibling process (multi-worker startup): a duplicate-column error
         means the column is there, which is the goal — anything else is
         real and re-raised."""
-        for col_name, col_def in (("owner_instance", "TEXT"), ("heartbeat_at", "TEXT")):
+        for col_name, col_def in (
+            ("owner_instance", "TEXT"),
+            ("heartbeat_at", "TEXT"),
+            ("step_index", "INTEGER"),
+            ("total_steps", "INTEGER"),
+        ):
             if col_name in existing_columns:
                 continue
             try:
@@ -224,6 +224,8 @@ class RunStore:
         backtest_id: Optional[str] = None,
         result_run_id: Optional[str] = None,
         status: Optional[str] = None,
+        step_index: Optional[int] = None,
+        total_steps: Optional[int] = None,
     ) -> None:
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -233,10 +235,13 @@ class RunStore:
             SET backtest_id = COALESCE(?, backtest_id),
                 result_run_id = COALESCE(?, result_run_id),
                 status = COALESCE(?, status),
+                step_index = COALESCE(?, step_index),
+                total_steps = COALESCE(?, total_steps),
                 updated_at = ?
             WHERE run_id = ?
             """,
-            (backtest_id, result_run_id, status, _utcnow_iso(), run_id),
+            (backtest_id, result_run_id, status, step_index, total_steps,
+             _utcnow_iso(), run_id),
         )
         conn.commit()
         conn.close()
