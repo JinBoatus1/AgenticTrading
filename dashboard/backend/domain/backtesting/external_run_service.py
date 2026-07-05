@@ -90,6 +90,28 @@ def build_compare_url(
     return f"/compare?run_ids={','.join(ids)}"
 
 
+def build_final_metrics(run: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The completed-run metrics block, from an agent_runs row.
+
+    Module-level (like build_compare_url) so the live session's get_status and
+    the archived-run tombstone hand out the exact same shape — a new metric
+    can't be added to one surface and silently dropped from the other. Returns
+    {} for a missing row."""
+    if not run:
+        return {}
+    return {
+        "total_return": run.get("total_return"),
+        "sharpe_ratio": run.get("sharpe_ratio"),
+        "max_drawdown": run.get("max_drawdown"),
+        "num_trades": run.get("num_trades"),
+        "final_equity": run.get("final_equity"),
+        "llm_calls": run.get("llm_calls"),
+        "input_tokens": run.get("input_tokens"),
+        "output_tokens": run.get("output_tokens"),
+        "est_cost_usd": run.get("est_cost_usd"),
+    }
+
+
 class ExternalBacktestSession:
     """One external-agent backtest driven hour-by-hour through the API."""
 
@@ -625,20 +647,7 @@ class ExternalBacktestSession:
     def _final_metrics(self) -> Dict[str, Any]:
         if not self.run_id:
             return {}
-        run = db.get_run(self.run_id)
-        if not run:
-            return {}
-        return {
-            "total_return": run.get("total_return"),
-            "sharpe_ratio": run.get("sharpe_ratio"),
-            "max_drawdown": run.get("max_drawdown"),
-            "num_trades": run.get("num_trades"),
-            "final_equity": run.get("final_equity"),
-            "llm_calls": run.get("llm_calls"),
-            "input_tokens": run.get("input_tokens"),
-            "output_tokens": run.get("output_tokens"),
-            "est_cost_usd": run.get("est_cost_usd"),
-        }
+        return build_final_metrics(db.get_run(self.run_id))
 
     def get_status(self) -> Dict[str, Any]:
         with self._step_lock:

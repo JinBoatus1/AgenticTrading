@@ -224,8 +224,11 @@ class BacktestBackend(ExecutionBackend):
         return self.session.get_decisions()
 
     def advance(self) -> None:
-        # Lockstep engine advances inside submit; this only applies a pending timeout.
-        self.session.get_current_step()
+        # Lockstep engine advances inside submit; this only applies a pending
+        # timeout. drain_expired() does exactly that (same auto-hold loop the v1
+        # reaper uses) without get_current_step()'s discarded market-snapshot
+        # rebuild — this runs every reaper pass, per live run, under _step_lock.
+        self.session.drain_expired()
 
     def cancel(self) -> None:
         # Cancel only closes a run that is still running — never clobber a
@@ -385,17 +388,7 @@ class ArchivedBacktestBackend(ExecutionBackend):
         if self.terminal_status == "completed":
             row = db.get_run(self.result_run_id)
             if row:
-                base["metrics"] = {
-                    "total_return": row.get("total_return"),
-                    "sharpe_ratio": row.get("sharpe_ratio"),
-                    "max_drawdown": row.get("max_drawdown"),
-                    "num_trades": row.get("num_trades"),
-                    "final_equity": row.get("final_equity"),
-                    "llm_calls": row.get("llm_calls"),
-                    "input_tokens": row.get("input_tokens"),
-                    "output_tokens": row.get("output_tokens"),
-                    "est_cost_usd": row.get("est_cost_usd"),
-                }
+                base["metrics"] = ext.build_final_metrics(row)
                 # The live get_status() carries baseline_run_ids + compare_url
                 # for a completed run; rebuild them from the persisted baseline
                 # columns so archival doesn't silently drop those fields.

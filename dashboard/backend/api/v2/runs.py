@@ -98,14 +98,15 @@ def _archive_run(run_id: str, entry: Dict[str, Any], backend: Any) -> None:
     status = _terminal_status(backend)
     session = getattr(backend, "session", None)
     result_run_id = getattr(session, "run_id", None) or run_id
-    step_index = (getattr(session, "step_index", None)
-                  if session is not None else None)
-    if step_index is None:
-        step_index = getattr(backend, "step_index", None)
-    total_steps = (getattr(session, "total_steps", None)
-                   if session is not None else None)
-    if total_steps is None:
-        total_steps = getattr(backend, "total_steps", None)
+
+    def _progress(attr: str) -> Optional[int]:
+        # Prefer the live session's count, else the backend's own (a tombstone
+        # carries them directly). `is None`, not `or`, so a real 0 is kept.
+        val = getattr(session, attr, None) if session is not None else None
+        return val if val is not None else getattr(backend, attr, None)
+
+    step_index = _progress("step_index")
+    total_steps = _progress("total_steps")
     try:
         run_repo.run_store.update_run(
             run_id,
@@ -128,10 +129,8 @@ def _archive_run(run_id: str, entry: Dict[str, Any], backend: Any) -> None:
         session_id=entry["session_id"],
         status=status,
         error=getattr(session, "error", None),
-        step_index=getattr(session, "step_index", None)
-        or getattr(backend, "step_index", 0),
-        total_steps=getattr(session, "total_steps", None)
-        or getattr(backend, "total_steps", 0),
+        step_index=step_index,
+        total_steps=total_steps,
         result_run_id=result_run_id,
     )
     with _lock:
@@ -454,9 +453,11 @@ def cancel_run(run_id: str, agent: dict = Depends(require_scope("runs:write"))):
     if active:
         backend.cancel()  # backend-level guard never clobbers terminal state
     status = _terminal_status(backend)
-    if active and not isinstance(backend, ArchivedBacktestBackend):
-        # Persist only a transition this request actually caused. If the run
-        # finalized between the peek and cancel(), _terminal_status already
+    if active:
+        # active is read from backend.is_active(), which an ArchivedBacktestBackend
+        # (tombstone) always reports False — so active already implies a live
+        # backend. Persist only a transition this request actually caused: if the
+        # run finalized between the peek and cancel(), _terminal_status already
         # reads "completed" and that is what lands — never a downgrade.
         try:
             run_repo.run_store.update_run(run_id, status=status)

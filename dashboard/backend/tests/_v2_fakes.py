@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from dashboard.backend.api.v2.models import SCHEMA_VERSION, UNIVERSE
-from dashboard.backend.execution.base import ExecutionBackend
+from dashboard.backend.execution.base import ExecutionBackend, TERMINAL_STATUSES
 
 
 class FakeBackend(ExecutionBackend):
@@ -100,4 +100,4 @@ class FakeBackend(ExecutionBackend):
     def is_active(self) -> bool:
         # Honest liveness (the ExecutionBackend default is always-True): the
         # reaper sweep and cap reconcile rely on terminal fakes reporting done.
-        return self._status not in ("completed", "failed", "closed")
+        return self._status not in TERMINAL_STATUSES

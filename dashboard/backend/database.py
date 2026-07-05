@@ -602,15 +602,15 @@ class BacktestDatabase:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT * FROM agent_runs 
+            SELECT * FROM agent_runs
             WHERE mode = ?
             ORDER BY created_at DESC
         """, (mode,))
-        
+
         rows = cursor.fetchall()
         conn.close()
-        
-        return [dict(row) for row in rows]
+
+        return [self._parse_run_row(dict(row)) for row in rows]
 
     def insert_trades(self, run_id: str, trades: List[Dict[str, Any]]) -> None:
         """Batch insert trade records for a backtest run."""

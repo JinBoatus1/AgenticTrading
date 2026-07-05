@@ -29,6 +29,7 @@ from typing import Any, Callable, Dict, List, Optional
 import dashboard.backend.domain.backtesting.external_run_service as ebs
 from dashboard.backend.database import db
 from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
+from dashboard.backend.execution.base import TERMINAL_STATUSES
 from dashboard.backend.domain.runs.environment import get_environment
 from dashboard.backend.infrastructure.llm.validator import DJIA_30, MAX_ORDER_SHARES
 from dashboard.backend.domain.runs.protocol import (
@@ -277,17 +278,17 @@ def reap_runs() -> int:
             if session is not None:
                 session.drain_expired()
                 _sync_status(run)
-                if run.status in ("completed", "failed") and run.backtest_id:
+                if run.status in TERMINAL_STATUSES and run.backtest_id:
                     if ebs.evict_session(run.backtest_id):
                         reaped += 1
-                elif run.status not in ("completed", "failed"):
+                elif run.status not in TERMINAL_STATUSES:
                     # Live in this process: keep its heartbeat fresh so no
                     # sibling instance's stale recovery can fail it. A
                     # non-terminal run WITHOUT a session is deliberately not
                     # heartbeated — it can never progress here, so letting it
                     # go stale is exactly how it gets recovered.
                     live_run_ids.append(run.run_id)
-            if run.status in ("completed", "failed"):
+            if run.status in TERMINAL_STATUSES:
                 # Terminal state is DB-backed (protocol_runs + protocol_steps);
                 # keeping the ProtocolRun would only grow _runs forever. But a
                 # request may be mid-flight on this run (holding run.lock, its
