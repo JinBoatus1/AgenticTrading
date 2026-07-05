@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import atlLogo from "@assets/atl-logo.png";
+import atlLogo from "@assets/atltransparent.png";
 
 const NAV_LINKS = [
   { href: "#agents", label: "Agents" },
@@ -10,7 +10,7 @@ const NAV_LINKS = [
 export function Navbar() {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
-      <div className="container mx-auto px-6 h-16 grid grid-cols-[1fr_auto_1fr] items-center">
+      <div className="container mx-auto grid grid-cols-[1fr_auto_1fr] items-center gap-5 px-6 py-4">
         <div className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
           {NAV_LINKS.map((link) => (
             <a key={link.href} href={link.href} className="hover:text-foreground transition-colors">
@@ -18,9 +18,11 @@ export function Navbar() {
             </a>
           ))}
         </div>
-        <Link href="/" className="col-start-2 flex items-center justify-center gap-2.5">
-          <img src={atlLogo} alt="ATL Logo" className="w-8 h-8 object-contain" />
-          <span className="text-lg font-bold tracking-tight text-foreground">Agentic Trading Lab</span>
+        <Link href="/" className="brand-lockup col-start-2 justify-center">
+          <div className="brand-logo">
+            <img src={atlLogo} alt="" />
+          </div>
+          <span className="brand-title">Agentic Trading Lab</span>
         </Link>
         <div className="col-start-3 flex items-center justify-end gap-3">
           <button
