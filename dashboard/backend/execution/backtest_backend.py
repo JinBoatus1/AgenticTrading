@@ -69,9 +69,10 @@ class BacktestBackend(ExecutionBackend):
             try:
                 self.session.load_market_data()
             except (Exception, SystemExit) as exc:  # mirror v1 start_backtest behavior
-                # SystemExit too: AlpacaDataLoader sys.exit()s when creds are
-                # absent, and a daemon thread swallows an uncaught SystemExit
-                # silently — the run would sit in "loading" forever.
+                # Missing creds now raise MarketDataUnavailableError (plain
+                # Exception, B0 deep fix); the SystemExit catch stays as
+                # defense-in-depth — a daemon thread swallows an uncaught
+                # SystemExit silently and the run would sit in "loading" forever.
                 # Take the session lock: HTTP readers inspect status/error under
                 # the same lock (get_current_step/get_status), so the writer must
                 # hold it too to avoid a data race on these fields.

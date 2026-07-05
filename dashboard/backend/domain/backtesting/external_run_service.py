@@ -564,11 +564,11 @@ class ExternalBacktestSession:
                 buyhold_run_id=buyhold_id,
             )
         # Baseline generation is strictly best-effort and must never break — or
-        # hang — run finalization. AlpacaDataLoader raises SystemExit (a
-        # BaseException, not Exception) when credentials are absent; if that
-        # escaped here it would propagate into the ASGI worker and wedge the
-        # request future forever. Catch SystemExit alongside Exception so a
-        # credential-less environment degrades to "run saved, no baselines".
+        # hang — run finalization. A credential-less environment now raises
+        # MarketDataUnavailableError (a plain Exception, B0 deep fix), but the
+        # SystemExit catch stays as defense-in-depth: any regression back to a
+        # BaseException here would propagate into the ASGI worker and wedge
+        # the request future forever (the original B0 hang).
         except (Exception, SystemExit) as exc:
             print(f"⚠️ Baseline generation failed (run saved): {exc}")
 
@@ -776,13 +776,12 @@ def start_backtest(
         _sessions[backtest_id] = session
 
     def _load_in_background() -> None:
-        # load_market_data() constructs AlpacaDataLoader, which raises SystemExit
-        # (a BaseException, not Exception) when credentials are absent. On this
-        # daemon thread the default threading.excepthook silently swallows
-        # SystemExit, so the thread would die without ever marking the session
-        # failed — leaving the run stuck in "loading" forever. Catch SystemExit
-        # alongside Exception so a credential-less environment fails the run
-        # cleanly instead of stranding it. (Mirrors the _finalize() catch above.)
+        # load_market_data() constructs AlpacaDataLoader; missing credentials
+        # now raise MarketDataUnavailableError (a plain Exception, B0 deep
+        # fix). The SystemExit catch stays as defense-in-depth: on this daemon
+        # thread the default threading.excepthook silently swallows
+        # SystemExit, so a regression back to sys.exit() would strand the run
+        # in "loading" forever. (Mirrors the _finalize() catch above.)
         try:
             session.load_market_data()
         except (Exception, SystemExit) as exc:
