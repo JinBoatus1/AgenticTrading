@@ -28,6 +28,14 @@ from dashboard.backend.paths import CONFIG_DIR
 
 LEADERBOARD_MODE = "leaderboard"
 
+# H6 integrity threshold: an LLM entry must have decided at least this fraction
+# of its steps with the model itself. Below it, the curve is mostly a rule-based
+# fallback and publishing it would misrepresent that model's result. 0.95 leaves
+# a small margin for transient API blips on a genuine run (e.g. 159/161) while
+# still rejecting partial-fallback curves (e.g. the 1/161 run that topped the
+# board). Override per-deploy with allow_fallback=True / --allow-fallback.
+MIN_LLM_DECISION_COVERAGE = 0.95
+
 
 def _auto_compute(strategy: Dict[str, Any]) -> bool:
     """Whether a strategy is cheap enough to compute on-demand during a web request.
@@ -174,6 +182,7 @@ def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
             strategy_id,
             strategy_impl,
             int(getattr(strategy_impl, "llm_calls", 0) or 0),
+            decision_steps=int(getattr(strategy_impl, "decision_steps", 0) or 0),
             model=strategy.get("model"),
         )
 
@@ -216,16 +225,27 @@ def _reject_if_llm_fallback(
     strategy_impl: Any,
     llm_calls: int,
     *,
+    decision_steps: int = 0,
     model: Optional[str] = None,
     model_id: Optional[str] = None,
     allow_fallback: bool = False,
 ) -> None:
     """Integrity guard (H6): refuse to publish an LLM entry that silently fell
-    back to rule-based trading — no client (missing key/SDK) or a model id the
-    active gateway rejected so every call failed. Publishing it would present a
-    rule-based curve as if the model produced it. Rule-based baselines expose no
-    ``used_llm`` (getattr → None) and pass through untouched. Applied on BOTH
-    insert paths so an LLM entry can't slip through the auto-compute path."""
+    back to rule-based trading. Two shapes of fallback are caught:
+
+    - **Total fallback** — no client (missing key/SDK) or a model id the active
+      gateway rejected so every call failed (``used_llm`` False or ``llm_calls``
+      0). The whole curve is rule-based.
+    - **Partial fallback** — the client worked for a few steps but most steps
+      fell back (``llm_calls / decision_steps`` below
+      ``MIN_LLM_DECISION_COVERAGE``). The curve is *mostly* rule-based, so
+      publishing it still misrepresents the model (this is the 1-of-161 run that
+      silently topped the board).
+
+    Rule-based baselines expose no ``used_llm`` (getattr → None) and pass through
+    untouched. Applied on BOTH insert paths so an LLM entry can't slip through
+    the auto-compute path. Coverage is only checked when ``decision_steps`` is
+    known (> 0); a genuine run always reports it."""
     used_llm = getattr(strategy_impl, "used_llm", None)
     if used_llm is None or allow_fallback:
         return
@@ -236,6 +256,17 @@ def _reject_if_llm_fallback(
             f"under model '{model}'. Usually the model id '{model_id}' is not valid "
             f"for the active LLM gateway, or the API key is missing. Pass "
             f"allow_fallback=True / --allow-fallback to publish it anyway."
+        )
+    if decision_steps > 0 and llm_calls < MIN_LLM_DECISION_COVERAGE * decision_steps:
+        coverage = llm_calls / decision_steps
+        raise LeaderboardFallbackError(
+            f"Entry '{entry_id}' is a partial rule-based fallback: only "
+            f"{llm_calls}/{decision_steps} steps ({coverage:.1%}) were decided by "
+            f"the model, below the {MIN_LLM_DECISION_COVERAGE:.0%} threshold. Most "
+            f"of the curve is rule-based, so refusing to publish it under model "
+            f"'{model}'. Usually the model id '{model_id}' intermittently failed "
+            f"for the active LLM gateway (e.g. rate limits or output too long). "
+            f"Pass allow_fallback=True / --allow-fallback to publish it anyway."
         )
 
 
@@ -302,6 +333,7 @@ def deploy_model_run(
     input_tokens = int(getattr(strategy_impl, "input_tokens", 0) or 0)
     output_tokens = int(getattr(strategy_impl, "output_tokens", 0) or 0)
     llm_calls = int(getattr(strategy_impl, "llm_calls", 0) or 0)
+    decision_steps = int(getattr(strategy_impl, "decision_steps", 0) or 0)
     model_id = getattr(strategy_impl, "model_id", None) or entry.get("model_id")
     est_cost = token_cost.estimate_cost_usd(model_id, input_tokens, output_tokens)
 
@@ -309,6 +341,7 @@ def deploy_model_run(
         entry_id,
         strategy_impl,
         llm_calls,
+        decision_steps=decision_steps,
         model=entry.get("model"),
         model_id=model_id,
         allow_fallback=allow_fallback,

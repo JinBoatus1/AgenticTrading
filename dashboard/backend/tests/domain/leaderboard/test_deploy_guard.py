@@ -26,11 +26,17 @@ _CONFIG = {
 
 
 class FakeLLMStrategy:
-    """Mimics LLMAgentStrategy's reporting surface (exposes ``used_llm``)."""
+    """Mimics LLMAgentStrategy's reporting surface (exposes ``used_llm``).
 
-    def __init__(self, *, used_llm, llm_calls, model_id="test-model"):
+    ``decision_steps`` is the number of decision points in the run; when omitted
+    it defaults to ``llm_calls`` (i.e. 100% LLM coverage), so existing tests that
+    only care about the used_llm/llm_calls axis stay at full coverage.
+    """
+
+    def __init__(self, *, used_llm, llm_calls, decision_steps=None, model_id="test-model"):
         self.used_llm = used_llm
         self.llm_calls = llm_calls
+        self.decision_steps = llm_calls if decision_steps is None else decision_steps
         self.input_tokens = 10
         self.output_tokens = 5
         self.model_id = model_id
@@ -97,6 +103,33 @@ def test_refuses_when_llm_calls_zero(guard_env, monkeypatch):
     _use(monkeypatch, FakeLLMStrategy(used_llm=True, llm_calls=0))
     with pytest.raises(canon_service.LeaderboardFallbackError):
         canon_service.deploy_model_run("claude_haiku_4_5", force_refresh=True)
+
+
+def test_refuses_partial_llm_fallback(guard_env, monkeypatch):
+    # The client worked for one step then every other step fell back to
+    # rule-based: 1 of 161 decisions came from the model. Publishing this curve
+    # under the model's name would be ~99% rule-based. (This is the real Qwen
+    # 1-of-161 run that silently topped the board.)
+    _use(monkeypatch, FakeLLMStrategy(used_llm=True, llm_calls=1, decision_steps=161))
+    with pytest.raises(canon_service.LeaderboardFallbackError):
+        canon_service.deploy_model_run("claude_haiku_4_5", force_refresh=True)
+    run_id = canon_service._run_id("claude_haiku_4_5", "2026-04-15", "2026-05-15")
+    assert guard_env.get_run(run_id) is None  # nothing persisted
+
+
+def test_refuses_just_below_coverage_threshold(guard_env, monkeypatch):
+    # 94 of 100 steps LLM-decided = 94% < 95% threshold → refuse.
+    _use(monkeypatch, FakeLLMStrategy(used_llm=True, llm_calls=94, decision_steps=100))
+    with pytest.raises(canon_service.LeaderboardFallbackError):
+        canon_service.deploy_model_run("claude_haiku_4_5", force_refresh=True)
+
+
+def test_publishes_at_coverage_threshold(guard_env, monkeypatch):
+    # 95 of 100 steps LLM-decided = exactly 95% → allowed (transient API blips
+    # on a genuine LLM run must not be misread as a fallback curve).
+    _use(monkeypatch, FakeLLMStrategy(used_llm=True, llm_calls=95, decision_steps=100))
+    result = canon_service.deploy_model_run("claude_haiku_4_5", force_refresh=True)
+    assert guard_env.get_run(result["run_id"]) is not None
 
 
 def test_allow_fallback_publishes(guard_env, monkeypatch):
