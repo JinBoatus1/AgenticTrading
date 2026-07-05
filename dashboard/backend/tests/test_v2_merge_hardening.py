@@ -320,11 +320,20 @@ def test_active_run_count_is_side_effect_free():
         def advance(self):
             self.advance_called = True
 
+    from dashboard.backend.domain.runs.repository import run_store
+
     backend = _TrackingBackend()
     agent_id = f"agent_passive_{uuid.uuid4().hex[:6]}"
-    runs_mod.register_run(f"run_passive_{uuid.uuid4().hex[:6]}",
-                          backend, "sid_passive", agent_id)
-    runs_mod._active_run_count(agent_id)
+    run_id = f"run_passive_{uuid.uuid4().hex[:6]}"
+    # The count reads the shared protocol_runs ledger (one row per v2 run).
+    run_store.create_run(
+        run_id=run_id, agent_id=agent_id, agent_version_id=None,
+        session_id="sid_passive", environment_id=None,
+        environment_type="backtest", config={}, backtest_id=None,
+        status="running",
+    )
+    runs_mod.register_run(run_id, backend, "sid_passive", agent_id)
+    assert runs_mod._active_run_count(agent_id) == 1
     assert backend.status_called is False, (
         "cap counting must use the passive is_active() peek, not status()"
     )

@@ -428,6 +428,220 @@ def test_runstore_migrates_legacy_schema(tmp_path):
     assert store.get_run("run_old")["status"] == "running"
 
 
+def _make_completed_v2_run(monkeypatch_none, name):
+    """A finished-but-not-yet-archived v2 run: terminal backend still live in
+    the registry, protocol_runs row already 'completed' (the state between a
+    final decision and the reaper's next sweep)."""
+    key, sid, agent_id = _agent(name)
+    run_id = f"run_{name}_{uuid.uuid4().hex[:6]}"
+    fake = FakeBackend(run_id=run_id, total_steps=1, session_id=sid)
+    run_store.create_run(
+        run_id=run_id, agent_id=agent_id, agent_version_id=None, session_id=sid,
+        environment_id=None, environment_type="backtest", config={},
+        backtest_id=None, status="running",
+    )
+    runs_mod.register_run(run_id, fake, sid, agent_id)
+    fake.apply_decisions([])  # completes the fake
+    run_store.update_run(run_id, status="completed", result_run_id=run_id)
+    return key, run_id, fake
+
+
+# ---------------------------------------------------------------------------
+# 6. Adversarial-review round (confirmed findings)
+# ---------------------------------------------------------------------------
+
+
+def test_cancel_after_completion_does_not_clobber_the_ledger(monkeypatch):
+    """CRITICAL finding: a cancel arriving after the final decision (but
+    before the sweep archives the backend) must not downgrade the row's
+    'completed' to 'closed' — the run genuinely finished; report the truth."""
+    key, run_id, fake = _make_completed_v2_run(monkeypatch, "clobber")
+
+    resp = client.post(f"/api/v2/runs/{run_id}/cancel", headers={"X-API-Key": key})
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "completed"  # the truth, not "closed"
+    assert run_store.get_run(run_id)["status"] == "completed"
+    assert fake._status == "completed"  # in-memory state not clobbered either
+
+
+def test_cancel_of_archived_run_reports_true_terminal_state(monkeypatch):
+    key, run_id, fake = _make_completed_v2_run(monkeypatch, "arccancel")
+    runs_mod.reap_v2_runs()  # archive it
+
+    resp = client.post(f"/api/v2/runs/{run_id}/cancel", headers={"X-API-Key": key})
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "completed"
+    assert run_store.get_run(run_id)["status"] == "completed"
+
+
+def test_backtest_backend_cancel_never_clobbers_a_terminal_session():
+    """The in-memory guard: cancel() on an already-completed session must not
+    flip it to 'closed' (a race between a finalizing submit and a cancel
+    would otherwise corrupt what every later read derives its state from)."""
+    import threading
+
+    from dashboard.backend.execution.backtest_backend import BacktestBackend
+
+    class _Session:
+        _step_lock = threading.Lock()
+        status = "completed"
+
+    backend = BacktestBackend.__new__(BacktestBackend)
+    backend.run_id = "run_cancel_guard"
+    backend.session = _Session()
+    backend.cancel()
+    assert backend.session.status == "completed"
+
+    backend.session.status = "waiting_decision"
+    backend.cancel()
+    assert backend.session.status == "closed"
+
+
+def test_archive_run_keeps_backend_live_when_row_write_fails(monkeypatch):
+    """If the terminal row update fails (locked DB), swapping in the
+    tombstone anyway would freeze the row in an active status with nothing
+    left to retry — the swap must be gated on the write landing."""
+    key, sid, agent_id = _agent("swap-order")
+    run_id = f"run_swap_{uuid.uuid4().hex[:6]}"
+    fake = FakeBackend(run_id=run_id, total_steps=1, session_id=sid)
+    run_store.create_run(
+        run_id=run_id, agent_id=agent_id, agent_version_id=None, session_id=sid,
+        environment_id=None, environment_type="backtest", config={},
+        backtest_id=None, status="running",
+    )
+    runs_mod.register_run(run_id, fake, sid, agent_id)
+    fake.apply_decisions([])
+
+    def _boom(*a, **k):
+        raise RuntimeError("db locked")
+
+    monkeypatch.setattr(run_store, "update_run", _boom)
+    runs_mod.reap_v2_runs()
+    with runs_mod._lock:
+        still_live = runs_mod._runs[run_id]["backend"]
+    assert not isinstance(still_live, ArchivedBacktestBackend), (
+        "backend must stay live so the next sweep can retry the row write"
+    )
+
+    monkeypatch.undo()
+    runs_mod.reap_v2_runs()
+    with runs_mod._lock:
+        archived = runs_mod._runs[run_id]["backend"]
+    assert isinstance(archived, ArchivedBacktestBackend)
+    assert run_store.get_run(run_id)["status"] == "completed"
+
+
+def test_v2_row_transitions_to_running_after_load(monkeypatch):
+    """Rows must not sit in 'loading' for the whole active life of the run —
+    a successful market-data load flips them to 'running'."""
+    import time as _time
+
+    from dashboard.backend.execution.backtest_backend import BacktestBackend
+
+    import threading
+
+    class _InstantLoadSession:
+        def __init__(self):
+            self._step_lock = threading.Lock()
+            self.status = "loading"
+
+        def load_market_data(self):
+            self.status = "waiting_decision"
+
+    run_id = f"run_load_{uuid.uuid4().hex[:6]}"
+    run_store.create_run(
+        run_id=run_id, agent_id="ag_load", agent_version_id=None,
+        session_id="sess_load", environment_id=None, environment_type="backtest",
+        config={}, backtest_id=None, status="loading",
+    )
+    backend = BacktestBackend.__new__(BacktestBackend)
+    backend.run_id = run_id
+    backend.session = _InstantLoadSession()
+    backend.start_background_load()
+    deadline = _time.time() + 5
+    while _time.time() < deadline:
+        if run_store.get_run(run_id)["status"] == "running":
+            break
+        _time.sleep(0.02)
+    assert run_store.get_run(run_id)["status"] == "running"
+
+
+def test_runstore_survives_partially_migrated_schema(tmp_path):
+    """A concurrently-started sibling may have added one heartbeat column
+    already — startup must add only the missing one, without crashing."""
+    path = tmp_path / "partial.db"
+    conn = sqlite3.connect(str(path))
+    conn.execute(
+        """
+        CREATE TABLE protocol_runs (
+            run_id TEXT PRIMARY KEY,
+            agent_id TEXT,
+            agent_version_id TEXT,
+            session_id TEXT NOT NULL,
+            environment_id TEXT,
+            environment_type TEXT,
+            config TEXT NOT NULL DEFAULT '{}',
+            backtest_id TEXT,
+            result_run_id TEXT,
+            status TEXT NOT NULL DEFAULT 'created',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            owner_instance TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = RunStore(path)  # must add only heartbeat_at, without crashing
+    conn = sqlite3.connect(str(path))
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(protocol_runs)")}
+    conn.close()
+    assert {"owner_instance", "heartbeat_at"} <= cols
+
+
+def test_runstore_migration_tolerates_losing_the_alter_race(tmp_path):
+    """Two workers can both probe (columns missing) and both ALTER; the loser
+    gets 'duplicate column name'. That means the column exists — the goal —
+    so it must be swallowed, not crash the process at startup."""
+    store = RunStore(tmp_path / "race.db")  # columns already exist
+    conn = sqlite3.connect(str(store.db_path))
+    try:
+        # Simulate the raced probe: a stale 'nothing exists yet' snapshot.
+        store._add_heartbeat_columns(conn.cursor(), existing_columns=set())
+    finally:
+        conn.close()
+
+
+def test_rehydrated_completed_run_reports_step_counts(monkeypatch):
+    """from_record used to lose step_index/total_steps (0/0) for
+    restart-rehydrated runs; for completed runs the decision log has one row
+    per executed step, so the counts are recoverable."""
+    key, sid, agent_id = _agent("rehydrate-steps")
+    run_id = f"run_steps_{uuid.uuid4().hex[:6]}"
+    run_store.create_run(
+        run_id=run_id, agent_id=agent_id, agent_version_id=None, session_id=sid,
+        environment_id=None, environment_type="backtest", config={},
+        backtest_id=None, status="running",
+    )
+    run_store.update_run(run_id, status="completed", result_run_id=run_id)
+    db.insert_decisions(run_id, [
+        {"step_index": i, "timestamp": f"2026-04-15T1{i}:30:00+00:00",
+         "decision_source": "external_agent", "actions_submitted": [],
+         "actions_executed": 0}
+        for i in range(3)
+    ])
+
+    resp = client.get(f"/api/v2/runs/{run_id}", headers={"X-API-Key": key})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "completed"
+    assert body["step_index"] == 3
+    assert body["total_steps"] == 3
+
+
 def test_reap_pass_heartbeats_live_v1_runs(monkeypatch):
     """The reaper keeps live runs' heartbeats fresh so a sibling worker's
     stale-recovery never fails them."""

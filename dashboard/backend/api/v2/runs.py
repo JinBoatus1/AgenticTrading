@@ -24,7 +24,11 @@ from dashboard.backend.database import db
 # The v1 service's create lock is shared on purpose: both surfaces count
 # active runs from the same protocol_runs ledger, so both check-then-insert
 # sequences must serialize on ONE lock or an agent could race one create per
-# surface past the combined cap.
+# surface past the combined cap. Known trade-off: run creation across BOTH
+# surfaces serializes on this lock, including its quick SQLite writes —
+# acceptable because creates are rare and bounded (cap per agent), and
+# correctness of the cap beats create throughput. Long work (market-data
+# load) stays off the lock (background thread).
 from dashboard.backend.domain.runs.service import (
     MAX_ACTIVE_RUNS_PER_AGENT,
     _create_lock as _shared_create_lock,
@@ -51,6 +55,13 @@ _TERMINAL_STATUSES = ("completed", "failed", "closed")
 # market data. The cap is enforced across BOTH surfaces: every v2 run writes a
 # protocol_runs row through its lifecycle, and both create paths count
 # run_store.count_active_runs() under the shared v1 create lock.
+#
+# Documented consequence of the shared ledger: an agent holding both surfaces'
+# credentials can see its v2 runs listed by /api/v1/runs (status-level record
+# only; v1 step/decision queries have nothing to serve for them) and read its
+# own v1 runs' terminal rows through v2 rehydration. This is intentional —
+# run ids are canonical and both surfaces are the same agent identity; v2 is
+# the canonical surface, v1 the compat view.
 
 
 def _mint_run_id() -> str:
@@ -95,7 +106,12 @@ def _archive_run(run_id: str, entry: Dict[str, Any], backend: Any) -> None:
             result_run_id=result_run_id if status == "completed" else None,
         )
     except Exception as exc:
-        print(f"⚠️ v2 archive: row update failed for {run_id}: {exc}")
+        # Do NOT swap in the tombstone: with the backend gone nothing would
+        # ever retry this write and the row would freeze in an active status
+        # (mis-holding a cap slot until stale recovery mislabels it failed).
+        # Keep the backend live so the next sweep retries.
+        print(f"⚠️ v2 archive: row update failed for {run_id}, retrying next sweep: {exc}")
+        return
     archived = ArchivedBacktestBackend(
         run_id=run_id,
         session_id=entry["session_id"],
@@ -402,13 +418,24 @@ def decisions_log(run_id: str, agent: dict = Depends(require_scope("runs:read"))
 
 @router.post("/{run_id}/cancel")
 def cancel_run(run_id: str, agent: dict = Depends(require_scope("runs:write"))):
+    """Cancel a live run; on an already-terminal run this is a no-op that
+    reports the run's TRUE state. Persisting a hardcoded "closed" here used
+    to clobber a completed run's ledger row (and hide its metrics) when a
+    cleanup cancel raced the final decision."""
     backend = _require_run(run_id, agent["session_id"])
-    backend.cancel()
-    if not isinstance(backend, ArchivedBacktestBackend):
-        # Free the cap slot immediately; the archived case is already terminal
-        # (and must not clobber a completed row to closed).
+    try:
+        active = backend.is_active()
+    except Exception:
+        active = False
+    if active:
+        backend.cancel()  # backend-level guard never clobbers terminal state
+    status = _terminal_status(backend)
+    if active and not isinstance(backend, ArchivedBacktestBackend):
+        # Persist only a transition this request actually caused. If the run
+        # finalized between the peek and cancel(), _terminal_status already
+        # reads "completed" and that is what lands — never a downgrade.
         try:
-            run_repo.run_store.update_run(run_id, status="closed")
+            run_repo.run_store.update_run(run_id, status=status)
         except Exception:
             pass  # best-effort; the sweep reconciles
-    return {"run_id": run_id, "status": "closed"}
+    return {"run_id": run_id, "status": status}

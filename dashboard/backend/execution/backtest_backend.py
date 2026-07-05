@@ -86,6 +86,13 @@ class BacktestBackend(ExecutionBackend):
                     run_repo.run_store.update_run(self.run_id, status="failed")
                 except Exception:
                     pass  # row bookkeeping is best-effort; the sweep reconciles
+                return
+            # Loaded: leave 'loading' so row readers (v1 listing, recovery
+            # diagnostics) see an honest 'running' for the run's active life.
+            try:
+                run_repo.run_store.update_run(self.run_id, status="running")
+            except Exception:
+                pass  # best-effort; both statuses count as active anyway
 
         self.session.status = "loading"
         threading.Thread(target=_load, daemon=True).start()
@@ -212,7 +219,14 @@ class BacktestBackend(ExecutionBackend):
         self.session.get_current_step()
 
     def cancel(self) -> None:
-        self.session.status = "closed"
+        # Cancel only closes a run that is still running — never clobber a
+        # terminal state. A finalizing submit racing a cancel would otherwise
+        # flip completed → closed, and every later read (row reconcile,
+        # archive, metrics) derives from this field. Same lock as the
+        # finalizing writer.
+        with self.session._step_lock:
+            if self.session.status not in ("completed", "failed"):
+                self.session.status = "closed"
 
     # -- status / result ---------------------------------------------------
 
@@ -267,12 +281,26 @@ class ArchivedBacktestBackend(ExecutionBackend):
 
     @classmethod
     def from_record(cls, record: Dict[str, Any]) -> "ArchivedBacktestBackend":
-        """Rebuild from a terminal protocol_runs row (post-restart reads)."""
+        """Rebuild from a terminal protocol_runs row (post-restart reads).
+
+        The row does not store step counts, but a completed run's decision
+        log has exactly one row per executed step — recover the counts from
+        there instead of reporting a misleading 0/0."""
+        status = record.get("status") or "failed"
+        result_run_id = record.get("result_run_id") or record["run_id"]
+        step_index = total_steps = 0
+        if status == "completed":
+            try:
+                step_index = total_steps = len(db.get_decisions(result_run_id))
+            except Exception:
+                pass
         return cls(
             run_id=record["run_id"],
             session_id=record["session_id"],
-            status=record.get("status") or "failed",
+            status=status,
             result_run_id=record.get("result_run_id"),
+            step_index=step_index,
+            total_steps=total_steps,
         )
 
     # -- lifecycle: everything is over -------------------------------------

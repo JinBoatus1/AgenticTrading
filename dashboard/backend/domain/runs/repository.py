@@ -117,11 +117,7 @@ class RunStore:
         # main DB's _migrate_schema).
         cursor.execute("PRAGMA table_info(protocol_runs)")
         columns = {row[1] for row in cursor.fetchall()}
-        for col_name, col_def in (("owner_instance", "TEXT"), ("heartbeat_at", "TEXT")):
-            if col_name not in columns:
-                cursor.execute(
-                    f"ALTER TABLE protocol_runs ADD COLUMN {col_name} {col_def}"
-                )
+        self._add_heartbeat_columns(cursor, columns)
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_protocol_runs_agent ON protocol_runs(agent_id)"
         )
@@ -151,6 +147,25 @@ class RunStore:
         )
         conn.commit()
         conn.close()
+
+    @staticmethod
+    def _add_heartbeat_columns(cursor, existing_columns) -> None:
+        """ALTER in the heartbeat columns missing from ``existing_columns``.
+
+        Tolerates losing the probe→ALTER race to a concurrently-starting
+        sibling process (multi-worker startup): a duplicate-column error
+        means the column is there, which is the goal — anything else is
+        real and re-raised."""
+        for col_name, col_def in (("owner_instance", "TEXT"), ("heartbeat_at", "TEXT")):
+            if col_name in existing_columns:
+                continue
+            try:
+                cursor.execute(
+                    f"ALTER TABLE protocol_runs ADD COLUMN {col_name} {col_def}"
+                )
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc).lower():
+                    raise
 
     def create_run(
         self,
