@@ -24,7 +24,7 @@ import os
 import threading
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import dashboard.backend.domain.backtesting.external_run_service as ebs
 from dashboard.backend.database import db
@@ -50,13 +50,35 @@ MAX_ACTIVE_RUNS_PER_AGENT = int(os.getenv("MAX_ACTIVE_RUNS_PER_AGENT", "5"))
 REAPER_INTERVAL_SECONDS = float(os.getenv("RUN_REAPER_INTERVAL_SECONDS", "60"))
 # Startup recovery marks ALL non-terminal rows failed; only correct when a single
 # process owns the DB (the current single-instance deployment). A multi-worker or
-# overlapping rolling-deploy setup sharing one DB must disable it (set to 0).
+# overlapping rolling-deploy setup sharing one DB must disable it (set to 0) and
+# rely on heartbeat-based stale recovery instead (RUN_HEARTBEAT_STALE_SECONDS):
+# the reaper heartbeats every live run each pass, so only runs whose owning
+# process died go stale and get failed — a sibling worker's runs are safe.
 RUN_RECOVERY_ON_STARTUP = os.getenv("RUN_RECOVERY_ON_STARTUP", "1").lower() not in ("0", "false", "no")
+# How long a non-terminal run may go without a heartbeat before any instance's
+# reaper declares its owner dead and fails it. Must be comfortably larger than
+# REAPER_INTERVAL_SECONDS (heartbeat cadence); 0 disables stale recovery.
+RUN_HEARTBEAT_STALE_SECONDS = float(os.getenv("RUN_HEARTBEAT_STALE_SECONDS", "300"))
 
 _reaper_thread: Optional[threading.Thread] = None
 _reaper_lock = threading.Lock()
 # Serializes create_run so the per-agent active-run cap can't be raced past.
+# Shared with the v2 create path (api/v2/runs.py) — both surfaces count active
+# runs from the same protocol_runs ledger, so both check-then-insert sequences
+# must serialize on the same lock or an agent could race one create per surface
+# past the combined cap.
 _create_lock = threading.Lock()
+
+# Extra per-pass reaper work registered by other surfaces (the composition root
+# registers the v2 sweep here). Kept as a registry so this domain module never
+# imports api/* (layering: domain must not depend on the API layer).
+_extra_reaper_sweeps: List[Callable[[], Any]] = []
+
+
+def register_reaper_sweep(sweep: Callable[[], Any]) -> None:
+    """Register a callable the reaper invokes once per pass (idempotent)."""
+    if sweep not in _extra_reaper_sweeps:
+        _extra_reaper_sweeps.append(sweep)
 
 # Engine status -> protocol run status
 _RUN_STATUS_MAP = {
@@ -248,6 +270,7 @@ def reap_runs() -> int:
     with _registry_lock:
         runs = list(_runs.values())
     reaped = 0
+    live_run_ids: List[str] = []
     for run in runs:
         try:
             session = run.session()
@@ -257,6 +280,13 @@ def reap_runs() -> int:
                 if run.status in ("completed", "failed") and run.backtest_id:
                     if ebs.evict_session(run.backtest_id):
                         reaped += 1
+                elif run.status not in ("completed", "failed"):
+                    # Live in this process: keep its heartbeat fresh so no
+                    # sibling instance's stale recovery can fail it. A
+                    # non-terminal run WITHOUT a session is deliberately not
+                    # heartbeated — it can never progress here, so letting it
+                    # go stale is exactly how it gets recovered.
+                    live_run_ids.append(run.run_id)
             if run.status in ("completed", "failed"):
                 # Terminal state is DB-backed (protocol_runs + protocol_steps);
                 # keeping the ProtocolRun would only grow _runs forever. But a
@@ -272,6 +302,25 @@ def reap_runs() -> int:
                         run.lock.release()
         except Exception as exc:  # a single wedged run must not stall the sweep
             print(f"⚠️ reap_runs: skipping {run.run_id}: {exc}")
+    try:
+        run_store.heartbeat_runs(live_run_ids)
+    except Exception as exc:
+        print(f"⚠️ reap_runs: heartbeat pass failed: {exc}")
+    # Other surfaces' sweeps (e.g. v2: drain deadlines, heartbeat, archive
+    # terminal backends) — registered via register_reaper_sweep so they run
+    # BEFORE stale recovery and their live runs never look abandoned.
+    for sweep in list(_extra_reaper_sweeps):
+        try:
+            sweep()
+        except Exception as exc:
+            print(f"⚠️ reap_runs: registered sweep failed: {exc}")
+    if RUN_HEARTBEAT_STALE_SECONDS > 0:
+        try:
+            stale = run_store.fail_stale_runs(RUN_HEARTBEAT_STALE_SECONDS)
+            if stale:
+                print(f"🧹 stale-run recovery: failed {stale} abandoned run(s)")
+        except Exception as exc:
+            print(f"⚠️ reap_runs: stale recovery failed: {exc}")
     return reaped
 
 

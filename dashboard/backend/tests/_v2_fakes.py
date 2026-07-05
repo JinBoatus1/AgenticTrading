@@ -96,3 +96,8 @@ class FakeBackend(ExecutionBackend):
 
     def cancel(self) -> None:
         self._status = "closed"
+
+    def is_active(self) -> bool:
+        # Honest liveness (the ExecutionBackend default is always-True): the
+        # reaper sweep and cap reconcile rely on terminal fakes reporting done.
+        return self._status not in ("completed", "failed", "closed")
