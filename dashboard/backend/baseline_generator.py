@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 import sys
 
 from dashboard.backend.paths import CREDENTIALS_DIR
+from dashboard.backend.domain.leaderboard.strategies._common import timestamps_in_contest
 
 # Try to import numpy
 try:
@@ -185,12 +186,13 @@ class BaselineGenerator:
                 market_hours_only.append(ts)
         
         all_timestamps = market_hours_only
-        
+        all_timestamps = timestamps_in_contest(all_timestamps, start_date, end_date)
+
         if not all_timestamps:
             return []
-        
+
         first_ts = all_timestamps[0]
-        
+
         # Buy equal amounts of available stocks
         positions = {}
         cash = initial_capital
@@ -314,12 +316,13 @@ class BaselineGenerator:
                 market_hours_only.append(ts)
         
         all_timestamps = market_hours_only
-        
+        all_timestamps = timestamps_in_contest(all_timestamps, start_date, end_date)
+
         if not all_timestamps:
             return []
-        
+
         first_ts = all_timestamps[0]
-        
+
         # Get initial prices
         initial_prices = {}
         for symbol, df in bars_subset.items():
