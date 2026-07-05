@@ -15,12 +15,15 @@ requests.
 
 import json
 import os
-import sys
 from typing import Dict, List, Optional
 
 import pandas as pd
 
 from dashboard.backend.paths import CREDENTIALS_DIR
+
+
+class AlpacaCredentialsError(RuntimeError):
+    """Raised when Alpaca API credentials are not configured."""
 
 
 class AlpacaDataLoader:
@@ -29,13 +32,22 @@ class AlpacaDataLoader:
     def __init__(self, api_key: Optional[str] = None, secret_key: Optional[str] = None):
         """Initialize with Alpaca credentials."""
         if not api_key or not secret_key:
-            creds = self._load_credentials()
-            api_key = creds.get("api_key")
-            secret_key = creds.get("secret_key")
+            try:
+                creds = self._load_credentials()
+                api_key = creds.get("api_key")
+                secret_key = creds.get("secret_key")
+            except AlpacaCredentialsError:
+                api_key = None
+                secret_key = None
 
         self.api_key = api_key
         self.secret_key = secret_key
         self.base_url = "https://data.alpaca.markets"
+        self.client = None
+
+        if not self.api_key or not self.secret_key:
+            print("⚠️ Alpaca credentials not configured — bar fetch disabled")
+            return
 
         try:
             from alpaca.data.historical import StockHistoricalDataClient
@@ -49,7 +61,6 @@ class AlpacaDataLoader:
         except ImportError as e:
             print(f"❌ alpaca-py not installed: {e}")
             print("   Run: pip install alpaca-py")
-            sys.exit(1)
 
     def _load_credentials(self) -> Dict:
         """Load Alpaca credentials from environment variables or file."""
@@ -66,7 +77,7 @@ class AlpacaDataLoader:
         if not creds_path.exists():
             print(f"❌ Credentials not found in environment variables or file: {creds_path}")
             print("   Set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables")
-            sys.exit(1)
+            raise AlpacaCredentialsError("Alpaca credentials not configured")
 
         print(f"✅ Loaded Alpaca credentials from {creds_path}")
         with open(creds_path) as f:
@@ -84,6 +95,10 @@ class AlpacaDataLoader:
         Returns:
             {symbol: DataFrame with timestamp, open, high, low, close, volume}
         """
+        if not self.client:
+            print("⚠️ Alpaca not configured — skipping bar fetch")
+            return {}
+
         print(f"\n📊 Fetching {len(symbols)} symbols from {start} to {end}...")
         print(f"   Timeframe: Hourly (1h) with forward-filled price cache\n")
 
