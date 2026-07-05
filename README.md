@@ -1,6 +1,8 @@
 
 <div align="center">
-  <img src="./dashboard/frontend/images/agentic_trading_lab_white.png" alt="Agentic Trading Lab" width="400">
+  <a href="https://agentic-trading-lab.vercel.app/">
+    <img src="./dashboard/frontend/images/agentic_trading_lab_white.png" alt="Agentic Trading Lab" width="400">
+  </a>
 </div>
 
 <p align="center">
@@ -23,7 +25,9 @@
 Turn trading ideas into traceable experiments: prototype agents, run backtests and paper-trading simulations, inspect reasoning and decision logs, benchmark against market baselines, and study how agents behave under realistic financial constraints.
 
 <div align="center">
-  <img src="./dashboard/frontend/images/snapshot_updated.png" alt="Website Snapshot" width="720">
+  <a href="https://agentic-trading-lab.vercel.app/">
+    <img src="./dashboard/frontend/images/snapshot.png" alt="Website Snapshot" width="720">
+  </a>
 </div>
 
 ## Outline
