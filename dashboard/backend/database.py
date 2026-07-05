@@ -27,9 +27,29 @@ class BacktestDatabase:
             db_path = DB_PATH
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._enable_wal()
         self._init_schema()
         self._migrate_schema()  # Handle existing DBs
-    
+
+    def _enable_wal(self):
+        """Switch the database file to WAL journal mode (best-effort).
+
+        The protocol RunStore shares this file; WAL lets request-thread reads
+        proceed while a backtest finalize commits its heavy equity/trade
+        writes. journal_mode is persisted in the file, so one switch covers
+        every later connection from either layer. Filesystems without shared
+        memory support (some network mounts) can refuse WAL — keep the
+        default rollback journal there rather than failing startup.
+        """
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            pass
+
     def _get_connection(self):
         """Get database connection."""
         conn = sqlite3.connect(str(self.db_path))
