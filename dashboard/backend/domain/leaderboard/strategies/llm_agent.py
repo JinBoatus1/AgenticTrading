@@ -39,6 +39,8 @@ class LLMAgentStrategy(BaselineStrategy):
         self.model_id = self.config.get("model_id")
         # Populated during run() for reporting / cost tracking.
         self.llm_calls = 0
+        self.llm_decisions = 0  # steps the model actually drove (H6 guard numerator)
+        self.decision_steps = 0  # total steps offered to the model (guard denominator)
         self.input_tokens = 0
         self.output_tokens = 0
         self._num_trades = 0
@@ -128,6 +130,8 @@ class LLMAgentStrategy(BaselineStrategy):
 
         self._num_trades = len(manager.trades)
         self.llm_calls = manager.llm_calls
+        self.llm_decisions = manager.llm_decisions  # steps the model actually drove
+        self.decision_steps = total  # how many steps the model was asked to decide
         self.input_tokens = manager.input_tokens
         self.output_tokens = manager.output_tokens
         self.model_id = model_id
