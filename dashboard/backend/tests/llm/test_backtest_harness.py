@@ -238,6 +238,95 @@ def test_empty_actions_list_falls_back_to_rule_based():
 
 
 # ---------------------------------------------------------------------------
+# llm_decisions: the H6 coverage numerator (steps the model actually drove).
+# Distinct from llm_calls (billed API calls): a call whose response is empty or
+# unparseable is billed but produced no usable decision, so it must NOT count
+# toward model coverage — else a run that returns garbage every step would show
+# 100% coverage and slip past the H6 integrity guard while trading rule-based.
+# ---------------------------------------------------------------------------
+
+def test_fresh_manager_has_zero_llm_decisions():
+    assert bha.PortfolioManager(100000).llm_decisions == 0
+
+
+def test_usable_decision_counts_as_llm_decision():
+    pm = bha.PortfolioManager(100000)
+    resp_text = json.dumps({"actions": [
+        {"symbol": "AAPL", "action": "buy", "confidence": 0.9,
+         "reasoning": "strong", "position_size": 10},
+    ]})
+    client = _FakeClient(_FakeResponse(resp_text, usage=_FakeUsage(100, 50)))
+    pm.make_trading_decision_with_llm(_portfolio_state(), client)
+    assert pm.llm_calls == 1
+    assert pm.llm_decisions == 1
+
+
+def test_malformed_response_is_billed_but_not_a_decision():
+    # Unparseable output (e.g. JSON truncated by an output-token cap): billed,
+    # but no usable model decision → counts for cost, not for coverage.
+    pm = bha.PortfolioManager(100000)
+    client = _FakeClient(_FakeResponse("totally not json", usage=_FakeUsage(10, 5)))
+    pm.make_trading_decision_with_llm(_portfolio_state(), client)
+    assert pm.llm_calls == 1
+    assert pm.llm_decisions == 0
+
+
+def test_empty_actions_is_billed_but_not_a_decision():
+    # An empty actions list explicitly falls back to rule-based, so that step is
+    # rule-based-driven and must not count toward model coverage.
+    pm = bha.PortfolioManager(100000)
+    client = _FakeClient(_FakeResponse('{"actions": []}', usage=_FakeUsage(7, 3)))
+    pm.make_trading_decision_with_llm(_portfolio_state(), client)
+    assert pm.llm_calls == 1
+    assert pm.llm_decisions == 0
+
+
+def test_filtered_actions_still_count_as_a_decision():
+    # The model produced a non-empty decision that our confidence policy then
+    # filtered out. The model still drove the step, so it counts toward coverage.
+    pm = bha.PortfolioManager(100000)
+    resp_text = json.dumps({"actions": [
+        {"symbol": "AAPL", "action": "buy", "confidence": 0.1, "reasoning": "meh"},
+    ]})
+    client = _FakeClient(_FakeResponse(resp_text, usage=_FakeUsage(1, 1)))
+    pm.make_trading_decision_with_llm(_portfolio_state(), client)
+    assert pm.llm_calls == 1
+    assert pm.llm_decisions == 1
+
+
+def test_post_parse_exception_is_billed_but_not_a_decision():
+    # Valid JSON with a non-empty actions list, but a field has the wrong type
+    # (confidence as a string "0.9"), so the per-action processing loop raises.
+    # The blanket except converts the whole step to a pure rule-based fallback —
+    # the returned actions are the rule-based engine's, not the model's — so it
+    # must NOT count toward model coverage even though parsing "succeeded".
+    # (Otherwise a model that reliably emits subtly-malformed actions would show
+    # 100% coverage while trading fully rule-based, defeating the H6 guard.)
+    pm = bha.PortfolioManager(100000)
+    resp_text = json.dumps({"actions": [
+        {"symbol": "AAPL", "action": "buy", "confidence": "0.9",
+         "reasoning": "strong", "position_size": 10},
+    ]})
+    client = _FakeClient(_FakeResponse(resp_text, usage=_FakeUsage(10, 5)))
+    out = pm.make_trading_decision_with_llm(_portfolio_state(), client)
+    assert out == pm.make_trading_decision(_portfolio_state())  # rule-based result
+    assert pm.llm_calls == 1        # billed
+    assert pm.llm_decisions == 0    # but not a usable model decision
+
+
+def test_malformed_action_item_is_billed_but_not_a_decision():
+    # A non-empty actions list whose items are the wrong shape (strings, not
+    # dicts) also throws inside the processing loop → rule-based fallback.
+    pm = bha.PortfolioManager(100000)
+    client = _FakeClient(_FakeResponse('{"actions": ["buy AAPL now"]}',
+                                       usage=_FakeUsage(10, 5)))
+    out = pm.make_trading_decision_with_llm(_portfolio_state(), client)
+    assert out == pm.make_trading_decision(_portfolio_state())
+    assert pm.llm_calls == 1
+    assert pm.llm_decisions == 0
+
+
+# ---------------------------------------------------------------------------
 # Legacy method: successful BUY / SELL conversion + token accounting
 # ---------------------------------------------------------------------------
 

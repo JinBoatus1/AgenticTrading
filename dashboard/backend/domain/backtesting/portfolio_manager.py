@@ -64,7 +64,8 @@ class PortfolioManager:
         self.trades = []
         self.equity_history = []
         # Real LLM token usage (server-side calls report actual counts)
-        self.llm_calls = 0
+        self.llm_calls = 0        # billed API calls (any response with usage)
+        self.llm_decisions = 0    # steps the model actually drove (H6 coverage)
         self.input_tokens = 0
         self.output_tokens = 0
     
@@ -392,9 +393,18 @@ class PortfolioManager:
                 
                 # else: HOLD is implicit (don't add to actions)
             
+            # Count this step as model-driven only here, at the single success
+            # exit — the model's actions were parsed AND processed without error,
+            # so the returned decision is genuinely the model's. This is the H6
+            # coverage numerator, distinct from llm_calls (billed calls): any
+            # exception in the processing loop above is caught below and swapped
+            # for a rule-based decision, which must NOT count. (Actions filtered
+            # for low confidence / invalid symbol still count: the model drove
+            # the step, our policy merely declined to act on it.)
+            self.llm_decisions += 1
             print(f"   ✅ Total actions: {len(actions)}\n")
             return {"actions": actions}
-        
+
         except Exception as e:
             print(f"\n❌ LLM decision error: {e}")
             print(f"   Falling back to rule-based logic\n")
