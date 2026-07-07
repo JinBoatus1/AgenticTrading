@@ -60,6 +60,11 @@ def test_discord_dependency_is_declared():
     assert "requirements-discord.txt" in claude_md
 
 
+def test_bot_backtest_sends_agent_id_for_builtin_card():
+    src = _source()
+    assert 'payload["agent_id"] = selected["agent_id"]' in src
+
+
 def test_bot_sends_per_user_id_on_strategy_post():
     """MEDIUM #4 — the bot must send a per-Discord-user X-Browser-Id when creating
     a strategy, else all Discord users share the bot process's single (IP) bucket

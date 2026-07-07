@@ -4,6 +4,7 @@ import asyncio
 import io
 import os
 import uuid
+from pathlib import Path
 from typing import Any, Optional
 
 import discord
@@ -27,6 +28,9 @@ def _model_override(model_name: Optional[str]) -> Optional[str]:
     return None if is_free_model(model_name) else model_name
 
 
+_env_path = Path(__file__).resolve().parents[2] / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path)
 load_dotenv()
 
 
@@ -94,6 +98,56 @@ def allowed_channel_ids() -> set[int]:
 def session_for(user_id: str) -> str:
     """Deterministic per-user backtest session id (valid UUID)."""
     return str(uuid.uuid5(_SESSION_NAMESPACE, f"discord-user:{user_id}"))
+
+
+_CHAT_FAILURE_MSG = (
+    "The model request failed. Check the bot terminal and verify the "
+    "Discord token, the hosted-model key (COMMONSTACK_API_KEY or "
+    "ANTHROPIC_API_KEY), the model id, and the account balance."
+)
+
+
+def _free_chat_channel_allowed(channel_id: int) -> bool:
+    """When ``DISCORD_CHANNEL_ID`` is set, plain messages in those channels trigger chat."""
+    allowed = allowed_channel_ids()
+    return bool(allowed) and channel_id in allowed
+
+
+def should_handle_free_chat(
+    *,
+    author_is_bot: bool,
+    content: str,
+    is_dm: bool,
+    channel_id: int,
+    mentions_bot: bool,
+    is_reply_to_bot: bool,
+) -> bool:
+    """Whether a normal (non-slash) message should invoke the chat agent.
+
+    - DMs: any non-empty message (no ``/ask`` needed).
+    - Guild, ``DISCORD_CHANNEL_ID`` set: any message in those channels.
+    - Guild, no allowlist: only @mention or reply-to-bot.
+    """
+    if author_is_bot:
+        return False
+    if content.strip().startswith("!"):
+        return False
+    if is_dm:
+        return bool(content.strip())
+    # @mention / reply works even when content is empty (missing Message Content Intent).
+    if mentions_bot or is_reply_to_bot:
+        return True
+    if _free_chat_channel_allowed(channel_id):
+        return bool(content.strip())
+    return False
+
+
+def extract_chat_prompt(content: str, *, bot_user_id: Optional[int]) -> str:
+    """Strip leading @bot mention so ``@MyBot hello`` becomes ``hello``."""
+    text = content.strip()
+    if bot_user_id is not None:
+        text = text.replace(f"<@{bot_user_id}>", "").replace(f"<@!{bot_user_id}>", "")
+    return text.strip()
 
 
 def split_discord_message(
@@ -168,6 +222,32 @@ async def fetch_builtin_agents() -> list[dict[str, Any]]:
     return data.get("agents", []) if isinstance(data, dict) else []
 
 
+async def deliver_agent_chat(
+    discord_user_id: str,
+    prompt: str,
+) -> tuple[list[str], Optional[str]]:
+    """Run the hosted-model chat path shared by ``/ask`` and free-form messages.
+
+    Returns ``(response_chunks, error_message)``. On success ``error_message`` is
+    ``None``; on failure ``response_chunks`` is empty.
+    """
+    selected = selected_agent_for(discord_user_id)
+    agent_id = selected["agent_id"] if selected else DEFAULT_AGENT_ID
+    model = _model_override(selected.get("model_name")) if selected else None
+
+    try:
+        answer = await chat_with_agent(
+            user_id=discord_user_id,
+            agent_id=agent_id,
+            message=prompt,
+            model=model,
+        )
+        return split_discord_message(answer), None
+    except Exception as exc:
+        print("Discord chat request failed:", repr(exc))
+        return [], _CHAT_FAILURE_MSG
+
+
 class AgentSelect(discord.ui.Select):
     """Dropdown letting a user pick which built-in agent to talk to."""
 
@@ -211,7 +291,7 @@ class AgentSelect(discord.ui.Select):
             content=(
                 f"You're now chatting with **{agent.get('name')}** "
                 f"(model `{agent.get('model_name') or 'local-model'}`).\n"
-                "Use `/ask` to talk to it, or `/backtest` to run a strategy for it — "
+                "Message me directly (or use `/ask`) — `/backtest` to run a strategy; "
                 "results show up on the agent's card on the website."
             ),
             view=None,
@@ -250,6 +330,7 @@ class RestrictedCommandTree(app_commands.CommandTree):
 class AgenticTradingDiscordBot(commands.Bot):
     def __init__(self) -> None:
         intents = discord.Intents.default()
+        intents.message_content = True
 
         super().__init__(
             command_prefix="!",
@@ -277,6 +358,15 @@ class AgenticTradingDiscordBot(commands.Bot):
         allowed = allowed_channel_ids()
         if allowed:
             print(f"Command channel allowlist active: {sorted(allowed)}")
+            print(
+                "Free chat: plain messages in allowlisted channels (no /ask). "
+                "Also: DMs, @mention, or reply-to-bot elsewhere."
+            )
+        else:
+            print(
+                "Free chat: DMs, @mention, or reply-to-bot. "
+                "Set DISCORD_CHANNEL_ID for open chat in specific channels."
+            )
 
 
 bot = AgenticTradingDiscordBot()
@@ -286,6 +376,74 @@ bot = AgenticTradingDiscordBot()
 async def on_ready() -> None:
     if bot.user is not None:
         print(f"Discord bot connected as {bot.user}.")
+    print(
+        "Reminder: server-channel free chat needs Message Content Intent enabled "
+        "in the Discord Developer Portal (Bot → Privileged Gateway Intents). "
+        "DMs work without it."
+    )
+
+
+@bot.event
+async def on_message(message: discord.Message) -> None:
+    """Free-form chat: DMs, allowlisted channels, @mention, or reply-to-bot."""
+    bot_user = bot.user
+    is_reply_to_bot = False
+    if message.reference is not None:
+        resolved = message.reference.resolved
+        if isinstance(resolved, discord.Message) and bot_user is not None:
+            is_reply_to_bot = resolved.author.id == bot_user.id
+
+    mentions_bot = bool(bot_user and bot_user in message.mentions)
+    is_dm = isinstance(message.channel, discord.DMChannel)
+
+    if not should_handle_free_chat(
+        author_is_bot=message.author.bot,
+        content=message.content or "",
+        is_dm=is_dm,
+        channel_id=message.channel.id,
+        mentions_bot=mentions_bot,
+        is_reply_to_bot=is_reply_to_bot,
+    ):
+        await bot.process_commands(message)
+        return
+
+    prompt = extract_chat_prompt(
+        message.content or "",
+        bot_user_id=bot_user.id if bot_user else None,
+    )
+    if not prompt:
+        if mentions_bot or is_reply_to_bot:
+            raw = (message.content or "").strip()
+            if not raw:
+                await message.reply(
+                    "I see the @mention, but Discord isn't sending me your message "
+                    "text in this server. Enable **Message Content Intent** for this "
+                    "bot in the [Developer Portal](https://discord.com/developers/applications) "
+                    "→ Bot → Privileged Gateway Intents, then restart the bot. "
+                    "Or **DM me** directly — that works without the intent.",
+                    mention_author=False,
+                )
+            else:
+                await message.reply(
+                    "What would you like to ask? Include your question in the same "
+                    "message as the @mention.",
+                    mention_author=False,
+                )
+        await bot.process_commands(message)
+        return
+
+    discord_user_id = str(message.author.id)
+    async with message.channel.typing():
+        chunks, error = await deliver_agent_chat(discord_user_id, prompt)
+
+    if error:
+        await message.reply(error, mention_author=False)
+    else:
+        await message.reply(chunks[0], mention_author=False)
+        for chunk in chunks[1:]:
+            await message.channel.send(chunk)
+
+    await bot.process_commands(message)
 
 
 @bot.tree.command(
@@ -306,45 +464,20 @@ async def ask(
     )
 
     discord_user_id = str(interaction.user.id)
-    selected = selected_agent_for(discord_user_id)
-    agent_id = selected["agent_id"] if selected else DEFAULT_AGENT_ID
-    # A sentinel model_name ('local-model'/'rule-based') means "no override" —
-    # forwarding it verbatim would ask the API to call a model literally named
-    # 'local-model' and break /ask. Map it to None so the server picks a default.
-    model = _model_override(selected.get("model_name")) if selected else None
 
-    try:
-        answer = await chat_with_agent(
-            user_id=discord_user_id,
-            agent_id=agent_id,
-            message=prompt,
-            model=model,
-        )
+    chunks, error = await deliver_agent_chat(discord_user_id, prompt)
+    if error:
+        await interaction.edit_original_response(content=error)
+        return
 
-        chunks = split_discord_message(answer)
-
-        for index, chunk in enumerate(chunks):
-            if index == 0:
-                await interaction.edit_original_response(content=chunk)
-            else:
-                await interaction.followup.send(
-                    chunk,
-                    ephemeral=True,
-                )
-
-    except Exception as exc:
-        print(
-            "Discord /ask request failed:",
-            repr(exc),
-        )
-
-        await interaction.edit_original_response(
-            content=(
-                "The model request failed. Check the bot terminal and verify the "
-                "Discord token, the hosted-model key (COMMONSTACK_API_KEY or "
-                "ANTHROPIC_API_KEY), the model id, and the account balance."
+    for index, chunk in enumerate(chunks):
+        if index == 0:
+            await interaction.edit_original_response(content=chunk)
+        else:
+            await interaction.followup.send(
+                chunk,
+                ephemeral=True,
             )
-        )
 
 
 @bot.tree.command(
@@ -473,12 +606,9 @@ async def backtest_cmd(
 
     discord_user_id = str(interaction.user.id)
     selected = selected_agent_for(discord_user_id)
-    # When a built-in agent is selected, run against ITS session so the results
-    # land on that agent's card on the website; otherwise use a per-user session.
-    if selected and selected.get("session_id"):
-        session_id = selected["session_id"]
-    else:
-        session_id = session_for(discord_user_id)
+    # Per-user fallback session; when a built-in agent is selected we pass
+    # agent_id in the payload so the API binds the run to that agent's card.
+    session_id = session_for(discord_user_id)
     headers = {"X-Session-Id": session_id}
 
     # 1) Resolve the strategy prompt: prefer a directly typed prompt; otherwise
@@ -508,6 +638,8 @@ async def backtest_cmd(
 
     # 2) Kick off the backtest via the existing workflow.
     payload: dict[str, Any] = {"strategy_prompt": strategy_prompt}
+    if selected:
+        payload["agent_id"] = selected["agent_id"]
     # Only override the model when the agent has a real one; a sentinel
     # ('local-model') would otherwise mislabel the run / fail the model call.
     model_override = _model_override(selected.get("model_name")) if selected else None
@@ -532,6 +664,10 @@ async def backtest_cmd(
             content=f"Backtest not started: {started.get('error', 'unknown error')}"
         )
         return
+
+    # Poll status against the session the API actually used (agent card session).
+    effective_session = started.get("session_id") or session_id
+    headers = {"X-Session-Id": effective_session}
 
     await interaction.edit_original_response(
         content=f"Backtest started (`{label}`) with real Alpaca bars + hosted model. Running… this can take a few minutes."
@@ -671,7 +807,7 @@ async def agent(
         )
     if current:
         lines.append(f"\nCurrently selected: **{current['name']}**")
-    lines.append("\nPick one below to start chatting with `/ask`.")
+    lines.append("\nPick one below, then message the bot directly (or use `/ask`).")
 
     await interaction.edit_original_response(
         content="\n".join(lines),

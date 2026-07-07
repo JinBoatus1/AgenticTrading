@@ -31,3 +31,41 @@ services:
       - name: database
         mountPath: /data
         sizeGB: 1
+
+  # Discord bot — long-running WebSocket process (not an HTTP web service).
+  # Render does NOT offer a free plan for workers (see render.com/docs/free).
+  # Use plan: starter (~$7/mo) or create manually in the dashboard.
+  - type: worker
+    name: agentic-trading-discord-bot
+    env: python
+    region: oregon
+    plan: starter
+
+    buildCommand: pip install -r requirements-discord.txt
+    startCommand: python -m dashboard.backend.integrations.discord_bot
+
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: true
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      # Point at the API web service in this Blueprint (https URL).
+      - key: ATL_API_BASE
+        fromService:
+          name: agentic-trading-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      # Set these in the Render dashboard (Secrets) before first deploy:
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: DISCORD_GUILD_ID
+        sync: false
+      - key: DISCORD_CHANNEL_ID
+        sync: false
+      # /ask and free-form chat call the LLM inside the worker process:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: COMMONSTACK_API_KEY
+        sync: false
+      - key: COMMONSTACK_BASE_URL
+        sync: false
