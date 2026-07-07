@@ -39,6 +39,7 @@ from dashboard.backend.database import db, DB_PATH
 from dashboard.backend.paths import DASHBOARD_DIR, REPO_ROOT, SCRIPTS_DIR
 from dashboard.backend.middleware import get_session_id_from_request
 from dashboard.backend.api.rate_limit import FixedWindowRateLimiter, client_key
+from dashboard.backend.domain.agents.service import agent_service
 
 router = APIRouter()
 
@@ -261,12 +262,14 @@ class BacktestRunRequest(BaseModel):
     All fields are optional; when present they override the query-param
     defaults. ``strategy_prompt`` is a free-form strategy that REPLACES the
     built-in agent prompt for this run, and ``model`` overrides the LLM model id.
+    ``agent_id`` targets a built-in agent's trading session (Discord / website).
     Long prompts belong in the body (not the query string).
     """
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     strategy_prompt: Optional[str] = None
     model: Optional[str] = None
+    agent_id: Optional[str] = None
 
 
 # /backtest/run spends real operator LLM credits per trading hour of the run, on
@@ -329,6 +332,26 @@ def _validate_backtest_params(start_date, end_date, strategy_prompt, model) -> N
         )
 
 
+def _resolve_backtest_session(request: Request, agent_id: Optional[str]) -> str:
+    """Return the session that should own this backtest run.
+
+    When ``agent_id`` references a built-in agent, use that agent's session so
+    results appear on its website card (without exposing ``session_id`` in public
+    listings). Otherwise fall back to the caller's ``X-Session-Id``.
+    """
+    if not agent_id:
+        return request.state.session_id
+    agent = agent_service.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if (agent.get("agent_type") or "external") != "builtin":
+        raise HTTPException(
+            status_code=422,
+            detail="agent_id must reference a built-in agent",
+        )
+    return agent["session_id"]
+
+
 @router.post("/backtest/run")
 async def run_backtest_endpoint(
     request: Request,
@@ -348,11 +371,13 @@ async def run_backtest_endpoint(
     callers that pass only ``start_date``/``end_date`` as query params.
     """
     # Body (when provided) overrides query params.
+    agent_id: Optional[str] = None
     if body is not None:
         start_date = body.start_date or start_date
         end_date = body.end_date or end_date
         strategy_prompt = body.strategy_prompt or strategy_prompt
         model = body.model or model
+        agent_id = body.agent_id
 
     # Guard operator LLM spend BEFORE scheduling anything. Validation first (so a
     # caller correcting a bad request isn't charged rate budget for a typo), then
@@ -364,7 +389,7 @@ async def run_backtest_endpoint(
             detail="Too many backtests started recently; please try again later.",
         )
 
-    session_id = request.state.session_id
+    session_id = _resolve_backtest_session(request, agent_id)
     print(f"📌 /backtest/run endpoint called: start_date={start_date}, end_date={end_date}", flush=True)
     print(f"   Session: {session_id[:8]}...", flush=True)
     if strategy_prompt:
@@ -391,7 +416,8 @@ async def run_backtest_endpoint(
     return {
         "success": True,
         "message": "Backtest started in background. Check /backtest/status for progress.",
-        "status_url": "/backtest/status"
+        "status_url": "/backtest/status",
+        "session_id": session_id,
     }
 
 @router.get("/backtest/status")
