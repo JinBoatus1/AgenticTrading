@@ -21,8 +21,26 @@ from dashboard.backend.api.v2.models import (
 )
 from dashboard.backend.api.v2.auth_scopes import require_scope
 from dashboard.backend.database import db
-from dashboard.backend.domain.runs.service import MAX_ACTIVE_RUNS_PER_AGENT
-from dashboard.backend.execution.backtest_backend import BacktestBackend
+# The v1 service's create lock is shared on purpose: both surfaces count
+# active runs from the same protocol_runs ledger, so both check-then-insert
+# sequences must serialize on ONE lock or an agent could race one create per
+# surface past the combined cap. Known trade-off: run creation across BOTH
+# surfaces serializes on this lock, including its quick SQLite writes —
+# acceptable because creates are rare and bounded (cap per agent), and
+# correctness of the cap beats create throughput. Long work (market-data
+# load) stays off the lock (background thread).
+from dashboard.backend.domain.runs.service import (
+    MAX_ACTIVE_RUNS_PER_AGENT,
+    _create_lock as _shared_create_lock,
+)
+# Late-bound module reference (run_repo.run_store) so tests that swap the
+# run_store singleton cover this module too.
+from dashboard.backend.domain.runs import repository as run_repo
+from dashboard.backend.execution.backtest_backend import (
+    ArchivedBacktestBackend,
+    BacktestBackend,
+)
+from dashboard.backend.execution.base import TERMINAL_STATUSES as _TERMINAL_STATUSES
 from dashboard.backend.api.v2.rate_limit import enforce
 
 router = APIRouter(prefix="/v2/runs", tags=["v2-runs"])
@@ -30,15 +48,19 @@ router = APIRouter(prefix="/v2/runs", tags=["v2-runs"])
 # run_id -> {"backend": ExecutionBackend, "session_id": str, "agent_id": str|None}
 _runs: Dict[str, Dict[str, Any]] = {}
 _lock = threading.Lock()
-# Serializes the cap check with run creation (check-then-act TOCTOU) — same
-# pattern as the v1 protocol's _create_lock.
-_create_lock = threading.Lock()
 
 # MAX_ACTIVE_RUNS_PER_AGENT (imported from the v1 run service — one knob for
 # both surfaces): each active run pins an in-memory engine session holding
-# market data. NOTE: the cap is per SURFACE — v1 and v2 keep separate
-# registries, so an agent can hold up to 2× the limit across both; unifying
-# the registries is part of the run-lifecycle persistence work.
+# market data. The cap is enforced across BOTH surfaces: every v2 run writes a
+# protocol_runs row through its lifecycle, and both create paths count
+# run_store.count_active_runs() under the shared v1 create lock.
+#
+# Documented consequence of the shared ledger: an agent holding both surfaces'
+# credentials can see its v2 runs listed by /api/v1/runs (status-level record
+# only; v1 step/decision queries have nothing to serve for them) and read its
+# own v1 runs' terminal rows through v2 rehydration. This is intentional —
+# run ids are canonical and both surfaces are the same agent identity; v2 is
+# the canonical surface, v1 the compat view.
 
 
 def _mint_run_id() -> str:
@@ -54,30 +76,189 @@ def register_run(run_id: str, backend: Any, session_id: str,
                          "agent_id": agent_id}
 
 
-def _active_run_count(agent_id: str) -> int:
-    with _lock:
-        entries = [e for e in _runs.values() if e.get("agent_id") == agent_id]
-    active = 0
-    for entry in entries:
-        # is_active() is the passive liveness peek — never status(), which on
-        # a live session can cascade into deadline handling and _finalize()
-        # (seconds of baseline work) while create_run holds the global lock.
+def _terminal_status(backend: Any) -> str:
+    """Resolve a no-longer-active backend's terminal state.
+
+    Prefers the raw session attribute (a plain read, no locks). status() is
+    only consulted when there is no session — and only ever on an INACTIVE
+    backend, where it cannot cascade into deadline handling or _finalize().
+    """
+    status = getattr(getattr(backend, "session", None), "status", None)
+    if status is None:
         try:
-            if entry["backend"].is_active():
-                active += 1
+            status = (backend.status() or {}).get("status")
         except Exception:
-            active += 1  # unknown state counts against the cap (fail closed)
-    return active
+            status = None
+    return status if status in ("completed", "closed") else "failed"
+
+
+def _archive_run(run_id: str, entry: Dict[str, Any], backend: Any) -> None:
+    """Fold a finished backend into its protocol_runs row and swap in a
+    DB-backed tombstone (frees the engine session's market-data buffers)."""
+    status = _terminal_status(backend)
+    session = getattr(backend, "session", None)
+    result_run_id = getattr(session, "run_id", None) or run_id
+
+    def _progress(attr: str) -> Optional[int]:
+        # Prefer the live session's count, else the backend's own (a tombstone
+        # carries them directly). `is None`, not `or`, so a real 0 is kept.
+        val = getattr(session, attr, None) if session is not None else None
+        return val if val is not None else getattr(backend, attr, None)
+
+    step_index = _progress("step_index")
+    total_steps = _progress("total_steps")
+    try:
+        run_repo.run_store.update_run(
+            run_id,
+            status=status,
+            result_run_id=result_run_id if status == "completed" else None,
+            # Persist step counts so a post-restart from_record reports real
+            # progress for a failed/closed run instead of a misleading 0/0.
+            step_index=step_index,
+            total_steps=total_steps,
+        )
+    except Exception as exc:
+        # Do NOT swap in the tombstone: with the backend gone nothing would
+        # ever retry this write and the row would freeze in an active status
+        # (mis-holding a cap slot until stale recovery mislabels it failed).
+        # Keep the backend live so the next sweep retries.
+        print(f"⚠️ v2 archive: row update failed for {run_id}, retrying next sweep: {exc}")
+        return
+    archived = ArchivedBacktestBackend(
+        run_id=run_id,
+        session_id=entry["session_id"],
+        status=status,
+        error=getattr(session, "error", None),
+        step_index=step_index,
+        total_steps=total_steps,
+        result_run_id=result_run_id,
+    )
+    with _lock:
+        live = _runs.get(run_id)
+        # An in-flight request may still hold the old backend object; it stays
+        # alive via that reference and its session is thread-safe, so swapping
+        # under a racing read is benign.
+        if live is not None and live["backend"] is backend:
+            live["backend"] = archived
+
+
+def _reconcile_terminal_backends(agent_id: Optional[str] = None) -> None:
+    """Fold any backend that finished since the last sweep into its row.
+
+    Runs under the shared create lock, so it must stay passive on LIVE runs:
+    only the is_active() peek is consulted; status()/advance() are never
+    called on an active backend here."""
+    with _lock:
+        items = [
+            (rid, e) for rid, e in _runs.items()
+            if agent_id is None or e.get("agent_id") == agent_id
+        ]
+    for run_id, entry in items:
+        backend = entry["backend"]
+        if isinstance(backend, ArchivedBacktestBackend):
+            continue
+        try:
+            if backend.is_active():
+                continue
+        except Exception:
+            continue  # unknown state keeps its row (and cap slot) — fail closed
+        _archive_run(run_id, entry, backend)
+
+
+def _active_run_count(agent_id: str) -> int:
+    """Active runs across BOTH surfaces — the protocol_runs ledger is shared
+    with /api/v1. Reconcile first so a v2 run that finished since the last
+    reaper sweep does not hold a phantom cap slot."""
+    _reconcile_terminal_backends(agent_id)
+    return run_repo.run_store.count_active_runs(agent_id)
+
+
+def _rehydrate_terminal_run(run_id: str) -> Optional[Dict[str, Any]]:
+    """Rebuild a registry entry from a terminal protocol_runs row.
+
+    After a restart the in-memory registry is empty but the run's terminal
+    state (startup recovery marks orphans failed), result linkage, decisions
+    and idempotency acks are all DB-backed — owners keep read/replay access
+    instead of a 404. Non-terminal rows are NOT rehydrated: with no live
+    backend here they belong to another worker or are awaiting recovery."""
+    try:
+        record = run_repo.run_store.get_run(run_id)
+    except Exception:
+        return None
+    if not record or record.get("status") not in _TERMINAL_STATUSES:
+        return None
+    entry = {
+        "backend": ArchivedBacktestBackend.from_record(record),
+        "session_id": record["session_id"],
+        "agent_id": record.get("agent_id"),
+    }
+    with _lock:
+        existing = _runs.get(run_id)
+        if existing is not None:
+            return existing
+        _runs[run_id] = entry
+    return entry
 
 
 def _require_run(run_id: str, session_id: str) -> Any:
     with _lock:
         entry = _runs.get(run_id)
+    if entry is None:
+        entry = _rehydrate_terminal_run(run_id)
     # A run owned by another session answers exactly like a missing one — a
     # message-text difference would let any key holder enumerate run ids.
     if not entry or entry["session_id"] != session_id:
         raise ApiError("run_not_found", f"Run {run_id} not found", status=404)
     return entry["backend"]
+
+
+def reap_v2_runs() -> int:
+    """Per-pass v2 sweep, registered with the v1 reaper (composition root).
+
+    Drives abandoned runs through elapsed decision deadlines (advance()),
+    heartbeats rows whose backend is live in this process, and archives
+    terminal backends (row update + tombstone swap). Returns the number of
+    backends archived this pass."""
+    with _lock:
+        items = list(_runs.items())
+    live_ids = []
+    prunable = []  # tombstones archived in a PRIOR pass — safe to evict now
+    reaped = 0
+    for run_id, entry in items:
+        backend = entry["backend"]
+        if isinstance(backend, ArchivedBacktestBackend):
+            prunable.append((run_id, backend))
+            continue
+        try:
+            backend.advance()  # applies any pending deadline auto-hold
+        except Exception as exc:  # a wedged run must not stall the sweep
+            print(f"⚠️ v2 reap: drain failed for {run_id}: {exc}")
+        try:
+            active = backend.is_active()
+        except Exception:
+            active = True  # unknown state: keep it registered, try next pass
+        if active:
+            live_ids.append(run_id)
+        else:
+            _archive_run(run_id, entry, backend)
+            reaped += 1
+    # Evict prior-pass tombstones so _runs is bounded by ACTIVE runs, not by
+    # total historical runs. The terminal row is DB-backed, so a later read
+    # rebuilds an equivalent tombstone via _rehydrate_terminal_run. Runs
+    # archived THIS pass stay one interval, so an immediately-following read is
+    # still served in-process (and single-pass tests see the tombstone).
+    if prunable:
+        with _lock:
+            for run_id, backend in prunable:
+                cur = _runs.get(run_id)
+                if cur is not None and cur["backend"] is backend:
+                    _runs.pop(run_id, None)
+    if live_ids:
+        try:
+            run_repo.run_store.heartbeat_runs(live_ids)
+        except Exception as exc:
+            print(f"⚠️ v2 reap: heartbeat pass failed: {exc}")
+    return reaped
 
 
 # -- pure helpers (unit-testable without HTTP) -----------------------------
@@ -162,7 +343,7 @@ def create_run(body: CreateRunBody, response: Response,
     DB and the engine session synchronously (B0/H4 convention).
     """
     enforce(agent["agent_id"], response)
-    with _create_lock:
+    with _shared_create_lock:
         active = _active_run_count(agent["agent_id"])
         if active >= MAX_ACTIVE_RUNS_PER_AGENT:
             raise ApiError(
@@ -186,8 +367,33 @@ def create_run(body: CreateRunBody, response: Response,
             schema_version=SCHEMA_VERSION, news_sentiment_source=backend.news_sentiment_source,
         )
         db.insert_run_manifest(run_id, manifest.model_dump())
-        backend.start_background_load()
-        register_run(run_id, backend, agent["session_id"], agent["agent_id"])
+        # The run's protocol_runs row: the ledger shared with /api/v1 that the
+        # cap counts, startup recovery fails, and post-restart reads rehydrate.
+        # Inserted under the create lock so a concurrent create sees it.
+        run_repo.run_store.create_run(
+            run_id=run_id,
+            agent_id=agent["agent_id"],
+            agent_version_id=None,
+            session_id=agent["session_id"],
+            environment_id=None,
+            environment_type="backtest",
+            config={
+                "start_date": body.start_date, "end_date": body.end_date,
+                "mode": body.strategy_mode, "universe": body.universe,
+            },
+            backtest_id=None,
+            status="loading",
+        )
+        try:
+            backend.start_background_load()
+            register_run(run_id, backend, agent["session_id"], agent["agent_id"])
+        except Exception:
+            # Never leak an active-looking row for a run that never started.
+            try:
+                run_repo.run_store.update_run(run_id, status="failed")
+            except Exception:
+                pass
+            raise
     return {
         "run_id": run_id, "mode": "backtest", "status": "loading",
         "loop": backend.loop, "decision_timeout_seconds": ext.DECISION_TIMEOUT_SECONDS,
@@ -235,6 +441,26 @@ def decisions_log(run_id: str, agent: dict = Depends(require_scope("runs:read"))
 
 @router.post("/{run_id}/cancel")
 def cancel_run(run_id: str, agent: dict = Depends(require_scope("runs:write"))):
+    """Cancel a live run; on an already-terminal run this is a no-op that
+    reports the run's TRUE state. Persisting a hardcoded "closed" here used
+    to clobber a completed run's ledger row (and hide its metrics) when a
+    cleanup cancel raced the final decision."""
     backend = _require_run(run_id, agent["session_id"])
-    backend.cancel()
-    return {"run_id": run_id, "status": "closed"}
+    try:
+        active = backend.is_active()
+    except Exception:
+        active = False
+    if active:
+        backend.cancel()  # backend-level guard never clobbers terminal state
+    status = _terminal_status(backend)
+    if active:
+        # active is read from backend.is_active(), which an ArchivedBacktestBackend
+        # (tombstone) always reports False — so active already implies a live
+        # backend. Persist only a transition this request actually caused: if the
+        # run finalized between the peek and cancel(), _terminal_status already
+        # reads "completed" and that is what lands — never a downgrade.
+        try:
+            run_repo.run_store.update_run(run_id, status=status)
+        except Exception:
+            pass  # best-effort; the sweep reconciles
+    return {"run_id": run_id, "status": status}

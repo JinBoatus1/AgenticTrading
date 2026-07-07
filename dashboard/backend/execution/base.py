@@ -5,6 +5,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
+# A run's terminal statuses — no longer active, cannot advance. Single source
+# of truth shared by every liveness/cap/archival check so a new status (e.g. a
+# distinct "cancelled") can't silently drift between the surfaces that gate on
+# it (BacktestBackend.is_active, ArchivedBacktestBackend, the v2 reaper).
+TERMINAL_STATUSES = ("completed", "failed", "closed")
+
 
 class ExecutionBackend(ABC):
     """One run's execution. `loop` advertises lifecycle parity: lockstep | realtime."""

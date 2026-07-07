@@ -381,13 +381,18 @@ class TestSafePromptGeneration:
     """Test that safe prompts are generated correctly"""
     
     def test_prompt_contains_constraints(self):
-        """Prompt should contain security constraints"""
+        """Prompt should contain the no-tools + JSON-only constraints.
+
+        The wording tracks the current active prompt (the strategy body was
+        rewritten; the old CANNOT-phrased prompt is retired). These lines are
+        defense-in-depth only — the hard boundary is response-side
+        enforcement in validate_llm_response (tool_use rejected, JSON-only),
+        pinned by the TestToolCallPrevention tests."""
         snapshot = {"test": "data"}
         prompt = create_safe_prompt(snapshot)
-        
-        assert "CANNOT access the internet" in prompt
-        assert "CANNOT use tools" in prompt
-        assert "CANNOT attempt tool_use" in prompt
+
+        assert "No internet, tools, APIs, or code" in prompt
+        assert "Use ONLY the provided market_snapshot" in prompt
         assert "ONLY valid JSON" in prompt
     
     def test_prompt_contains_schema(self):

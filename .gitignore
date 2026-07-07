@@ -243,3 +243,11 @@ FinAgents/agent_pools/backtest_agent/qlib_data/
 credentials/*
 !credentials/alpaca.json.example
 !credentials/README.md
+
+# claude-mem auto-generates per-folder recall stubs named CLAUDE.md in every
+# directory it visits (empty <claude-mem-context> placeholders that fill in over
+# time). The feature stays ON — but these are machine-managed noise in git, so
+# ignore every *nested* CLAUDE.md while keeping the real, team-shared root file.
+# To commit a genuine nested CLAUDE.md on purpose: git add -f path/to/CLAUDE.md
+**/CLAUDE.md
+!/CLAUDE.md

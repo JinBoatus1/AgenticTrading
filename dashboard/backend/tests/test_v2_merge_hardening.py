@@ -298,13 +298,17 @@ def test_non_consuming_rejection_is_not_cached():
 # -- cap counting must be passive (no engine side effects under the lock) ------
 
 def test_active_run_count_is_side_effect_free():
-    """Counting active runs happens under the global create lock; it must use
-    the passive is_active() peek — status() can cascade into
-    _maybe_apply_timeout/_finalize (seconds of baselines) on a live session."""
+    """Counting active runs happens under the global create lock; on a LIVE
+    backend it must stay passive — only the is_active() peek, never status()
+    or advance(), which can cascade into _maybe_apply_timeout/_finalize
+    (seconds of baselines). (Counting itself now reads the protocol_runs
+    ledger shared with v1; the registry walk only reconciles finished
+    backends, so a live one must be left completely untouched.)"""
 
     class _TrackingBackend:
         def __init__(self):
             self.status_called = False
+            self.advance_called = False
 
         def is_active(self):
             return True
@@ -313,13 +317,28 @@ def test_active_run_count_is_side_effect_free():
             self.status_called = True
             return {"status": "waiting_decision"}
 
+        def advance(self):
+            self.advance_called = True
+
+    from dashboard.backend.domain.runs.repository import run_store
+
     backend = _TrackingBackend()
     agent_id = f"agent_passive_{uuid.uuid4().hex[:6]}"
-    runs_mod.register_run(f"run_passive_{uuid.uuid4().hex[:6]}",
-                          backend, "sid_passive", agent_id)
+    run_id = f"run_passive_{uuid.uuid4().hex[:6]}"
+    # The count reads the shared protocol_runs ledger (one row per v2 run).
+    run_store.create_run(
+        run_id=run_id, agent_id=agent_id, agent_version_id=None,
+        session_id="sid_passive", environment_id=None,
+        environment_type="backtest", config={}, backtest_id=None,
+        status="running",
+    )
+    runs_mod.register_run(run_id, backend, "sid_passive", agent_id)
     assert runs_mod._active_run_count(agent_id) == 1
     assert backend.status_called is False, (
         "cap counting must use the passive is_active() peek, not status()"
+    )
+    assert backend.advance_called is False, (
+        "cap counting must never drive the run forward"
     )
 
 

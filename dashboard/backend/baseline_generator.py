@@ -18,10 +18,15 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
-import sys
 
 from dashboard.backend.paths import CREDENTIALS_DIR
-from dashboard.backend.domain.leaderboard.strategies._common import timestamps_in_contest
+from dashboard.backend.infrastructure.market_data.alpaca_bars import (
+    MarketDataUnavailableError,
+)
+
+# NOTE: domain.leaderboard.strategies._common is imported lazily inside the
+# methods that need it — the strategies package imports this module back
+# (buy_hold et al.), so a top-level import here is a circular import.
 
 # Try to import numpy
 try:
@@ -79,7 +84,13 @@ class BaselineGenerator:
         except Exception as e:
             print(f"❌ Failed to load credentials from file: {e}")
             print("   Set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables")
-            sys.exit(1)
+            # A plain exception, not sys.exit(1): baselines are generated inside
+            # the server (paper init, leaderboard strategies, backtest finalize)
+            # where SystemExit would evade `except Exception` (the B0 class).
+            raise MarketDataUnavailableError(
+                "Alpaca credentials not found (set ALPACA_API_KEY and "
+                "ALPACA_SECRET_KEY, or provide credentials/alpaca.json)"
+            ) from e
     
     def _fetch_bars_for_symbol(self, symbol: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
         """
@@ -97,9 +108,11 @@ class BaselineGenerator:
             from alpaca.data.historical import StockHistoricalDataClient
             from alpaca.data.requests import StockBarsRequest
             from alpaca.data.timeframe import TimeFrame
-        except ImportError:
+        except ImportError as e:
             print("❌ alpaca-py not installed. Install with: pip install alpaca-py")
-            sys.exit(1)
+            raise MarketDataUnavailableError(
+                "alpaca-py is not installed (pip install alpaca-py)"
+            ) from e
         
         try:
             client = StockHistoricalDataClient(self.api_key, self.secret_key)
@@ -186,6 +199,9 @@ class BaselineGenerator:
                 market_hours_only.append(ts)
         
         all_timestamps = market_hours_only
+        from dashboard.backend.domain.leaderboard.strategies._common import (
+            timestamps_in_contest,
+        )
         all_timestamps = timestamps_in_contest(all_timestamps, start_date, end_date)
 
         if not all_timestamps:
@@ -316,6 +332,9 @@ class BaselineGenerator:
                 market_hours_only.append(ts)
         
         all_timestamps = market_hours_only
+        from dashboard.backend.domain.leaderboard.strategies._common import (
+            timestamps_in_contest,
+        )
         all_timestamps = timestamps_in_contest(all_timestamps, start_date, end_date)
 
         if not all_timestamps:

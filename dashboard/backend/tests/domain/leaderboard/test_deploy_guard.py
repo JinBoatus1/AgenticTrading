@@ -26,11 +26,26 @@ _CONFIG = {
 
 
 class FakeLLMStrategy:
-    """Mimics LLMAgentStrategy's reporting surface (exposes ``used_llm``)."""
+    """Mimics LLMAgentStrategy's reporting surface (exposes ``used_llm``).
 
-    def __init__(self, *, used_llm, llm_calls, model_id="test-model"):
+    ``decision_steps`` is the number of decision points in the run; when omitted
+    it defaults to ``llm_calls`` (i.e. 100% LLM coverage), so existing tests that
+    only care about the used_llm/llm_calls axis stay at full coverage.
+
+    ``llm_decisions`` is how many steps produced a *usable* model decision (the
+    H6 coverage numerator); when omitted it defaults to ``llm_calls`` — the
+    common case where every billed call yielded a usable decision.
+    """
+
+    def __init__(self, *, used_llm, llm_calls, decision_steps=None,
+                 llm_decisions=None, report_decisions=True, model_id="test-model"):
         self.used_llm = used_llm
         self.llm_calls = llm_calls
+        # An older strategy shape may not report llm_decisions at all; omit the
+        # attribute entirely so getattr on the guard side has to default it.
+        if report_decisions:
+            self.llm_decisions = llm_calls if llm_decisions is None else llm_decisions
+        self.decision_steps = llm_calls if decision_steps is None else decision_steps
         self.input_tokens = 10
         self.output_tokens = 5
         self.model_id = model_id
@@ -99,11 +114,73 @@ def test_refuses_when_llm_calls_zero(guard_env, monkeypatch):
         canon_service.deploy_model_run("claude_haiku_4_5", force_refresh=True)
 
 
+def test_refuses_partial_llm_fallback(guard_env, monkeypatch):
+    # The client worked for one step then every other step fell back to
+    # rule-based: 1 of 161 decisions came from the model. Publishing this curve
+    # under the model's name would be ~99% rule-based. (This is the real Qwen
+    # 1-of-161 run that silently topped the board.)
+    _use(monkeypatch, FakeLLMStrategy(used_llm=True, llm_calls=1, decision_steps=161))
+    with pytest.raises(canon_service.LeaderboardFallbackError):
+        canon_service.deploy_model_run("claude_haiku_4_5", force_refresh=True)
+    run_id = canon_service._run_id("claude_haiku_4_5", "2026-04-15", "2026-05-15")
+    assert guard_env.get_run(run_id) is None  # nothing persisted
+
+
+def test_refuses_just_below_coverage_threshold(guard_env, monkeypatch):
+    # 94 of 100 steps LLM-decided = 94% < 95% threshold → refuse.
+    _use(monkeypatch, FakeLLMStrategy(used_llm=True, llm_calls=94, decision_steps=100))
+    with pytest.raises(canon_service.LeaderboardFallbackError):
+        canon_service.deploy_model_run("claude_haiku_4_5", force_refresh=True)
+
+
+def test_publishes_at_coverage_threshold(guard_env, monkeypatch):
+    # 95 of 100 steps LLM-decided = exactly 95% → allowed (transient API blips
+    # on a genuine LLM run must not be misread as a fallback curve).
+    _use(monkeypatch, FakeLLMStrategy(used_llm=True, llm_calls=95, decision_steps=100))
+    result = canon_service.deploy_model_run("claude_haiku_4_5", force_refresh=True)
+    assert guard_env.get_run(result["run_id"]) is not None
+
+
+def test_refuses_when_calls_succeed_but_no_usable_decisions(guard_env, monkeypatch):
+    # Every API call "succeeded" (llm_calls == decision_steps == 161) but the
+    # model's output was empty/unparseable almost every step, so only 1 step
+    # produced a usable decision. The curve is ~99% rule-based despite 100% call
+    # coverage — the guard must key off usable decisions, not billed calls.
+    _use(monkeypatch, FakeLLMStrategy(
+        used_llm=True, llm_calls=161, llm_decisions=1, decision_steps=161))
+    with pytest.raises(canon_service.LeaderboardFallbackError):
+        canon_service.deploy_model_run("claude_haiku_4_5", force_refresh=True)
+    run_id = canon_service._run_id("claude_haiku_4_5", "2026-04-15", "2026-05-15")
+    assert guard_env.get_run(run_id) is None  # nothing persisted
+
+
 def test_allow_fallback_publishes(guard_env, monkeypatch):
     _use(monkeypatch, FakeLLMStrategy(used_llm=False, llm_calls=0))
     result = canon_service.deploy_model_run(
         "claude_haiku_4_5", force_refresh=True, allow_fallback=True
     )
+    assert guard_env.get_run(result["run_id"]) is not None
+
+
+def test_allow_fallback_publishes_partial_run(guard_env, monkeypatch):
+    # allow_fallback must bypass the *partial*-coverage guard too, not only the
+    # total-fallback case above — a deploy that explicitly opts in publishes a
+    # low-coverage run instead of being rejected.
+    _use(monkeypatch, FakeLLMStrategy(
+        used_llm=True, llm_calls=10, llm_decisions=10, decision_steps=161))
+    result = canon_service.deploy_model_run(
+        "claude_haiku_4_5", force_refresh=True, allow_fallback=True
+    )
+    assert guard_env.get_run(result["run_id"]) is not None
+
+
+def test_strategy_without_llm_decisions_defaults_to_llm_calls(guard_env, monkeypatch):
+    # An older strategy that reports decision_steps but not llm_decisions must
+    # fall back to llm_calls coverage (the documented default), not be wrongly
+    # rejected as 0/decision_steps.
+    _use(monkeypatch, FakeLLMStrategy(
+        used_llm=True, llm_calls=100, decision_steps=100, report_decisions=False))
+    result = canon_service.deploy_model_run("claude_haiku_4_5", force_refresh=True)
     assert guard_env.get_run(result["run_id"]) is not None
 
 
@@ -145,6 +222,36 @@ def test_ensure_leaderboard_runs_also_guards_llm_fallback(tmp_path, monkeypatch)
     })
     with pytest.raises(canon_service.LeaderboardFallbackError):
         canon_service.ensure_leaderboard_runs(force_refresh=True)
+
+
+def test_ensure_leaderboard_runs_names_model_id_in_fallback(tmp_path, monkeypatch):
+    """The auto-compute guard path must name the offending model id in its
+    diagnostic (finding #3). Previously it omitted model_id and printed 'None',
+    hiding which gateway id failed."""
+    cfg = {
+        "session_id": "lb-auto-test",
+        "start_date": "2026-04-15",
+        "end_date": "2026-05-15",
+        "initial_capital": 100000,
+        "strategies": [
+            {"id": "sneaky_llm", "name": "Sneaky", "model": "Sneaky",
+             "strategy": "llm_agent", "auto_compute": True},
+        ],
+    }
+    test_db = BacktestDatabase(db_path=tmp_path / "lb.db")
+    monkeypatch.setattr(canon_service, "db", test_db)
+    monkeypatch.setattr(canon_service, "load_leaderboard_config", lambda: dict(cfg))
+    monkeypatch.setattr(canon_service, "get_strategy", lambda entry: FakeLLMStrategy(
+        used_llm=True, llm_calls=1, llm_decisions=1, decision_steps=161,
+        model_id="sneaky-gateway-id"))
+    monkeypatch.setattr(canon_service, "fetch_hourly_bars", lambda syms, s, e: {"AAPL": object()})
+    monkeypatch.setattr(canon_service, "calc_metrics", lambda curve, cap: {
+        "initial_equity": cap, "final_equity": cap, "total_return": 0.0,
+        "sharpe_ratio": 0.0, "max_drawdown": 0.0,
+    })
+    with pytest.raises(canon_service.LeaderboardFallbackError) as exc:
+        canon_service.ensure_leaderboard_runs(force_refresh=True)
+    assert "sneaky-gateway-id" in str(exc.value)
 
 
 def test_default_model_name_is_gateway_aware(monkeypatch):

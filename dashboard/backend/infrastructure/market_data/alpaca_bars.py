@@ -1,11 +1,13 @@
 """Alpaca historical bar loader.
 
-Extracted (Phase 2B1) verbatim from ``AlpacaDataLoader`` in
-``dashboard/scripts/backtest_hourly_agent.py``. Constructor signature, methods,
-attributes, credentials-loading and precedence behavior, Alpaca client
-construction, request parameters, timeframe/symbol handling, returned dataframe
-columns/index/timezone/sorting, empty-response and exception behavior, and all
-logging/warning output are unchanged.
+Extracted (Phase 2B1) from ``AlpacaDataLoader`` in
+``dashboard/scripts/backtest_hourly_agent.py``. One deliberate behavior change
+since the move (B0/H4 deep fix): missing credentials or a missing alpaca-py SDK
+raise :class:`MarketDataUnavailableError` instead of ``sys.exit(1)``. SystemExit
+is a BaseException — it sailed past ``except Exception`` at every server call
+site, silently killed daemon loader threads, and wedged the ASGI loop (the
+original B0 hang). A plain exception is catchable everywhere; only CLI
+entrypoints translate it back into an exit code.
 
 This is intentionally NOT merged with ``dashboard/backend/market_data.py``; that
 consolidation belongs to a later domain-migration phase. The Alpaca SDK imports
@@ -22,7 +24,15 @@ import pandas as pd
 from dashboard.backend.paths import CREDENTIALS_DIR
 
 
-class AlpacaCredentialsError(RuntimeError):
+class MarketDataUnavailableError(RuntimeError):
+    """Market data cannot be loaded (missing credentials, SDK, or data).
+
+    Deliberately a plain Exception subclass: server code catches it with
+    ``except Exception``; CLI entrypoints convert it to ``sys.exit(1)``.
+    """
+
+
+class AlpacaCredentialsError(MarketDataUnavailableError):
     """Raised when Alpaca API credentials are not configured."""
 
 
@@ -32,22 +42,13 @@ class AlpacaDataLoader:
     def __init__(self, api_key: Optional[str] = None, secret_key: Optional[str] = None):
         """Initialize with Alpaca credentials."""
         if not api_key or not secret_key:
-            try:
-                creds = self._load_credentials()
-                api_key = creds.get("api_key")
-                secret_key = creds.get("secret_key")
-            except AlpacaCredentialsError:
-                api_key = None
-                secret_key = None
+            creds = self._load_credentials()
+            api_key = creds.get("api_key")
+            secret_key = creds.get("secret_key")
 
         self.api_key = api_key
         self.secret_key = secret_key
         self.base_url = "https://data.alpaca.markets"
-        self.client = None
-
-        if not self.api_key or not self.secret_key:
-            print("⚠️ Alpaca credentials not configured — bar fetch disabled")
-            return
 
         try:
             from alpaca.data.historical import StockHistoricalDataClient
@@ -61,6 +62,9 @@ class AlpacaDataLoader:
         except ImportError as e:
             print(f"❌ alpaca-py not installed: {e}")
             print("   Run: pip install alpaca-py")
+            raise MarketDataUnavailableError(
+                "alpaca-py is not installed (pip install alpaca-py)"
+            ) from e
 
     def _load_credentials(self) -> Dict:
         """Load Alpaca credentials from environment variables or file."""
@@ -77,7 +81,10 @@ class AlpacaDataLoader:
         if not creds_path.exists():
             print(f"❌ Credentials not found in environment variables or file: {creds_path}")
             print("   Set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables")
-            raise AlpacaCredentialsError("Alpaca credentials not configured")
+            raise AlpacaCredentialsError(
+                "Alpaca credentials not found (set ALPACA_API_KEY and "
+                f"ALPACA_SECRET_KEY, or provide {creds_path})"
+            )
 
         print(f"✅ Loaded Alpaca credentials from {creds_path}")
         with open(creds_path) as f:

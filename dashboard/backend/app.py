@@ -176,6 +176,17 @@ async def startup_event():
         print(f"⚠️ Orphaned-run recovery error: {e}")
 
     try:
+        # Composition-root wiring (the domain reaper must not import api/*):
+        # each reaper pass also sweeps the v2 registry — drains abandoned v2
+        # runs, heartbeats live ones, archives terminal backends.
+        from dashboard.backend.api.v2.runs import reap_v2_runs
+        from dashboard.backend.domain.runs.service import register_reaper_sweep
+        register_reaper_sweep(reap_v2_runs)
+        print("🧹 v2 run sweep registered with the reaper")
+    except Exception as e:
+        print(f"⚠️ v2 sweep registration error: {e}")
+
+    try:
         from dashboard.backend.domain.runs.service import start_reaper
         start_reaper()
         print("🧹 Run reaper started")

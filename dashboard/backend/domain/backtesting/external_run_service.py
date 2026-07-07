@@ -26,6 +26,7 @@ import pytz
 import dashboard.backend.infrastructure.llm.token_cost as token_cost
 from dashboard.backend.domain.agents.repository import agent_store
 from dashboard.backend.database import db
+from dashboard.backend.execution.base import TERMINAL_STATUSES
 from dashboard.backend.infrastructure.llm.validator import (
     DJIA_30,
     actions_to_executable,
@@ -69,6 +70,46 @@ def _new_ext_run_id() -> str:
     depend on this value, so the suffix is safe.
     """
     return f"ext_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+
+def build_compare_url(
+    run_id: Optional[str], baseline_run_ids: Dict[str, str],
+) -> Optional[str]:
+    """Compare-view link: the run against its baselines (run, djia, buy&hold).
+
+    Module-level so the live session and the archived-run tombstone build the
+    exact same URL — the ordering is part of the contract (finding: the
+    tombstone used to drop compare_url entirely)."""
+    if not run_id:
+        return None
+    ids = [run_id]
+    if baseline_run_ids.get("djia"):
+        ids.append(baseline_run_ids["djia"])
+    if baseline_run_ids.get("buy_and_hold"):
+        ids.append(baseline_run_ids["buy_and_hold"])
+    return f"/compare?run_ids={','.join(ids)}"
+
+
+def build_final_metrics(run: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The completed-run metrics block, from an agent_runs row.
+
+    Module-level (like build_compare_url) so the live session's get_status and
+    the archived-run tombstone hand out the exact same shape — a new metric
+    can't be added to one surface and silently dropped from the other. Returns
+    {} for a missing row."""
+    if not run:
+        return {}
+    return {
+        "total_return": run.get("total_return"),
+        "sharpe_ratio": run.get("sharpe_ratio"),
+        "max_drawdown": run.get("max_drawdown"),
+        "num_trades": run.get("num_trades"),
+        "final_equity": run.get("final_equity"),
+        "llm_calls": run.get("llm_calls"),
+        "input_tokens": run.get("input_tokens"),
+        "output_tokens": run.get("output_tokens"),
+        "est_cost_usd": run.get("est_cost_usd"),
+    }
 
 
 class ExternalBacktestSession:
@@ -149,8 +190,16 @@ class ExternalBacktestSession:
         if self.total_steps == 0:
             raise RuntimeError("No trading hours in the selected date range")
 
-        self.status = "waiting_decision"
-        self._open_current_step()
+        # Publish the loaded state under the step lock, and only if a concurrent
+        # cancel() hasn't already moved the run to a terminal state. cancel()
+        # writes "closed" under this same lock; this write used to be unlocked
+        # and would resurrect a cancelled run back to waiting_decision (freeing
+        # its cap slot while it kept running). _open_current_step takes no lock.
+        with self._step_lock:
+            if self.status in TERMINAL_STATUSES:
+                return
+            self.status = "waiting_decision"
+            self._open_current_step()
 
     def _build_trading_timestamps(self) -> List[Any]:
         all_timestamps: set = set()
@@ -543,6 +592,16 @@ class ExternalBacktestSession:
         db.insert_trades(self.run_id, self.manager.trades)
         db.insert_decisions(self.run_id, self.decision_log)
 
+        # The run is fully persisted now — publish "completed" BEFORE the slow,
+        # best-effort baseline generation below. is_active()/cancel() read
+        # self.status without _step_lock; if the flip waited until after the
+        # baselines (two full backtests, seconds-to-minutes, all under the step
+        # lock) a cancel would block for that whole window and the cap would
+        # keep counting a finished run. baseline_run_ids fills in just below,
+        # still before _finalize returns, so the locked callers see the
+        # complete envelope.
+        self.status = "completed"
+
         try:
             backtester = HourlyBacktester(
                 self.start_date,
@@ -564,11 +623,11 @@ class ExternalBacktestSession:
                 buyhold_run_id=buyhold_id,
             )
         # Baseline generation is strictly best-effort and must never break — or
-        # hang — run finalization. AlpacaDataLoader raises SystemExit (a
-        # BaseException, not Exception) when credentials are absent; if that
-        # escaped here it would propagate into the ASGI worker and wedge the
-        # request future forever. Catch SystemExit alongside Exception so a
-        # credential-less environment degrades to "run saved, no baselines".
+        # hang — run finalization. A credential-less environment now raises
+        # MarketDataUnavailableError (a plain Exception, B0 deep fix), but the
+        # SystemExit catch stays as defense-in-depth: any regression back to a
+        # BaseException here would propagate into the ASGI worker and wedge
+        # the request future forever (the original B0 hang).
         except (Exception, SystemExit) as exc:
             print(f"⚠️ Baseline generation failed (run saved): {exc}")
 
@@ -580,36 +639,15 @@ class ExternalBacktestSession:
             )
         except Exception as exc:
             print(f"⚠️ Agent auto-register failed (run saved): {exc}")
-
-        self.status = "completed"
+        # status is already "completed" (set before the baseline block above).
 
     def _compare_url(self) -> Optional[str]:
-        if not self.run_id:
-            return None
-        ids = [self.run_id]
-        if self.baseline_run_ids.get("djia"):
-            ids.append(self.baseline_run_ids["djia"])
-        if self.baseline_run_ids.get("buy_and_hold"):
-            ids.append(self.baseline_run_ids["buy_and_hold"])
-        return f"/compare?run_ids={','.join(ids)}"
+        return build_compare_url(self.run_id, self.baseline_run_ids)
 
     def _final_metrics(self) -> Dict[str, Any]:
         if not self.run_id:
             return {}
-        run = db.get_run(self.run_id)
-        if not run:
-            return {}
-        return {
-            "total_return": run.get("total_return"),
-            "sharpe_ratio": run.get("sharpe_ratio"),
-            "max_drawdown": run.get("max_drawdown"),
-            "num_trades": run.get("num_trades"),
-            "final_equity": run.get("final_equity"),
-            "llm_calls": run.get("llm_calls"),
-            "input_tokens": run.get("input_tokens"),
-            "output_tokens": run.get("output_tokens"),
-            "est_cost_usd": run.get("est_cost_usd"),
-        }
+        return build_final_metrics(db.get_run(self.run_id))
 
     def get_status(self) -> Dict[str, Any]:
         with self._step_lock:
@@ -776,13 +814,12 @@ def start_backtest(
         _sessions[backtest_id] = session
 
     def _load_in_background() -> None:
-        # load_market_data() constructs AlpacaDataLoader, which raises SystemExit
-        # (a BaseException, not Exception) when credentials are absent. On this
-        # daemon thread the default threading.excepthook silently swallows
-        # SystemExit, so the thread would die without ever marking the session
-        # failed — leaving the run stuck in "loading" forever. Catch SystemExit
-        # alongside Exception so a credential-less environment fails the run
-        # cleanly instead of stranding it. (Mirrors the _finalize() catch above.)
+        # load_market_data() constructs AlpacaDataLoader; missing credentials
+        # now raise MarketDataUnavailableError (a plain Exception, B0 deep
+        # fix). The SystemExit catch stays as defense-in-depth: on this daemon
+        # thread the default threading.excepthook silently swallows
+        # SystemExit, so a regression back to sys.exit() would strand the run
+        # in "loading" forever. (Mirrors the _finalize() catch above.)
         try:
             session.load_market_data()
         except (Exception, SystemExit) as exc:
