@@ -15,6 +15,8 @@ PLAYGROUND_SERIES_COLORS = {
     "external-agent": "#4FC3F7",
     "agent": "#4FC3F7",
     "djia": "#F5C04A",
+    "djia-index": "#F5C04A",
+    "nasdaq-100": "#9AA4B2",
     "buy-and-hold": "#9AA4B2",
 }
 
@@ -41,8 +43,10 @@ def series_kind(run_id: str, agent_name: Optional[str]) -> str:
     if rid.startswith("ext_"):
         return "external-agent"
     name = (agent_name or "").strip().lower()
-    if name == "djia":
-        return "djia"
+    if name in {"djia", "djia index"}:
+        return "djia-index"
+    if name in {"nasdaq-100", "nasdaq 100"}:
+        return "nasdaq-100"
     if name in {"buy-and-hold", "buy & hold"}:
         return "buy-and-hold"
     return "agent"

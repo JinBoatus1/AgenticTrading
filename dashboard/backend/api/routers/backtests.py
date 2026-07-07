@@ -31,16 +31,17 @@ from pydantic import BaseModel
 # pyplot import elsewhere in the process, so it belongs at module scope.
 import matplotlib
 matplotlib.use("Agg")
-from matplotlib.figure import Figure
-import matplotlib.dates as mdates
-import matplotlib.ticker as mticker
 
 from dashboard.backend.database import db, DB_PATH
 from dashboard.backend.paths import DASHBOARD_DIR, REPO_ROOT, SCRIPTS_DIR
 from dashboard.backend.middleware import get_session_id_from_request
 from dashboard.backend.api.rate_limit import FixedWindowRateLimiter, client_key
 from dashboard.backend.domain.agents.service import agent_service
-from dashboard.backend.chart_style import PLAYGROUND_THEME, format_playground_timestamp, series_color
+from dashboard.backend.equity_plot import (
+    curve_timestamps_and_values,
+    market_index_baselines_for_run,
+    render_backtest_equity_png,
+)
 
 router = APIRouter()
 
@@ -635,8 +636,8 @@ def get_run_plot(run_id: str):
 
     Public endpoint: the path ends in ``.png`` so it is exempt from the session
     middleware. Used by the Discord bot to post a chart after a backtest, and
-    usable directly as an <img> src. Returns the same agent-vs-DJIA-vs-buy&hold
-    comparison and Playground chart styling the website shows (absolute $ equity).
+    usable directly as an <img> src. Uses the gapless market-hour axis from
+    ``docs/examples/simple_trading_agent_backtest.py`` with Playground colors.
 
     Sync ``def`` so FastAPI runs the CPU-bound matplotlib render in its
     threadpool rather than blocking the event loop; the PNG is cached per run_id.
@@ -657,100 +658,30 @@ def _render_run_plot_png(run_id: str) -> bytes:
     if not run:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
-    # Resolve baselines for this run. Prefer the explicit link columns; if they
-    # are unset, find the buy-and-hold / DJIA runs from the same session that
-    # cover the same date window (agent + baselines are written seconds apart,
-    # so a run_id timestamp match is unreliable). Pick the baseline created
-    # closest in time to the agent run.
-    def _parse_created(value: str) -> float:
-        try:
-            return datetime.fromisoformat(value).timestamp()
-        except Exception:
-            return 0.0
-
-    def _find_baseline(agent_name: str) -> Optional[str]:
-        session_id = run.get("session_id")
-        if not session_id:
-            return None
-        anchor = _parse_created(run.get("created_at") or "")
-        candidates = [
-            r for r in db.get_runs_by_session(session_id)
-            if r.get("agent_name") == agent_name
-            and r.get("start_date") == run.get("start_date")
-            and r.get("end_date") == run.get("end_date")
-            and r.get("mode") == run.get("mode")
-        ]
-        if not candidates:
-            return None
-        closest = min(candidates, key=lambda r: abs(_parse_created(r.get("created_at") or "") - anchor))
-        return closest.get("run_id")
-
-    buyhold_id = run.get("baseline_buyhold_run_id") or _find_baseline("buy-and-hold")
-    djia_id = run.get("baseline_djia_run_id") or _find_baseline("DJIA")
-
-    theme = PLAYGROUND_THEME
     agent_label = run.get("agent_name") or "Agent"
-    plan = [(agent_label, run_id, series_color(run_id, agent_label))]
-    if buyhold_id:
-        plan.append(("buy-and-hold", buyhold_id, series_color(buyhold_id, "buy-and-hold")))
-    if djia_id:
-        plan.append(("DJIA", djia_id, series_color(djia_id, "DJIA")))
-
-    fig = Figure(figsize=(9.0, 4.8), dpi=130)
-    fig.patch.set_facecolor(theme["figure_bg"])
-    ax = fig.add_subplot(111)
-    ax.set_facecolor(theme["axes_bg"])
-
-    plotted = 0
-    for label, rid, color in plan:
-        curve = filter_market_hours(db.get_equity_curve(rid))
-        if not curve:
-            continue
-        xs, ys = [], []
-        for point in curve:
-            try:
-                ts = datetime.fromisoformat(point["timestamp"].replace("Z", "+00:00"))
-            except Exception:
-                continue
-            xs.append(ts)
-            ys.append(point["equity"])
-        if xs:
-            ax.plot(xs, ys, label=label, color=color, linewidth=theme["line_width"])
-            plotted += 1
-
-    if plotted == 0:
+    agent_curve = filter_market_hours(db.get_equity_curve(run_id))
+    timestamps, agent_values = curve_timestamps_and_values(agent_curve)
+    if not timestamps:
         raise HTTPException(status_code=404, detail="No equity data to plot for this run")
 
-    ax.set_title(
-        f"{agent_label}  ·  {run.get('start_date', '?')} → {run.get('end_date', '?')}",
-        color=theme["title"],
-        fontsize=12,
-        pad=12,
+    initial_capital = float(run.get("initial_equity") or agent_values[0] or 100_000)
+    baselines = market_index_baselines_for_run(
+        timestamps,
+        run.get("start_date") or "",
+        run.get("end_date") or "",
+        initial_capital,
     )
-    ax.set_ylabel("Portfolio value ($)", color=theme["label"], fontsize=10)
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
-    ax.tick_params(colors=theme["tick"], labelsize=9)
-    for spine in ax.spines.values():
-        spine.set_color(theme["spine"])
-    ax.grid(axis="y", color=theme["grid"], linewidth=0.6)
-    ax.xaxis.grid(False)
-    ax.xaxis.set_major_formatter(
-        mticker.FuncFormatter(lambda x, _pos: format_playground_timestamp(mdates.num2date(x)))
-    )
-    fig.autofmt_xdate(rotation=0, ha="center")
-    legend = ax.legend(
-        loc="upper left",
-        fontsize=9,
-        facecolor=theme["legend_bg"],
-        edgecolor=theme["legend_edge"],
-    )
-    for text in legend.get_texts():
-        text.set_color(theme["legend_text"])
 
-    buf = BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight", facecolor=fig.get_facecolor())
-    buf.seek(0)
-    return buf.getvalue()
+    try:
+        return render_backtest_equity_png(
+            agent_label=agent_label,
+            agent_run_id=run_id,
+            timestamps=timestamps,
+            agent_values=agent_values,
+            baselines=baselines,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/compare", response_model=ComparisonResponse)

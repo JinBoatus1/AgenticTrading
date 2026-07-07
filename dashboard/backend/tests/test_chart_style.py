@@ -12,12 +12,14 @@ def test_series_kind_and_colors_match_playground():
     assert series_kind("algo_123", "Agent") == "my-algo"
     assert series_kind("ext_abc", "My Bot") == "external-agent"
     assert series_kind("agent_123", "Agent") == "agent"
-    assert series_kind("djia_index_1", "DJIA") == "djia"
+    assert series_kind("djia_index_1", "DJIA") == "djia-index"
+    assert series_kind("idx1", "DJIA index") == "djia-index"
+    assert series_kind("idx2", "Nasdaq-100") == "nasdaq-100"
     assert series_kind("buyhold_1", "buy-and-hold") == "buy-and-hold"
 
     assert series_color("agent_123", "Agent") == PLAYGROUND_SERIES_COLORS["agent"]
-    assert series_color("buyhold_1", "buy-and-hold") == "#9AA4B2"
-    assert series_color("djia_index_1", "DJIA") == "#F5C04A"
+    assert series_color("idx1", "DJIA index") == "#F5C04A"
+    assert series_color("idx2", "Nasdaq-100") == "#9AA4B2"
 
 
 def test_format_playground_timestamp():
