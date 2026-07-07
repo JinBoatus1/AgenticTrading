@@ -40,6 +40,7 @@ from dashboard.backend.paths import DASHBOARD_DIR, REPO_ROOT, SCRIPTS_DIR
 from dashboard.backend.middleware import get_session_id_from_request
 from dashboard.backend.api.rate_limit import FixedWindowRateLimiter, client_key
 from dashboard.backend.domain.agents.service import agent_service
+from dashboard.backend.chart_style import PLAYGROUND_THEME, format_playground_timestamp, series_color
 
 router = APIRouter()
 
@@ -635,7 +636,7 @@ def get_run_plot(run_id: str):
     Public endpoint: the path ends in ``.png`` so it is exempt from the session
     middleware. Used by the Discord bot to post a chart after a backtest, and
     usable directly as an <img> src. Returns the same agent-vs-DJIA-vs-buy&hold
-    comparison the website shows, normalized to percent return.
+    comparison and Playground chart styling the website shows (absolute $ equity).
 
     Sync ``def`` so FastAPI runs the CPU-bound matplotlib render in its
     threadpool rather than blocking the event loop; the PNG is cached per run_id.
@@ -687,16 +688,18 @@ def _render_run_plot_png(run_id: str) -> bytes:
     buyhold_id = run.get("baseline_buyhold_run_id") or _find_baseline("buy-and-hold")
     djia_id = run.get("baseline_djia_run_id") or _find_baseline("DJIA")
 
-    plan = [(run.get("agent_name") or "Agent", run_id, "#0ea5e9")]
+    theme = PLAYGROUND_THEME
+    agent_label = run.get("agent_name") or "Agent"
+    plan = [(agent_label, run_id, series_color(run_id, agent_label))]
     if buyhold_id:
-        plan.append(("Buy & Hold", buyhold_id, "#f59e0b"))
+        plan.append(("buy-and-hold", buyhold_id, series_color(buyhold_id, "buy-and-hold")))
     if djia_id:
-        plan.append(("DJIA", djia_id, "#9aa7b8"))
+        plan.append(("DJIA", djia_id, series_color(djia_id, "DJIA")))
 
     fig = Figure(figsize=(9.0, 4.8), dpi=130)
-    fig.patch.set_facecolor("#0b0f17")
+    fig.patch.set_facecolor(theme["figure_bg"])
     ax = fig.add_subplot(111)
-    ax.set_facecolor("#0c121c")
+    ax.set_facecolor(theme["axes_bg"])
 
     plotted = 0
     for label, rid, color in plan:
@@ -712,28 +715,37 @@ def _render_run_plot_png(run_id: str) -> bytes:
             xs.append(ts)
             ys.append(point["equity"])
         if xs:
-            ax.plot(xs, ys, label=label, color=color, linewidth=1.9)
+            ax.plot(xs, ys, label=label, color=color, linewidth=theme["line_width"])
             plotted += 1
 
     if plotted == 0:
         raise HTTPException(status_code=404, detail="No equity data to plot for this run")
 
     ax.set_title(
-        f"{run.get('agent_name') or 'Agent'}  ·  "
-        f"{run.get('start_date', '?')} → {run.get('end_date', '?')}",
-        color="#e6edf6", fontsize=12,
+        f"{agent_label}  ·  {run.get('start_date', '?')} → {run.get('end_date', '?')}",
+        color=theme["title"],
+        fontsize=12,
+        pad=12,
     )
-    ax.set_ylabel("Portfolio value ($)", color="#8aa0b8", fontsize=10)
+    ax.set_ylabel("Portfolio value ($)", color=theme["label"], fontsize=10)
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
-    ax.tick_params(colors="#8aa0b8", labelsize=8)
+    ax.tick_params(colors=theme["tick"], labelsize=9)
     for spine in ax.spines.values():
-        spine.set_color("#1f2a3a")
-    ax.grid(True, color="#16202e", linewidth=0.6)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
-    fig.autofmt_xdate(rotation=30)
-    legend = ax.legend(loc="best", fontsize=9, facecolor="#131a26", edgecolor="#1f2a3a")
+        spine.set_color(theme["spine"])
+    ax.grid(axis="y", color=theme["grid"], linewidth=0.6)
+    ax.xaxis.grid(False)
+    ax.xaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda x, _pos: format_playground_timestamp(mdates.num2date(x)))
+    )
+    fig.autofmt_xdate(rotation=0, ha="center")
+    legend = ax.legend(
+        loc="upper left",
+        fontsize=9,
+        facecolor=theme["legend_bg"],
+        edgecolor=theme["legend_edge"],
+    )
     for text in legend.get_texts():
-        text.set_color("#e6edf6")
+        text.set_color(theme["legend_text"])
 
     buf = BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight", facecolor=fig.get_facecolor())
