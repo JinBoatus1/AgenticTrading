@@ -96,9 +96,11 @@ def test_plot_png_missing_run_not_cached(monkeypatch):
 class _Spy:
     def __init__(self):
         self.calls = 0
+        self.last_args = None
 
     def __call__(self, *a, **k):
         self.calls += 1
+        self.last_args = a
 
 
 @pytest.fixture(autouse=True)
@@ -122,7 +124,61 @@ def test_backtest_run_valid_request_ok():
         headers=_sess(),
     )
     assert resp.status_code == 200
-    assert resp.json()["success"] is True
+    body = resp.json()
+    assert body["success"] is True
+    assert "session_id" in body
+
+
+def test_backtest_run_targets_builtin_agent_session(client, monkeypatch):
+    """Discord (and website) can pass agent_id so runs land on the agent card."""
+    spy = _Spy()
+    monkeypatch.setattr(bt, "run_backtest_background", spy)
+
+    owner = str(uuid.uuid4())
+    created = client.post(
+        "/api/v1/agents",
+        json={"name": "Discord Card Bot", "agent_type": "builtin"},
+        headers={"X-Session-Id": owner},
+    ).json()
+    agent_session = created["session_id"]
+    agent_id = created["agent"]["agent_id"]
+
+    resp = client.post(
+        "/backtest/run",
+        json={
+            "start_date": "2026-05-01",
+            "end_date": "2026-05-02",
+            "strategy_prompt": "buy low sell high",
+            "agent_id": agent_id,
+        },
+        headers={"X-Session-Id": str(uuid.uuid4())},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["session_id"] == agent_session
+    assert spy.calls == 1
+    assert spy.last_args[2] == agent_session
+
+
+def test_backtest_run_rejects_external_agent_id(client):
+    owner = str(uuid.uuid4())
+    created = client.post(
+        "/api/v1/agents",
+        json={"name": "External Only", "agent_type": "external"},
+        headers={"X-Session-Id": owner},
+    ).json()
+    agent_id = created["agent"]["agent_id"]
+
+    resp = client.post(
+        "/backtest/run",
+        json={"start_date": "2026-05-01", "end_date": "2026-05-02", "agent_id": agent_id},
+        headers=_sess(),
+    )
+    assert resp.status_code == 422
+
+
+@pytest.fixture
+def client():
+    return TestClient(app)
 
 
 @pytest.mark.parametrize("model", [

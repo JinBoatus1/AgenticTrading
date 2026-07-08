@@ -29,9 +29,61 @@ def test_command_names_and_registration_unchanged():
     assert {"ask", "reset", "agent"} <= names
 
 
-def test_bot_prefix_and_intents_unchanged():
+def test_bot_prefix_and_message_content_intent():
     assert bot_mod.bot.command_prefix == "!"
-    assert bot_mod.bot.intents.value == discord.Intents.default().value
+    expected = discord.Intents.default()
+    expected.message_content = True
+    assert bot_mod.bot.intents.value == expected.value
+
+
+def test_should_handle_free_chat():
+    assert bot_mod.should_handle_free_chat(
+        author_is_bot=False,
+        content="hello",
+        is_dm=True,
+        channel_id=1,
+        mentions_bot=False,
+        is_reply_to_bot=False,
+    )
+    assert not bot_mod.should_handle_free_chat(
+        author_is_bot=True,
+        content="hello",
+        is_dm=True,
+        channel_id=1,
+        mentions_bot=False,
+        is_reply_to_bot=False,
+    )
+    assert not bot_mod.should_handle_free_chat(
+        author_is_bot=False,
+        content="",
+        is_dm=False,
+        channel_id=1,
+        mentions_bot=False,
+        is_reply_to_bot=False,
+    )
+    assert bot_mod.should_handle_free_chat(
+        author_is_bot=False,
+        content="",
+        is_dm=False,
+        channel_id=1,
+        mentions_bot=True,
+        is_reply_to_bot=False,
+    )
+    assert bot_mod.should_handle_free_chat(
+        author_is_bot=False,
+        content="hi",
+        is_dm=False,
+        channel_id=99,
+        mentions_bot=True,
+        is_reply_to_bot=False,
+    )
+
+
+def test_extract_chat_prompt_strips_mention():
+    assert bot_mod.extract_chat_prompt(
+        "<@123456789> what is momentum?",
+        bot_user_id=123456789,
+    ) == "what is momentum?"
 
 
 def test_model_override_maps_sentinel_to_none():
