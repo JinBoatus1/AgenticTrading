@@ -54,6 +54,7 @@ python dashboard/scripts/backtest_hourly_agent.py     # main hourly agent backte
 
 - `app.py` loads `.env` from **`dashboard/.env`**, not the repo root. `.env.example` (repo root) lists the keys: `ALPACA_API_KEY`/`ALPACA_SECRET_KEY` (paper API) and optionally `ANTHROPIC_API_KEY`/`COMMONSTACK_API_KEY`/`OPENAI_API_KEY`/`DEEPSEEK_API_KEY`.
 - `DATABASE_PATH` overrides the SQLite location (defaults to `dashboard/storage/data/backtest.db`; Render mounts a persistent disk at `/data`). Persisted stores (protocol runs, strategies) live in this DB.
+- `USERS_DATABASE_URL` (optional): when set, `dashboard/backend/users.py` stores accounts/sessions in this Postgres database instead of the local SQLite `DB_PATH`. See the Gotchas entry below for why this exists.
 - Alpaca paper-trading credentials also live in `credentials/alpaca.json` (gitignored; see `credentials/alpaca.json.example`).
 
 ## Architecture
