@@ -3,6 +3,7 @@ User accounts and auth session storage (SQLite, same database file as backtests)
 """
 
 import hashlib
+import os
 import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -230,4 +231,13 @@ class UserStore:
         conn.close()
 
 
-user_store = UserStore()
+def _build_user_store():
+    database_url = os.getenv("USERS_DATABASE_URL")
+    if database_url:
+        from dashboard.backend.users_postgres import PostgresUserStore
+
+        return PostgresUserStore(database_url)
+    return UserStore()
+
+
+user_store = _build_user_store()
