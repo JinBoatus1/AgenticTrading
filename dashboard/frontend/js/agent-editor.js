@@ -10,48 +10,48 @@
   const SUB_AGENT_PRESETS = [
     {
       presetKey: 'info_gather',
-      label: '信息收取',
+      label: 'Information Gathering',
       defaultPrompt:
-        '你是信息收取子 Agent。从市场数据、新闻与宏观事件中收集与交易决策相关的关键信息，过滤噪声，保留高置信度事实与指标变化。',
+        'You are the information-gathering sub-agent. Collect key facts relevant to trading decisions from market data, news, and macro events. Filter noise and keep high-confidence facts and indicator changes.',
       defaultOutputFormat:
         'JSON: { "timestamp": "ISO8601", "symbols": ["..."], "facts": [{ "source": "...", "summary": "...", "impact": "bullish|bearish|neutral" }], "confidence": 0.0-1.0 }',
     },
     {
       presetKey: 'info_to_signal',
-      label: '信息转信号',
+      label: 'Information to Signal',
       defaultPrompt:
-        '你是信号生成子 Agent。基于上游信息收取结果，将事实与指标转化为可执行的交易信号（方向、强度、时间窗口）。',
+        'You are the signal-generation sub-agent. Based on upstream information-gathering output, convert facts and indicators into executable trading signals (direction, strength, time horizon).',
       defaultOutputFormat:
         'JSON: { "signals": [{ "symbol": "...", "direction": "long|short|flat", "strength": 0.0-1.0, "horizon": "1h|4h|1d", "rationale": "..." }] }',
     },
     {
       presetKey: 'signal_to_execution',
-      label: '信号转交易执行',
+      label: 'Signal to Execution',
       defaultPrompt:
-        '你是交易执行子 Agent。将信号转化为具体订单指令，考虑仓位限制、流动性与滑点，输出可提交的买卖计划。',
+        'You are the trade-execution sub-agent. Turn signals into concrete order instructions, respecting position limits, liquidity, and slippage. Output a submit-ready buy/sell plan.',
       defaultOutputFormat:
         'JSON: { "orders": [{ "symbol": "...", "side": "buy|sell|hold", "qty": number, "order_type": "market|limit", "limit_price": number|null, "reason": "..." }] }',
     },
     {
       presetKey: 'global_strategy',
-      label: '全局交易策略',
+      label: 'Global Trading Strategy',
       defaultPrompt:
-        '你是全局策略子 Agent。统筹资产分配、风险预算与多信号冲突仲裁，确保整体组合符合策略约束与目标收益/风险 profile。',
+        'You are the global strategy sub-agent. Coordinate asset allocation, risk budget, and conflicting signals so the overall portfolio stays within strategy constraints and target return/risk profile.',
       defaultOutputFormat:
         'JSON: { "portfolio_targets": [{ "symbol": "...", "target_weight": 0.0-1.0 }], "risk_budget": { "max_drawdown": number, "max_single_position": number }, "strategy_notes": "..." }',
     },
     {
       presetKey: 'stop_loss_take_profit',
-      label: '止损止盈',
+      label: 'Stop Loss / Take Profit',
       defaultPrompt:
-        '你是风控子 Agent。为持仓设定止损与止盈规则，监控 unrealized P/L，在触发条件时输出平仓或减仓指令。',
+        'You are the risk-management sub-agent. Set stop-loss and take-profit rules for open positions, monitor unrealized P/L, and output close or reduce instructions when triggers fire.',
       defaultOutputFormat:
         'JSON: { "risk_actions": [{ "symbol": "...", "action": "stop_loss|take_profit|trail|hold", "trigger_price": number, "size_pct": 0.0-1.0, "reason": "..." }] }',
     },
     {
       presetKey: 'custom',
-      label: '自定义子 Agent',
-      defaultPrompt: '描述该子 Agent 的职责与决策边界。',
+      label: 'Custom Sub-agent',
+      defaultPrompt: 'Describe this sub-agent\'s responsibilities and decision boundaries.',
       defaultOutputFormat: 'JSON: { "output": "..." }',
     },
   ];
@@ -103,6 +103,19 @@
     }));
   }
 
+  function normalizeLoadedSubAgent(item) {
+    const presetKey = item.presetKey || 'custom';
+    const preset = presetByKey[presetKey];
+    const isCustom = presetKey === 'custom' || !preset;
+    return {
+      id: item.id || newSubAgentId(),
+      presetKey,
+      label: isCustom ? (item.label || 'Sub-agent') : preset.label,
+      prompt: item.prompt || (preset ? preset.defaultPrompt : ''),
+      outputFormat: item.outputFormat || (preset ? preset.defaultOutputFormat : ''),
+    };
+  }
+
   function loadPipeline(agentId) {
     try {
       const raw = localStorage.getItem(storageKey(agentId));
@@ -111,13 +124,7 @@
       if (!Array.isArray(parsed.subAgents) || !parsed.subAgents.length) {
         return defaultPipeline();
       }
-      return parsed.subAgents.map((item) => ({
-        id: item.id || newSubAgentId(),
-        presetKey: item.presetKey || 'custom',
-        label: item.label || '子 Agent',
-        prompt: item.prompt || '',
-        outputFormat: item.outputFormat || '',
-      }));
+      return parsed.subAgents.map(normalizeLoadedSubAgent);
     } catch {
       return defaultPipeline();
     }
@@ -169,7 +176,7 @@
       subAgents.filter((s) => s.presetKey !== 'custom').map((s) => s.presetKey)
     );
 
-    select.innerHTML = '<option value="">— 选择子 Agent 类型 —</option>';
+    select.innerHTML = '<option value="">— Select sub-agent type —</option>';
     SUB_AGENT_PRESETS.forEach((preset) => {
       if (preset.presetKey !== 'custom' && usedPresetKeys.has(preset.presetKey)) return;
       const opt = document.createElement('option');
@@ -180,7 +187,7 @@
 
     const customOpt = document.createElement('option');
     customOpt.value = 'custom';
-    customOpt.textContent = '自定义子 Agent';
+    customOpt.textContent = 'Custom Sub-agent';
     select.appendChild(customOpt);
   }
 
@@ -198,7 +205,7 @@
 
       const isCustom = sub.presetKey === 'custom';
       const labelField = isCustom
-        ? `<input class="agent-sub-label-input" type="text" data-field="label" value="${escapeHtml(sub.label)}" placeholder="子 Agent 名称" aria-label="子 Agent 名称">`
+        ? `<input class="agent-sub-label-input" type="text" data-field="label" value="${escapeHtml(sub.label)}" placeholder="Sub-agent name" aria-label="Sub-agent name">`
         : `<span class="agent-sub-preset-label">${escapeHtml(sub.label)}</span>`;
 
       card.innerHTML = `
@@ -207,21 +214,21 @@
             <span class="agent-sub-index">${index + 1}</span>
             ${labelField}
           </div>
-          <button class="agent-sub-remove-btn" type="button" data-sub-id="${escapeHtml(sub.id)}" aria-label="移除子 Agent">移除</button>
+          <button class="agent-sub-remove-btn" type="button" data-sub-id="${escapeHtml(sub.id)}" aria-label="Remove sub-agent">Remove</button>
         </div>
         <div class="agent-sub-fields">
           <label class="agent-sub-field">
-            <span class="agent-sub-field-label">任务 Prompt</span>
-            <span class="agent-sub-field-hint">告诉该子 Agent 要做什么</span>
-            <textarea data-field="prompt" rows="4" placeholder="描述该子 Agent 的职责…">${escapeHtml(sub.prompt)}</textarea>
+            <span class="agent-sub-field-label">Task prompt</span>
+            <span class="agent-sub-field-hint">What this sub-agent should do</span>
+            <textarea data-field="prompt" rows="4" placeholder="Describe this sub-agent's role…">${escapeHtml(sub.prompt)}</textarea>
           </label>
           <label class="agent-sub-field">
-            <span class="agent-sub-field-label">输出格式</span>
-            <span class="agent-sub-field-hint">传递给下一模型的信息结构</span>
-            <textarea data-field="outputFormat" rows="3" placeholder="JSON 或结构化文本格式…">${escapeHtml(sub.outputFormat)}</textarea>
+            <span class="agent-sub-field-label">Output format</span>
+            <span class="agent-sub-field-hint">Structure passed to the next model</span>
+            <textarea data-field="outputFormat" rows="3" placeholder="JSON or structured text…">${escapeHtml(sub.outputFormat)}</textarea>
           </label>
         </div>
-        ${index < subAgents.length - 1 ? '<div class="agent-sub-connector" aria-hidden="true"><span>↓ 输出至下一子 Agent</span></div>' : ''}
+        ${index < subAgents.length - 1 ? '<div class="agent-sub-connector" aria-hidden="true"><span>↓ Output to next sub-agent</span></div>' : ''}
       `;
 
       pipeline.appendChild(card);
@@ -230,7 +237,7 @@
     pipeline.querySelectorAll('.agent-sub-remove-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (subAgents.length <= 1) {
-          showSaveStatus('至少保留一个子 Agent', true);
+          showSaveStatus('Keep at least one sub-agent', true);
           return;
         }
         subAgents = collectPipelineFromDom().filter((s) => s.id !== btn.dataset.subId);
@@ -289,14 +296,14 @@
     if (!currentAgent) return;
     subAgents = collectPipelineFromDom();
     savePipeline(currentAgent.agent_id, subAgents);
-    showSaveStatus('配置已保存');
+    showSaveStatus('Configuration saved');
   }
 
   function addSubAgent() {
     const select = document.getElementById('agentEditorAddSelect');
     const presetKey = select ? select.value : '';
     if (!presetKey) {
-      showSaveStatus('请先选择要添加的子 Agent 类型', true);
+      showSaveStatus('Select a sub-agent type to add', true);
       return;
     }
 
@@ -304,13 +311,13 @@
 
     let customLabel = null;
     if (presetKey === 'custom') {
-      customLabel = window.prompt('自定义子 Agent 名称', '自定义子 Agent');
+      customLabel = window.prompt('Custom sub-agent name', 'Custom Sub-agent');
       if (customLabel === null) return;
     }
 
     subAgents.push(createSubAgentFromPreset(presetKey, customLabel));
     renderPipeline();
-    showSaveStatus('已添加子 Agent');
+    showSaveStatus('Sub-agent added');
 
     const pipeline = document.getElementById('agentEditorPipeline');
     if (pipeline && pipeline.lastElementChild) {

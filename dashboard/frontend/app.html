@@ -747,25 +747,25 @@
         <header class="agent-editor-header">
             <button id="agentEditorBackBtn" class="agent-editor-back-btn" type="button" aria-label="Back to My Agents">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
-                返回 My Agents
+                Back to My Agents
             </button>
             <div class="agent-editor-title-wrap">
                 <h2 id="agentEditorTitle" class="agent-editor-title">Agent</h2>
                 <p id="agentEditorMeta" class="agent-editor-meta"></p>
             </div>
-            <button id="agentEditorSaveBtn" class="home-btn home-btn-primary" type="button">保存配置</button>
+            <button id="agentEditorSaveBtn" class="home-btn home-btn-primary" type="button">Save configuration</button>
         </header>
         <div class="agent-editor-body">
             <div class="agent-editor-intro section-card compact">
-                <h3 class="agent-editor-intro-title">子 Agent 流水线</h3>
-                <p class="agent-editor-intro-text">按顺序配置各子 Agent：定义任务 Prompt，并指定输出给下一模型的信息格式。可自由增删子 Agent。</p>
+                <h3 class="agent-editor-intro-title">Sub-agent pipeline</h3>
+                <p class="agent-editor-intro-text">Configure sub-agents in order: define each task prompt and the output format passed to the next model. You can add or remove sub-agents freely.</p>
             </div>
             <div id="agentEditorPipeline" class="agent-editor-pipeline" role="list"></div>
             <div class="agent-editor-add-row">
-                <select id="agentEditorAddSelect" class="agent-editor-add-select" aria-label="选择要添加的子 Agent 类型">
-                    <option value="">— 选择子 Agent 类型 —</option>
+                <select id="agentEditorAddSelect" class="agent-editor-add-select" aria-label="Select sub-agent type to add">
+                    <option value="">— Select sub-agent type —</option>
                 </select>
-                <button id="agentEditorAddBtn" class="home-btn home-btn-secondary" type="button">+ 添加子 Agent</button>
+                <button id="agentEditorAddBtn" class="home-btn home-btn-secondary" type="button">+ Add sub-agent</button>
             </div>
             <p id="agentEditorSaveStatus" class="agent-editor-save-status" hidden></p>
         </div>
@@ -1463,7 +1463,7 @@
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
     <script src="js/portfolio.js?v=2"></script>
-    <script src="js/agent-editor.js?v=1"></script>
+    <script src="js/agent-editor.js?v=2"></script>
     <script src="app.js?v=9"></script>
     <script src="js/leaderboard.js?v=11"></script>
     <script src="home-page.js"></script>
