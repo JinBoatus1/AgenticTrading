@@ -1,11 +1,12 @@
 /**
  * agent-editor.js — Fullscreen agent pipeline editor (sub-agent chain).
- * Persists config to localStorage until backend API is wired.
+ * Pipeline config: localStorage. Agent name/description: PATCH /api/v1/agents/{id}.
  */
 (function () {
   'use strict';
 
   const STORAGE_PREFIX = 'agent-pipeline-config:';
+  const API_BASE = window.location.origin;
 
   const SUB_AGENT_PRESETS = [
     {
@@ -61,6 +62,8 @@
   let currentAgent = null;
   let subAgents = [];
   let saveStatusTimer = null;
+  let isDirty = false;
+  let savedSnapshot = '';
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -130,11 +133,40 @@
     }
   }
 
-  function savePipeline(agentId, agents) {
+  function savePipelineLocal(agentId, agents) {
     localStorage.setItem(
       storageKey(agentId),
       JSON.stringify({ subAgents: agents, updatedAt: new Date().toISOString() })
     );
+  }
+
+  function getEditorState() {
+    const nameInput = document.getElementById('agentEditorNameInput');
+    const descInput = document.getElementById('agentEditorDescription');
+    return {
+      name: nameInput ? nameInput.value.trim() : '',
+      description: descInput ? descInput.value.trim() : '',
+      subAgents: collectPipelineFromDom(),
+    };
+  }
+
+  function snapshotState() {
+    return JSON.stringify(getEditorState());
+  }
+
+  function setDirty(dirty) {
+    isDirty = dirty;
+    const badge = document.getElementById('agentEditorDirtyBadge');
+    if (badge) badge.hidden = !dirty;
+  }
+
+  function markDirtyFromInput() {
+    setDirty(snapshotState() !== savedSnapshot);
+  }
+
+  function captureSavedSnapshot() {
+    savedSnapshot = snapshotState();
+    setDirty(false);
   }
 
   function collectPipelineFromDom() {
@@ -165,18 +197,26 @@
     clearTimeout(saveStatusTimer);
     saveStatusTimer = setTimeout(() => {
       el.hidden = true;
-    }, 2500);
+    }, 3000);
+  }
+
+  function updateStepCount() {
+    const el = document.getElementById('agentEditorStepCount');
+    if (!el) return;
+    const n = subAgents.length;
+    el.textContent = `${n} step${n === 1 ? '' : 's'}`;
   }
 
   function refreshAddSelect() {
     const select = document.getElementById('agentEditorAddSelect');
+    const customName = document.getElementById('agentEditorCustomName');
     if (!select) return;
 
     const usedPresetKeys = new Set(
       subAgents.filter((s) => s.presetKey !== 'custom').map((s) => s.presetKey)
     );
 
-    select.innerHTML = '<option value="">— Select sub-agent type —</option>';
+    select.innerHTML = '<option value="">— Select type —</option>';
     SUB_AGENT_PRESETS.forEach((preset) => {
       if (preset.presetKey !== 'custom' && usedPresetKeys.has(preset.presetKey)) return;
       const opt = document.createElement('option');
@@ -189,6 +229,51 @@
     customOpt.value = 'custom';
     customOpt.textContent = 'Custom Sub-agent';
     select.appendChild(customOpt);
+
+    if (customName) {
+      customName.hidden = select.value !== 'custom';
+    }
+  }
+
+  function moveSubAgent(index, delta) {
+    const next = index + delta;
+    if (next < 0 || next >= subAgents.length) return;
+    subAgents = collectPipelineFromDom();
+    const tmp = subAgents[index];
+    subAgents[index] = subAgents[next];
+    subAgents[next] = tmp;
+    renderPipeline();
+    markDirtyFromInput();
+  }
+
+  function duplicateSubAgent(subId) {
+    subAgents = collectPipelineFromDom();
+    const idx = subAgents.findIndex((s) => s.id === subId);
+    if (idx < 0) return;
+    const src = subAgents[idx];
+    const copy = {
+      ...src,
+      id: newSubAgentId(),
+      presetKey: 'custom',
+      label: `${src.label} (copy)`,
+    };
+    subAgents.splice(idx + 1, 0, copy);
+    renderPipeline();
+    markDirtyFromInput();
+    showSaveStatus('Sub-agent duplicated');
+  }
+
+  function restoreSubAgentDefaults(subId) {
+    subAgents = collectPipelineFromDom();
+    const sub = subAgents.find((s) => s.id === subId);
+    if (!sub) return;
+    const preset = presetByKey[sub.presetKey];
+    if (!preset || sub.presetKey === 'custom') return;
+    sub.prompt = preset.defaultPrompt;
+    sub.outputFormat = preset.defaultOutputFormat;
+    renderPipeline();
+    markDirtyFromInput();
+    showSaveStatus('Restored default prompt for this step');
   }
 
   function renderPipeline() {
@@ -196,6 +281,7 @@
     if (!pipeline) return;
 
     pipeline.innerHTML = '';
+    updateStepCount();
 
     subAgents.forEach((sub, index) => {
       const card = document.createElement('article');
@@ -204,6 +290,10 @@
       card.dataset.subId = sub.id;
 
       const isCustom = sub.presetKey === 'custom';
+      const isFirst = index === 0;
+      const isLast = index === subAgents.length - 1;
+      const canRestore = !isCustom && presetByKey[sub.presetKey];
+
       const labelField = isCustom
         ? `<input class="agent-sub-label-input" type="text" data-field="label" value="${escapeHtml(sub.label)}" placeholder="Sub-agent name" aria-label="Sub-agent name">`
         : `<span class="agent-sub-preset-label">${escapeHtml(sub.label)}</span>`;
@@ -211,65 +301,106 @@
       card.innerHTML = `
         <div class="agent-sub-head">
           <div class="agent-sub-head-left">
-            <span class="agent-sub-index">${index + 1}</span>
+            <span class="agent-sub-index" aria-hidden="true">${index + 1}</span>
             ${labelField}
           </div>
-          <button class="agent-sub-remove-btn" type="button" data-sub-id="${escapeHtml(sub.id)}" aria-label="Remove sub-agent">Remove</button>
+          <div class="agent-sub-actions">
+            <div class="agent-sub-reorder" role="group" aria-label="Reorder sub-agent">
+              <button class="agent-sub-move-btn" type="button" data-action="up" data-sub-id="${escapeHtml(sub.id)}" aria-label="Move up" ${isFirst ? 'disabled' : ''}>↑</button>
+              <button class="agent-sub-move-btn" type="button" data-action="down" data-sub-id="${escapeHtml(sub.id)}" aria-label="Move down" ${isLast ? 'disabled' : ''}>↓</button>
+            </div>
+            <button class="agent-sub-icon-btn" type="button" data-action="duplicate" data-sub-id="${escapeHtml(sub.id)}" title="Duplicate">⧉</button>
+            ${canRestore ? `<button class="agent-sub-icon-btn" type="button" data-action="restore" data-sub-id="${escapeHtml(sub.id)}" title="Restore defaults">↺</button>` : ''}
+            <button class="agent-sub-remove-btn" type="button" data-action="remove" data-sub-id="${escapeHtml(sub.id)}" aria-label="Remove sub-agent">Remove</button>
+          </div>
         </div>
         <div class="agent-sub-fields">
           <label class="agent-sub-field">
             <span class="agent-sub-field-label">Task prompt</span>
             <span class="agent-sub-field-hint">What this sub-agent should do</span>
-            <textarea data-field="prompt" rows="4" placeholder="Describe this sub-agent's role…">${escapeHtml(sub.prompt)}</textarea>
+            <textarea data-field="prompt" rows="5" placeholder="Describe this sub-agent's role…">${escapeHtml(sub.prompt)}</textarea>
           </label>
           <label class="agent-sub-field">
             <span class="agent-sub-field-label">Output format</span>
             <span class="agent-sub-field-hint">Structure passed to the next model</span>
-            <textarea data-field="outputFormat" rows="3" placeholder="JSON or structured text…">${escapeHtml(sub.outputFormat)}</textarea>
+            <textarea data-field="outputFormat" rows="4" placeholder="JSON or structured text…">${escapeHtml(sub.outputFormat)}</textarea>
           </label>
         </div>
-        ${index < subAgents.length - 1 ? '<div class="agent-sub-connector" aria-hidden="true"><span>↓ Output to next sub-agent</span></div>' : ''}
+        ${!isLast ? '<div class="agent-sub-connector" aria-hidden="true"><span>↓ Output to next sub-agent</span></div>' : ''}
       `;
 
       pipeline.appendChild(card);
     });
 
-    pipeline.querySelectorAll('.agent-sub-remove-btn').forEach((btn) => {
+    pipeline.querySelectorAll('[data-action]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        if (subAgents.length <= 1) {
-          showSaveStatus('Keep at least one sub-agent', true);
-          return;
+        const action = btn.dataset.action;
+        const subId = btn.dataset.subId;
+        const idx = subAgents.findIndex((s) => s.id === subId);
+        if (action === 'up') moveSubAgent(idx, -1);
+        else if (action === 'down') moveSubAgent(idx, 1);
+        else if (action === 'duplicate') duplicateSubAgent(subId);
+        else if (action === 'restore') restoreSubAgentDefaults(subId);
+        else if (action === 'remove') {
+          if (subAgents.length <= 1) {
+            showSaveStatus('Keep at least one sub-agent', true);
+            return;
+          }
+          subAgents = collectPipelineFromDom().filter((s) => s.id !== subId);
+          renderPipeline();
+          refreshAddSelect();
+          markDirtyFromInput();
         }
-        subAgents = collectPipelineFromDom().filter((s) => s.id !== btn.dataset.subId);
-        renderPipeline();
-        refreshAddSelect();
       });
     });
 
     refreshAddSelect();
   }
 
+  function fillHeader(agent) {
+    const nameInput = document.getElementById('agentEditorNameInput');
+    const descInput = document.getElementById('agentEditorDescription');
+    const meta = document.getElementById('agentEditorMeta');
+
+    if (nameInput) nameInput.value = agent.name || '';
+    if (descInput) descInput.value = agent.description || '';
+    if (meta) {
+      const type = agent.agent_type === 'builtin' ? 'Built-in' : 'External';
+      meta.textContent = `${agent.model_name || 'local-model'} · ${type}`;
+    }
+  }
+
+  async function patchAgent(agentId, name, description) {
+    const headers = {
+      'Content-Type': 'application/json',
+      'x-session-id': window.SESSION_ID,
+      'x-browser-id': window.BROWSER_OWNER_ID,
+    };
+    const token = localStorage.getItem('auth-token');
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const response = await fetch(`${API_BASE}/api/v1/agents/${encodeURIComponent(agentId)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ name, description: description || null }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = data.detail || data.message || `HTTP ${response.status}`;
+      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    }
+    return data.agent;
+  }
+
   function open(agent) {
     if (!agent || !agent.agent_id) return;
 
-    currentAgent = agent;
+    currentAgent = { ...agent };
     subAgents = loadPipeline(agent.agent_id);
-
-    const view = document.getElementById('agentEditorView');
-    const title = document.getElementById('agentEditorTitle');
-    const meta = document.getElementById('agentEditorMeta');
-
-    if (title) title.textContent = agent.name || 'Agent';
-    if (meta) {
-      const parts = [
-        agent.model_name || 'local-model',
-        agent.agent_type === 'builtin' ? 'Built-in' : 'External',
-      ];
-      meta.textContent = parts.join(' · ');
-    }
-
+    fillHeader(agent);
     renderPipeline();
 
+    const view = document.getElementById('agentEditorView');
     if (view) {
       view.hidden = false;
       document.body.classList.add('agent-editor-open');
@@ -277,9 +408,16 @@
 
     const playgroundView = document.getElementById('playgroundView');
     if (playgroundView) playgroundView.setAttribute('aria-hidden', 'true');
+
+    captureSavedSnapshot();
+    document.getElementById('agentEditorNameInput')?.focus();
   }
 
-  function close() {
+  function close(force) {
+    if (!force && isDirty) {
+      if (!window.confirm('Discard unsaved changes?')) return;
+    }
+
     subAgents = collectPipelineFromDom();
 
     const view = document.getElementById('agentEditorView');
@@ -290,17 +428,71 @@
     if (playgroundView) playgroundView.removeAttribute('aria-hidden');
 
     currentAgent = null;
+    setDirty(false);
   }
 
-  function save() {
+  async function save() {
     if (!currentAgent) return;
-    subAgents = collectPipelineFromDom();
-    savePipeline(currentAgent.agent_id, subAgents);
-    showSaveStatus('Configuration saved');
+
+    const state = getEditorState();
+    if (!state.name) {
+      showSaveStatus('Agent name is required', true);
+      document.getElementById('agentEditorNameInput')?.focus();
+      return;
+    }
+
+    subAgents = state.subAgents;
+    const saveBtn = document.getElementById('agentEditorSaveBtn');
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+    }
+
+    try {
+      const updated = await patchAgent(
+        currentAgent.agent_id,
+        state.name,
+        state.description
+      );
+      currentAgent = { ...currentAgent, ...updated };
+      savePipelineLocal(currentAgent.agent_id, subAgents);
+
+      if (localStorage.getItem('active-agent-id') === currentAgent.agent_id) {
+        localStorage.setItem('active-agent-name', state.name);
+      }
+
+      captureSavedSnapshot();
+      showSaveStatus('Saved successfully');
+      window.dispatchEvent(
+        new CustomEvent('agent-editor-saved', { detail: { agent: currentAgent } })
+      );
+    } catch (error) {
+      savePipelineLocal(currentAgent.agent_id, subAgents);
+      showSaveStatus(
+        `Pipeline saved locally; name update failed: ${error.message}`,
+        true
+      );
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    }
+  }
+
+  function resetPipeline() {
+    if (!window.confirm('Reset the pipeline to the default 5 sub-agents? Unsaved prompt edits will be lost.')) {
+      return;
+    }
+    subAgents = defaultPipeline();
+    renderPipeline();
+    markDirtyFromInput();
+    showSaveStatus('Pipeline reset to defaults');
   }
 
   function addSubAgent() {
     const select = document.getElementById('agentEditorAddSelect');
+    const customNameEl = document.getElementById('agentEditorCustomName');
     const presetKey = select ? select.value : '';
     if (!presetKey) {
       showSaveStatus('Select a sub-agent type to add', true);
@@ -310,14 +502,20 @@
     subAgents = collectPipelineFromDom();
 
     let customLabel = null;
-    if (presetKey === 'custom') {
-      customLabel = window.prompt('Custom sub-agent name', 'Custom Sub-agent');
-      if (customLabel === null) return;
+    if (presetKey === 'custom' && customNameEl) {
+      customLabel = customNameEl.value.trim() || 'Custom Sub-agent';
     }
 
     subAgents.push(createSubAgentFromPreset(presetKey, customLabel));
     renderPipeline();
+    markDirtyFromInput();
     showSaveStatus('Sub-agent added');
+
+    if (select) select.value = '';
+    if (customNameEl) {
+      customNameEl.value = '';
+      customNameEl.hidden = true;
+    }
 
     const pipeline = document.getElementById('agentEditorPipeline');
     if (pipeline && pipeline.lastElementChild) {
@@ -326,13 +524,37 @@
   }
 
   function bindEvents() {
-    document.getElementById('agentEditorBackBtn')?.addEventListener('click', close);
-    document.getElementById('agentEditorSaveBtn')?.addEventListener('click', save);
+    document.getElementById('agentEditorBackBtn')?.addEventListener('click', () => close(false));
+    document.getElementById('agentEditorSaveBtn')?.addEventListener('click', () => save());
     document.getElementById('agentEditorAddBtn')?.addEventListener('click', addSubAgent);
+    document.getElementById('agentEditorResetBtn')?.addEventListener('click', resetPipeline);
+
+    document.getElementById('agentEditorAddSelect')?.addEventListener('change', (e) => {
+      const customName = document.getElementById('agentEditorCustomName');
+      if (customName) customName.hidden = e.target.value !== 'custom';
+    });
+
+    const body = document.getElementById('agentEditorView');
+    body?.addEventListener('input', markDirtyFromInput);
+    body?.addEventListener('change', markDirtyFromInput);
 
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && !document.getElementById('agentEditorView')?.hidden) {
-        close();
+      const view = document.getElementById('agentEditorView');
+      if (view?.hidden) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close(false);
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+        event.preventDefault();
+        save();
+      }
+    });
+
+    window.addEventListener('beforeunload', (event) => {
+      if (isDirty && !document.getElementById('agentEditorView')?.hidden) {
+        event.preventDefault();
+        event.returnValue = '';
       }
     });
   }

@@ -165,6 +165,20 @@ class AgentService:
     def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
         return self.agents.get_agent(agent_id)
 
+    def update_agent(
+        self,
+        agent_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        agent = self.agents.update_agent(
+            agent_id, name=name, description=description
+        )
+        if not agent:
+            raise AgentNotFoundError()
+        return self.agent_with_stats(agent)
+
     def create_agent(
         self,
         *,

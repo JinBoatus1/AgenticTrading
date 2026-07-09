@@ -5092,9 +5092,9 @@ body.agent-editor-open {
 
 .agent-editor-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 16px;
-    padding: 12px 20px;
+    padding: 14px 20px;
     border-bottom: 1px solid var(--border-color);
     background: rgba(8, 18, 40, 0.92);
     backdrop-filter: blur(8px);
@@ -5131,6 +5131,75 @@ body.agent-editor-open {
 .agent-editor-title-wrap {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.agent-editor-name-input {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.agent-editor-name-input:focus {
+    outline: none;
+    border-color: rgba(34, 211, 238, 0.5);
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.12);
+}
+
+.agent-editor-description {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.4;
+    resize: vertical;
+    min-height: 44px;
+    font-family: inherit;
+}
+
+.agent-editor-description:focus {
+    outline: none;
+    border-color: rgba(34, 211, 238, 0.4);
+}
+
+.agent-editor-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.agent-editor-dirty-badge {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #fbbf24;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(251, 191, 36, 0.12);
+    border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+.agent-editor-reset-btn {
+    font-size: 12px;
+    padding: 8px 12px;
 }
 
 .agent-editor-title {
@@ -5152,11 +5221,43 @@ body.agent-editor-open {
 .agent-editor-body {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
-    max-width: 920px;
+    padding: 20px 24px 32px;
+    max-width: 1100px;
     width: 100%;
     margin: 0 auto;
     box-sizing: border-box;
+}
+
+.agent-editor-intro-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.agent-editor-step-count {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--home-accent-cyan, #22d3ee);
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(34, 211, 238, 0.1);
+    border: 1px solid rgba(34, 211, 238, 0.25);
+}
+
+.agent-editor-hint {
+    margin: 16px 0 0;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.agent-editor-hint kbd {
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    font-size: 11px;
 }
 
 .agent-editor-intro {
@@ -5184,8 +5285,69 @@ body.agent-editor-open {
 }
 
 .agent-sub-card {
-    padding: 16px;
+    padding: 16px 18px;
     margin-bottom: 0;
+    border-left: 3px solid rgba(34, 211, 238, 0.35);
+}
+
+.agent-sub-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.agent-sub-reorder {
+    display: inline-flex;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.agent-sub-move-btn {
+    width: 32px;
+    height: 30px;
+    border: none;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.agent-sub-move-btn + .agent-sub-move-btn {
+    border-left: 1px solid var(--border-color);
+}
+
+.agent-sub-move-btn:hover:not(:disabled) {
+    background: rgba(34, 211, 238, 0.12);
+    color: var(--home-accent-cyan, #22d3ee);
+}
+
+.agent-sub-move-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.agent-sub-icon-btn {
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.agent-sub-icon-btn:hover {
+    border-color: rgba(34, 211, 238, 0.4);
+    color: var(--home-accent-cyan, #22d3ee);
+    background: rgba(34, 211, 238, 0.08);
 }
 
 .agent-sub-head {
@@ -5254,9 +5416,9 @@ body.agent-editor-open {
 }
 
 .agent-sub-fields {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
 }
 
 .agent-sub-field {
@@ -5316,13 +5478,33 @@ body.agent-editor-open {
 }
 
 .agent-editor-add-row {
+    margin-top: 16px;
+}
+
+.agent-editor-add-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.agent-editor-add-controls {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
     align-items: center;
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border-color);
+}
+
+.agent-editor-custom-name {
+    flex: 1;
+    min-width: 160px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 13px;
 }
 
 .agent-editor-add-select {
@@ -5357,18 +5539,46 @@ body.agent-editor-open {
     background: rgba(34, 211, 238, 0.24);
 }
 
+@media (max-width: 900px) {
+    .agent-sub-fields {
+        grid-template-columns: 1fr;
+    }
+}
+
 @media (max-width: 640px) {
     .agent-editor-header {
         flex-wrap: wrap;
         padding: 10px 12px;
     }
 
+    .agent-editor-header-actions {
+        width: 100%;
+        justify-content: stretch;
+    }
+
+    .agent-editor-header-actions .home-btn {
+        flex: 1;
+    }
+
     .agent-editor-body {
         padding: 12px;
     }
 
-    .agent-editor-add-row {
+    .agent-editor-intro-head {
+        flex-direction: column;
+    }
+
+    .agent-editor-add-controls {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .agent-sub-head {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .agent-sub-actions {
+        justify-content: flex-start;
     }
 }

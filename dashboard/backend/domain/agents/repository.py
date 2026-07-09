@@ -399,6 +399,43 @@ class AgentStore:
         conn.close()
         return api_key if updated else None
 
+    def update_agent(
+        self,
+        agent_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Update display fields for an agent. Returns the updated record or None."""
+        sets: list[str] = []
+        params: list[Any] = []
+        if name is not None:
+            sets.append("name = ?")
+            params.append(name.strip())
+        if description is not None:
+            sets.append("description = ?")
+            params.append(description.strip() if description else None)
+        if not sets:
+            return self.get_agent(agent_id)
+        sets.append("last_used_at = ?")
+        params.append(_utcnow_iso())
+        params.append(agent_id)
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            f"UPDATE external_agents SET {', '.join(sets)} WHERE agent_id = ?",
+            params,
+        )
+        updated = cursor.rowcount > 0
+        conn.commit()
+        if not updated:
+            conn.close()
+            return None
+        cursor.execute("SELECT * FROM external_agents WHERE agent_id = ?", (agent_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return _public_agent(row) if row else None
+
     def delete_agent(self, agent_id: str) -> bool:
         conn = self._get_connection()
         cursor = conn.cursor()

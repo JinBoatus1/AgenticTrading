@@ -13,6 +13,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from dashboard.backend.domain.agents.service import (
+    AgentNotFoundError,
     NoExternalRunsError,
     agent_service,
 )
@@ -29,6 +30,11 @@ class CreateAgentBody(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     model_name: str = Field(default="local-model", max_length=100)
     agent_type: str = Field(default="external", max_length=20)
+    description: Optional[str] = Field(default=None, max_length=280)
+
+
+class UpdateAgentBody(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     description: Optional[str] = Field(default=None, max_length=280)
 
 
@@ -193,6 +199,29 @@ async def get_agent(
     ctx = _require_owner_context(request, authorization)
     agent = _require_agent_access(agent_id, ctx)
     return {"agent": agent_service.agent_with_stats(agent)}
+
+
+@router.patch("/{agent_id}")
+async def update_agent(
+    agent_id: str,
+    body: UpdateAgentBody,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+):
+    """Update agent display name and/or description."""
+    ctx = _require_owner_context(request, authorization)
+    _require_agent_access(agent_id, ctx)
+    if body.name is None and body.description is None:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    try:
+        agent = agent_service.update_agent(
+            agent_id,
+            name=body.name.strip() if body.name is not None else None,
+            description=body.description,
+        )
+    except AgentNotFoundError:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return {"agent": agent}
 
 
 @router.delete("/{agent_id}")

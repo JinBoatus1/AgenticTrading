@@ -776,6 +776,10 @@ const API = {
   post(endpoint, data) {
     return this.request(endpoint, { method: 'POST', body: JSON.stringify(data) });
   },
+
+  patch(endpoint, data) {
+    return this.request(endpoint, { method: 'PATCH', body: JSON.stringify(data) });
+  },
 };
 
 // ============================================================================
@@ -1089,6 +1093,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSession();
     initAuthUI();
     applyInitialNavigation();
+    window.addEventListener('agent-editor-saved', async (event) => {
+        const agent = event.detail?.agent;
+        if (agent?.agent_id === localStorage.getItem(ACTIVE_AGENT_KEY)) {
+            localStorage.setItem(ACTIVE_AGENT_NAME_KEY, agent.name || '');
+            const nameEl = document.getElementById('playgroundAgentName');
+            if (nameEl) nameEl.textContent = agent.name || 'Agent';
+        }
+        await loadAgents();
+    });
     await restoreActiveAgentSession();
     const config = loadConfigFromURL();
     window.CURRENT_CONFIG = config;
