@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=14">
+    <link rel="stylesheet" href="styles.css?v=16">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
     (function () {
@@ -102,10 +102,17 @@
     </svg>
     <!-- Header -->
     <header class="header">
-        <a class="header-left header-github-link" href="https://github.com/Open-Finance-Lab/AgenticTrading" target="_blank" rel="noopener noreferrer" aria-label="AgenticTrading on GitHub">
-            <svg class="ui-icon header-github-icon" aria-hidden="true"><use href="#icon-github"/></svg>
-            <span class="header-github-name">AgenticTrading</span>
-        </a>
+        <div class="header-left">
+            <a class="header-github-link" href="https://github.com/Open-Finance-Lab/AgenticTrading" target="_blank" rel="noopener noreferrer" aria-label="AgenticTrading on GitHub">
+                <svg class="ui-icon header-github-icon" aria-hidden="true"><use href="#icon-github"/></svg>
+                <span class="header-github-name">AgenticTrading</span>
+            </a>
+            <a id="openDiscordBtn" class="header-discord-btn" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">
+                <svg class="header-discord-btn__icon" aria-hidden="true"><use href="#icon-discord"/></svg>
+                <span class="header-discord-btn__label">Discord Community</span>
+                <svg class="header-discord-btn__arrow" aria-hidden="true"><use href="#icon-chevron-right"/></svg>
+            </a>
+        </div>
         <a class="header-brand" href="/?stay=1" aria-label="Agentic Trading Lab home">
             <div class="logo-container">
                 <img src="images/atltransparent.png" alt="" class="logo-icon">
@@ -122,15 +129,11 @@
                 <button class="mode-btn" data-mode="competition">Competition</button>
                 <button class="mode-btn" data-mode="community">Community</button>
             </nav>
-            <a id="openDiscordBtn" class="discord-nav-btn" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
-            <div id="authControls" class="auth-controls">
+            <div id="authControls" class="header-account">
                 <span id="authUserLabel" class="auth-user-label" hidden></span>
                 <button id="authSignInBtn" class="auth-btn auth-btn-text" type="button">Sign in</button>
                 <button id="authSignUpBtn" class="auth-btn" type="button">Sign up</button>
                 <button id="authLogoutBtn" class="auth-btn auth-btn-secondary" type="button" hidden>Log out</button>
-            </div>
-            <div class="icon-buttons">
-                <button class="icon-btn" title="Settings">⚙️</button>
             </div>
         </div>
     </header>

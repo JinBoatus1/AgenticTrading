@@ -65,12 +65,12 @@ body {
 
 .header {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
     background-color: var(--bg-surface);
     padding: 16px 24px;
     border-bottom: 1px solid var(--border-color);
-    gap: 20px;
+    gap: 16px;
 }
 
 .header-brand {
@@ -90,6 +90,14 @@ body {
     justify-self: start;
     display: flex;
     align-items: center;
+    gap: 12px;
+    min-width: 0;
+    flex-wrap: nowrap;
+}
+
+.header-github-link {
+    display: inline-flex;
+    align-items: center;
     gap: 8px;
     min-width: 0;
     text-decoration: none;
@@ -97,6 +105,58 @@ body {
     font-size: 13px;
     font-weight: 600;
     transition: color 0.15s ease;
+    flex-shrink: 0;
+}
+
+.header-discord-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(34, 211, 238, 0.55);
+    background: rgba(12, 28, 52, 0.92);
+    box-shadow:
+        0 0 14px rgba(34, 211, 238, 0.18),
+        inset 0 0 0 1px rgba(34, 211, 238, 0.06);
+    color: #f8fafc;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.header-discord-btn:hover {
+    border-color: rgba(34, 211, 238, 0.85);
+    background: rgba(16, 36, 64, 0.96);
+    box-shadow:
+        0 0 18px rgba(34, 211, 238, 0.32),
+        inset 0 0 0 1px rgba(34, 211, 238, 0.1);
+    color: #ffffff;
+}
+
+.header-discord-btn__icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    color: #5865f2;
+    fill: currentColor;
+}
+
+.header-discord-btn__label {
+    line-height: 1;
+    letter-spacing: 0.01em;
+}
+
+.header-discord-btn__arrow {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: #ffffff;
+    opacity: 0.92;
+    margin-left: 2px;
 }
 
 .header-github-link:hover {
@@ -206,8 +266,26 @@ a.header-brand:hover .title-section h1 {
     justify-self: end;
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 10px;
     min-width: 0;
+    flex-wrap: nowrap;
+}
+
+.primary-nav {
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.header-account {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 4px 6px 4px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-card);
 }
 
 .auth-controls {
@@ -217,13 +295,21 @@ a.header-brand:hover .title-section h1 {
 }
 
 .auth-user-label {
-    color: var(--text-secondary);
-    font-size: 11px;
+    color: var(--text-primary);
+    font-size: 12px;
     font-weight: 600;
-    max-width: 140px;
+    max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.auth-btn,
+.auth-btn-secondary {
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .auth-btn-text {
@@ -2021,8 +2107,37 @@ a.header-brand:hover .title-section h1 {
     }
 }
 
+@media (max-width: 1100px) {
+    .mode-btn {
+        padding: 6px 10px;
+        font-size: 10px;
+    }
+
+    .header-account {
+        padding: 4px 8px;
+    }
+
+    .auth-user-label {
+        max-width: 120px;
+    }
+}
+
 @media (max-width: 700px) {
     .header-github-name {
+        display: none;
+    }
+
+    .header-discord-btn {
+        padding: 7px 10px;
+        gap: 8px;
+        font-size: 11px;
+    }
+
+    .header-discord-btn__label {
+        display: none;
+    }
+
+    .header-discord-btn__arrow {
         display: none;
     }
 }
@@ -2042,13 +2157,21 @@ a.header-brand:hover .title-section h1 {
         grid-column: 1;
         justify-self: center;
         order: -1;
+        flex-wrap: wrap;
+        justify-content: center;
     }
 
     .header-right {
         grid-column: 1;
-        justify-self: center;
+        justify-self: stretch;
         flex-wrap: wrap;
         width: 100%;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .header-account {
+        margin-left: auto;
     }
 
     .header-center {
@@ -5291,10 +5414,6 @@ a.header-brand:hover .title-section h1 {
         flex-wrap: wrap;
         width: 100%;
         justify-content: flex-end;
-    }
-
-    .discord-nav-btn {
-        order: 3;
     }
 }
 
