@@ -7,6 +7,7 @@
 
   const STORAGE_PREFIX = 'agent-pipeline-config:';
   const NAME_OVERRIDE_PREFIX = 'agent-name-override:';
+  const CASH_OVERRIDE_PREFIX = 'agent-cash-allocation:';
   const API_BASE = window.location.origin;
 
   // Demo/mock agents (see MOCK_AGENTS in app.js) only exist in the frontend —
@@ -161,9 +162,22 @@
   function getEditorState() {
     const nameInput = document.getElementById('agentEditorNameInput');
     const descInput = document.getElementById('agentEditorDescription');
+    const cashInput = document.getElementById('agentEditorCashAllocation');
+    let cash_allocation = null;
+    if (cashInput && cashInput.value !== '') {
+      const value = Number(cashInput.value);
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error('Initial cash must be zero or greater.');
+      }
+      if (value > 3000) {
+        throw new Error('Initial cash cannot exceed $3,000.');
+      }
+      cash_allocation = Math.round(value);
+    }
     return {
       name: nameInput ? nameInput.value.trim() : '',
       description: descInput ? descInput.value.trim() : '',
+      cash_allocation,
       subAgents: collectPipelineFromDom(),
     };
   }
@@ -378,10 +392,14 @@
   function fillHeader(agent) {
     const nameInput = document.getElementById('agentEditorNameInput');
     const descInput = document.getElementById('agentEditorDescription');
+    const cashInput = document.getElementById('agentEditorCashAllocation');
     const meta = document.getElementById('agentEditorMeta');
 
     if (nameInput) nameInput.value = agent.name || '';
     if (descInput) descInput.value = agent.description || '';
+    if (cashInput) {
+      cashInput.value = agent.cash_allocation != null ? String(agent.cash_allocation) : '';
+    }
     if (meta) {
       const type = agent.agent_type === 'builtin' ? 'Built-in' : 'External';
       meta.textContent = `${agent.model_name || 'local-model'} · ${type}`;
@@ -398,11 +416,12 @@
     }));
   }
 
-  async function patchAgent(agent, name, description, pipeline) {
+  async function patchAgent(agent, name, description, pipeline, cash_allocation) {
     const payload = {
       name,
       description: description || null,
       pipeline: serializePipeline(pipeline),
+      cash_allocation,
     };
     const endpoint = `${API_BASE}/api/v1/agents/${encodeURIComponent(agent.agent_id)}`;
 
@@ -593,7 +612,14 @@
   async function save() {
     if (!currentAgent) return;
 
-    const state = getEditorState();
+    let state;
+    try {
+      state = getEditorState();
+    } catch (error) {
+      showSaveStatus(error.message, true);
+      document.getElementById('agentEditorCashAllocation')?.focus();
+      return;
+    }
     if (!state.name) {
       showSaveStatus('Agent name is required', true);
       document.getElementById('agentEditorNameInput')?.focus();
@@ -615,7 +641,17 @@
           `${NAME_OVERRIDE_PREFIX}${currentAgent.agent_id}`,
           JSON.stringify({ name: state.name, description: state.description })
         );
-        currentAgent = { ...currentAgent, name: state.name, description: state.description };
+        if (state.cash_allocation != null) {
+          localStorage.setItem(`${CASH_OVERRIDE_PREFIX}${currentAgent.agent_id}`, String(state.cash_allocation));
+        } else {
+          localStorage.removeItem(`${CASH_OVERRIDE_PREFIX}${currentAgent.agent_id}`);
+        }
+        currentAgent = {
+          ...currentAgent,
+          name: state.name,
+          description: state.description,
+          cash_allocation: state.cash_allocation,
+        };
         savePipelineLocal(currentAgent.agent_id, subAgents);
         if (localStorage.getItem('active-agent-id') === currentAgent.agent_id) {
           localStorage.setItem('active-agent-name', state.name);
@@ -639,7 +675,8 @@
         currentAgent,
         state.name,
         state.description,
-        subAgents
+        subAgents,
+        state.cash_allocation
       );
       currentAgent = { ...currentAgent, ...updated, pipeline: subAgents };
       savePipelineLocal(currentAgent.agent_id, subAgents);

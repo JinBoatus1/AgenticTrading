@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=9">
+    <link rel="stylesheet" href="styles.css?v=14">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
     (function () {
@@ -102,6 +102,10 @@
     </svg>
     <!-- Header -->
     <header class="header">
+        <a class="header-left header-github-link" href="https://github.com/Open-Finance-Lab/AgenticTrading" target="_blank" rel="noopener noreferrer" aria-label="AgenticTrading on GitHub">
+            <svg class="ui-icon header-github-icon" aria-hidden="true"><use href="#icon-github"/></svg>
+            <span class="header-github-name">AgenticTrading</span>
+        </a>
         <a class="header-brand" href="/?stay=1" aria-label="Agentic Trading Lab home">
             <div class="logo-container">
                 <img src="images/atltransparent.png" alt="" class="logo-icon">
@@ -491,11 +495,11 @@
                 <section class="home-resources">
                     <h3 class="home-section-title home-resources-heading">Resources</h3>
                     <div class="home-resources-grid">
-                        <a class="home-resource-card" href="https://finagent-orchestration.readthedocs.io/en/latest/" target="_blank" rel="noopener noreferrer">
-                            <span class="icon-shell icon-shell--sm"><svg class="ui-icon"><use href="#icon-book"/></svg></span>
+                        <a class="home-resource-card" href="https://github.com/Open-Finance-Lab/AgenticTrading" target="_blank" rel="noopener noreferrer">
+                            <span class="icon-shell icon-shell--sm icon-shell--muted"><svg class="ui-icon"><use href="#icon-github"/></svg></span>
                             <span class="home-resource-copy">
-                                <span class="home-resource-title">Documentation</span>
-                                <span class="home-resource-subtitle">Guides and API reference</span>
+                                <span class="home-resource-title">GitHub</span>
+                                <span class="home-resource-subtitle">Open source and examples</span>
                             </span>
                             <svg class="ui-icon home-resource-arrow" aria-hidden="true"><use href="#icon-external-link"/></svg>
                         </a>
@@ -515,11 +519,11 @@
                             </span>
                             <svg class="ui-icon home-resource-arrow" aria-hidden="true"><use href="#icon-arrow-right"/></svg>
                         </button>
-                        <a class="home-resource-card" href="https://github.com/Allan-Feng/AgenticTrading" target="_blank" rel="noopener noreferrer">
-                            <span class="icon-shell icon-shell--sm icon-shell--muted"><svg class="ui-icon"><use href="#icon-github"/></svg></span>
+                        <a class="home-resource-card" href="https://finagent-orchestration.readthedocs.io/en/latest/" target="_blank" rel="noopener noreferrer">
+                            <span class="icon-shell icon-shell--sm"><svg class="ui-icon"><use href="#icon-book"/></svg></span>
                             <span class="home-resource-copy">
-                                <span class="home-resource-title">GitHub</span>
-                                <span class="home-resource-subtitle">Open source and examples</span>
+                                <span class="home-resource-title">Documentation</span>
+                                <span class="home-resource-subtitle">Guides and API reference</span>
                             </span>
                             <svg class="ui-icon home-resource-arrow" aria-hidden="true"><use href="#icon-external-link"/></svg>
                         </a>
@@ -581,6 +585,11 @@
                     <span>Model name (optional)</span>
                     <input id="externalAgentModel" type="text" maxlength="100" placeholder="gpt-4 / rule-based" autocomplete="off">
                 </label>
+                <label class="auth-field">
+                    <span>Initial cash (max $3,000)</span>
+                    <input id="externalAgentCashAllocation" type="number" min="0" max="3000" step="1" value="1000" required aria-describedby="externalAgentCashHint">
+                </label>
+                <p id="externalAgentCashHint" class="credential-hint">Starting capital budget for this agent's backtests and trading sessions.</p>
                 <p id="createExternalAgentError" class="auth-error" hidden></p>
                 <button id="createExternalAgentSubmit" class="auth-submit-btn" type="submit">Create agent</button>
             </form>
@@ -613,6 +622,11 @@
                     <span>Description (optional)</span>
                     <input id="builtinAgentDescription" type="text" maxlength="280" placeholder="What is this agent's edge?" autocomplete="off">
                 </label>
+                <label class="auth-field">
+                    <span>Initial cash (max $3,000)</span>
+                    <input id="builtinAgentCashAllocation" type="number" min="0" max="3000" step="1" value="1000" required aria-describedby="builtinAgentCashHint">
+                </label>
+                <p id="builtinAgentCashHint" class="credential-hint">Starting capital budget for this agent's backtests and trading sessions.</p>
                 <p id="createBuiltinAgentError" class="auth-error" hidden></p>
                 <button id="createBuiltinAgentSubmit" class="auth-submit-btn" type="submit">Create built-in agent</button>
             </form>
@@ -698,12 +712,27 @@
                         </div>
                     </div>
                 </section>
+                <section class="section-card allocation-card">
+                    <h3 class="allocation-title">Capital Allocation by Agent</h3>
+                    <div class="allocation-body">
+                        <div class="allocation-chart-wrap">
+                            <canvas id="agentAllocationChart"></canvas>
+                        </div>
+                        <div class="allocation-detail">
+                            <div class="allocation-total" id="agentAllocationTotal"></div>
+                            <ul class="allocation-legend" id="agentAllocationLegend"></ul>
+                        </div>
+                    </div>
+                </section>
             </div>
 
             <!-- My Agents -->
             <div class="agents-section">
                 <div class="agents-section-head">
-                    <h2 class="page-title">My Agents</h2>
+                    <div class="agents-section-title-row">
+                        <h2 class="page-title">My Agents</h2>
+                        <a id="agentsSectionDiscordBtn" class="discord-nav-btn discord-nav-btn-sm" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
+                    </div>
                     <div class="agent-toolbar">
                         <select id="agentFilterSelect" class="agent-toolbar-select" aria-label="Filter agents">
                             <option value="all">All Agents</option>
@@ -744,6 +773,10 @@
                 <input id="agentEditorNameInput" class="agent-editor-name-input" type="text" maxlength="100" placeholder="Agent name" aria-label="Agent name" autocomplete="off">
                 <p id="agentEditorMeta" class="agent-editor-meta"></p>
                 <textarea id="agentEditorDescription" class="agent-editor-description" rows="2" maxlength="280" placeholder="Optional description for this agent…" aria-label="Agent description"></textarea>
+                <label class="agent-editor-cash-field" for="agentEditorCashAllocation">
+                    <span class="agent-editor-cash-label">Initial cash (max $3,000)</span>
+                    <input id="agentEditorCashAllocation" class="agent-editor-cash-input" type="number" min="0" max="3000" step="1" placeholder="0" aria-label="Initial cash">
+                </label>
             </div>
             <div class="agent-editor-header-actions">
                 <span id="agentEditorDirtyBadge" class="agent-editor-dirty-badge" hidden>Unsaved changes</span>

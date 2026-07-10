@@ -1,7 +1,7 @@
 /*
  * portfolio.js — "My Portfolio" section for the My Agents page.
  *
- * Renders four summary cards and three allocation donut charts using the
+ * Renders four summary cards and four allocation donut charts using the
  * existing Chart.js library (loaded in index.html). Everything here is a
  * static, frontend-only mockup — no API, database, broker, or auth calls.
  *
@@ -186,7 +186,10 @@ function renderAllocationChart(key, data) {
                     callbacks: {
                         label: (ctx) => {
                             const slice = data.slices[ctx.dataIndex];
-                            return `${slice.label}: ${slice.pct}% · ${pfMoney(slice.value)}`;
+                            const amount = slice.assignedCapital != null
+                                ? slice.assignedCapital
+                                : slice.value;
+                            return `${slice.label}: ${slice.pct}% · ${pfMoney(amount)}`;
                         },
                     },
                 },
@@ -203,15 +206,18 @@ function renderAllocationChart(key, data) {
     if (legendEl) {
         const rows = data.slices
             .map(
-                (s) => `
+                (s) => {
+                    const displayValue = s.assignedCapital != null ? s.assignedCapital : s.value;
+                    return `
             <li class="allocation-legend-row">
                 <span class="allocation-legend-name">
                     <span class="allocation-legend-dot" style="background:${s.color}"></span>
                     ${s.label}
                 </span>
                 <span class="allocation-legend-pct">${s.pct}%</span>
-                <span class="allocation-legend-value">${pfMoney(s.value)}</span>
-            </li>`,
+                <span class="allocation-legend-value">${pfMoney(displayValue)}</span>
+            </li>`;
+                },
             )
             .join('');
         legendEl.innerHTML = rows;
@@ -219,15 +225,106 @@ function renderAllocationChart(key, data) {
 }
 
 // ---------------------------------------------------------------------------
+// Capital allocation by agent (portfolio-wide: assigned + unassigned)
+// ---------------------------------------------------------------------------
+const AGENT_SLICE_COLORS = ['#22d3ee', '#a855f7', '#34d399', '#fbbf24', '#f87171', '#c084fc', '#38bdf8', '#2dd4bf'];
+const UNASSIGNED_SLICE_COLOR = '#64748b';
+
+function portfolioPct(value, totalPortfolioValue) {
+    const total = Number(totalPortfolioValue) || 0;
+    if (total <= 0) return 0;
+    return Math.round((Number(value) / total) * 1000) / 10;
+}
+
+function getTotalPortfolioValue() {
+    return Number(PORTFOLIO_MOCK.summary.totalValue) || 0;
+}
+
+function buildAgentAllocationData(agents, totalPortfolioValue) {
+    const total = Number(totalPortfolioValue) || 0;
+
+    const assignedAgents = (agents || []).filter(
+        (agent) => agent.cash_allocation != null && Number(agent.cash_allocation) > 0,
+    );
+
+    if (total <= 0) {
+        return {
+            total: 0,
+            slices: [{ label: 'Unassigned', value: 0, pct: 0, color: UNASSIGNED_SLICE_COLOR }],
+        };
+    }
+
+    if (!assignedAgents.length) {
+        return {
+            total,
+            slices: [{
+                label: 'Unassigned',
+                value: total,
+                pct: 100,
+                color: UNASSIGNED_SLICE_COLOR,
+            }],
+        };
+    }
+
+    const assignedTotal = assignedAgents.reduce(
+        (sum, agent) => sum + Number(agent.cash_allocation),
+        0,
+    );
+    const unassigned = Math.max(total - assignedTotal, 0);
+    const overAllocated = assignedTotal > total;
+    const chartScale = overAllocated && assignedTotal > 0 ? total / assignedTotal : 1;
+
+    const slices = [];
+
+    if (unassigned > 0) {
+        slices.push({
+            label: 'Unassigned',
+            value: unassigned,
+            pct: portfolioPct(unassigned, total),
+            color: UNASSIGNED_SLICE_COLOR,
+        });
+    }
+
+    assignedAgents.forEach((agent, index) => {
+        const assignedCapital = Number(agent.cash_allocation);
+        const chartValue = assignedCapital * chartScale;
+        slices.push({
+            label: agent.name || 'Agent',
+            value: chartValue,
+            assignedCapital,
+            pct: portfolioPct(assignedCapital, total),
+            color: AGENT_SLICE_COLORS[index % AGENT_SLICE_COLORS.length],
+        });
+    });
+
+    if (!slices.length) {
+        slices.push({
+            label: 'Unassigned',
+            value: total,
+            pct: 100,
+            color: UNASSIGNED_SLICE_COLOR,
+        });
+    }
+
+    return { total, slices, overAllocated };
+}
+
+function updateAgentAllocationFromAgents(agents) {
+    renderAllocationChart('agent', buildAgentAllocationData(agents, getTotalPortfolioValue()));
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point — called when the My Agents tab becomes visible.
 // ---------------------------------------------------------------------------
-function renderPortfolio() {
+function renderPortfolio(agents) {
     // TODO: Replace mock portfolio data with backend API data later.
     const data = PORTFOLIO_MOCK;
     renderPortfolioSummary(data.summary);
     renderAllocationChart('asset', data.allocations.asset);
     renderAllocationChart('stock', data.allocations.stock);
     renderAllocationChart('crypto', data.allocations.crypto);
+    renderAllocationChart('agent', buildAgentAllocationData(agents, getTotalPortfolioValue()));
 }
 
 window.renderPortfolio = renderPortfolio;
+window.updateAgentAllocationFromAgents = updateAgentAllocationFromAgents;

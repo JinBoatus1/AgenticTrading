@@ -32,6 +32,7 @@ class CreateAgentBody(BaseModel):
     model_name: str = Field(default="local-model", max_length=100)
     agent_type: str = Field(default="external", max_length=20)
     description: Optional[str] = Field(default=None, max_length=280)
+    cash_allocation: Optional[float] = Field(default=None, ge=0, le=3000)
 
 
 class PipelineStep(BaseModel):
@@ -50,6 +51,7 @@ class UpdateAgentBody(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     description: Optional[str] = Field(default=None, max_length=280)
     pipeline: Optional[List[PipelineStep]] = Field(default=None, max_length=50)
+    cash_allocation: Optional[float] = Field(default=None, ge=0, le=3000)
 
 
 @router.post("")
@@ -73,6 +75,7 @@ async def create_agent(
         owner_browser_session=ctx["browser_session"],
         agent_type=agent_type,
         description=(body.description.strip() if body.description else None),
+        cash_allocation=body.cash_allocation,
     )
     return {
         "agent": agent_service.agent_with_stats(agent),
@@ -227,7 +230,8 @@ async def update_agent(
     _require_agent_access(agent_id, ctx, reclaim_on_session_match=True)
     fields_set = body.model_fields_set
     pipeline_provided = "pipeline" in fields_set
-    if body.name is None and body.description is None and not pipeline_provided:
+    cash_allocation_provided = "cash_allocation" in fields_set
+    if body.name is None and body.description is None and not pipeline_provided and not cash_allocation_provided:
         raise HTTPException(status_code=400, detail="No fields to update")
 
     if pipeline_provided:
@@ -239,12 +243,15 @@ async def update_agent(
     else:
         pipeline_arg = _UNSET
 
+    cash_allocation_arg = body.cash_allocation if cash_allocation_provided else _UNSET
+
     try:
         agent = agent_service.update_agent(
             agent_id,
             name=body.name.strip() if body.name is not None else None,
             description=body.description,
             pipeline=pipeline_arg,
+            cash_allocation=cash_allocation_arg,
         )
     except AgentNotFoundError:
         raise HTTPException(status_code=404, detail="Agent not found")
