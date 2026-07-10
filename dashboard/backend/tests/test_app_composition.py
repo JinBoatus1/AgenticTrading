@@ -35,6 +35,7 @@ EXPECTED_BACKTESTS_ROUTES = {
     ("GET", "/backtest/status", "get_backtest_status"),
     ("GET", "/api/backtest/runs", "get_backtest_runs"),
     ("GET", "/api/backtest/compare/latest", "compare_latest_backtests"),
+    ("GET", "/api/backtest/{run_id}/chart-data", "get_backtest_chart_data"),
     ("GET", "/api/backtest/{run_id}", "get_backtest_run"),
     ("GET", "/runs/latest/metrics", "get_latest_metrics"),
     ("GET", "/runs", "get_runs"),

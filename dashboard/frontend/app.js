@@ -1221,6 +1221,7 @@ let playgroundTab = "agents";
 let competitionTab = "leaderboard";
 let allRuns = [];
 let comparisonData = null;
+let backtestChartData = null;
 let defaultConfig = null;
 
 // Initialize on page load
@@ -2734,6 +2735,8 @@ function resolveInitialNavigation() {
     const legacy = view || hash;
 
     const legacyMap = {
+        home: { page: 'home' },
+        community: { page: 'community' },
         backtest: { page: 'playground', playgroundTab: 'backtest' },
         paper: { page: 'playground', playgroundTab: 'paper' },
         contest: { page: 'competition', competitionTab: 'leaderboard' },
@@ -3242,6 +3245,7 @@ async function loadData() {
             if (!selectedRun) {
                 console.warn('No backtest runs for this session');
                 comparisonData = null;
+                backtestChartData = null;
                 displayNoMetrics();
                 clearTradingLog('Run a backtest to see trades here.');
                 return;
@@ -3249,16 +3253,9 @@ async function loadData() {
 
             localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, selectedRun.run_id);
 
-            // Plot the selected run plus its own baselines (same session/window).
-            const baselines = resolveBaselinesForRun(selectedRun, sessionRuns);
-            const runIds = [selectedRun.run_id, baselines.djia, baselines.buyhold]
-                .filter(Boolean)
-                .join(',');
-            console.log('Compare IDs for selected run:', runIds);
-
-            const compareUrl = `${API_BASE}/compare?run_ids=${encodeURIComponent(runIds)}&t=${Date.now()}`;
-            comparisonData = await API.get(compareUrl);
-            console.log('Loaded comparison data:', comparisonData);
+            const chartUrl = `${API_BASE}/api/backtest/${encodeURIComponent(selectedRun.run_id)}/chart-data?t=${Date.now()}`;
+            backtestChartData = await API.get(chartUrl);
+            console.log('Loaded backtest chart data:', backtestChartData);
 
             initializeCharts();
             displayPerformanceMetrics(selectedRun);
@@ -3271,15 +3268,15 @@ async function loadData() {
 }
 
 /**
- * Initialize charts with real data from backend
- * Shows exactly 3 lines: Agent (green), buy-and-hold (blue), DJIA (orange)
+ * Initialize charts with real data from backend.
+ * Agent vs DJIA index + Nasdaq-100 (same baselines as Discord plot.png).
  */
 function initializeCharts() {
-    if (!comparisonData || !comparisonData.runs) {
-        console.warn('No comparison data available');
+    if (!backtestChartData || !backtestChartData.series || !backtestChartData.series.length) {
+        console.warn('No backtest chart data available');
         return;
     }
-    
+
     const perfCtx = document.getElementById('performanceChart');
     if (perfCtx && perfCtx.getContext) {
         if (chartInstance) {
@@ -3287,84 +3284,117 @@ function initializeCharts() {
         }
 
         const ctx = perfCtx.getContext('2d');
-        
-        // Extract runs from comparison data
-        const runs = comparisonData.runs;
-        if (runs.length === 0) {
-            console.warn('No runs to display');
-            return;
-        }
-        
-        // Group by agent type and take the first (most recent) of each
-        const agentMap = {};
-        const timeseriesMap = {};
-        
-        runs.forEach(run => {
-            let agentType;
-            if (isMyAlgoRun(run)) {
-                agentType = 'my-algo';
-            } else if (isExternalAgentRun(run)) {
-                agentType = 'external-agent';
-            } else {
-                agentType = run.agent_name.toLowerCase();
-            }
-            
-            if (!agentMap[agentType]) {
-                agentMap[agentType] = run;
-                timeseriesMap[agentType] = run.data.map(point => point.equity);
-            }
-        });
-        
-        const datasets = [];
-        const colorMap = {
-            'my-algo': '#fbbf24',
-            'external-agent': '#4FC3F7',
-            'agent': '#4FC3F7',
-            'djia': '#F5C04A',
-            'buy-and-hold': '#9AA4B2'
-        };
-        
-        const order = agentMap['external-agent']
-            ? ['external-agent', 'djia', 'buy-and-hold']
-            : agentMap['my-algo']
-            ? ['my-algo', 'djia', 'buy-and-hold']
-            : ['agent', 'djia', 'buy-and-hold'];
-        const timestamps = runs[0].data.map(point => point.timestamp);
-        const chartMeta = { timestamps };
-        
-        order.forEach(agentType => {
-            if (agentMap[agentType]) {
-                const run = agentMap[agentType];
-                const equityPoints = timeseriesMap[agentType];
-                const color = colorMap[agentType] || '#4dabf7';
-                
-                datasets.push({
-                    label: run.agent_name,
-                    data: equityPoints,
-                    borderColor: color,
-                    backgroundColor: 'transparent',
-                    borderWidth: 2.5,
-                    tension: 0,
-                    fill: false,
-                    pointRadius: 0,
-                    pointHoverRadius: 5,
-                });
-                
-                console.log(`Added: ${run.agent_name} (${agentType}) - ${equityPoints.length} points`);
-            }
-        });
+        const { timestamps, x_labels: xLabels, series } = backtestChartData;
+
+        const datasets = series.map((entry) => ({
+            label: entry.label,
+            data: entry.values,
+            borderColor: entry.color,
+            backgroundColor: 'transparent',
+            borderWidth: 2.5,
+            borderDash: entry.dashed ? [6, 4] : [],
+            tension: 0,
+            fill: false,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+        }));
 
         chartInstance = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: formatTimestamps(timestamps),
+                labels: xLabels,
                 datasets: datasets
             },
-            options: getPerformanceChartOptions(chartMeta),
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        labels: {
+                            color: '#e5e7eb',
+                            font: { size: 12, weight: '600' },
+                            padding: 15,
+                            usePointStyle: true,
+                            pointStyle: 'line',
+                            boxWidth: 12,
+                            boxHeight: 2,
+                        }
+                    },
+                    tooltip: {
+                        enabled: true,
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#e5e7eb',
+                        bodyColor: '#e5e7eb',
+                        borderColor: '#1f2937',
+                        borderWidth: 1,
+                        padding: 12,
+                        displayColors: true,
+                        callbacks: {
+                            title: function(context) {
+                                if (context.length > 0) {
+                                    const dataIndex = context[0].dataIndex;
+                                    const timestamp = timestamps[dataIndex];
+                                    try {
+                                        const date = new Date(timestamp);
+                                        const month = date.toLocaleString('en-US', { month: 'short' });
+                                        const day = date.getDate();
+                                        const hour = String(date.getHours()).padStart(2, '0');
+                                        return `${month} ${day} ${hour}:00`;
+                                    } catch (e) {
+                                        return timestamp;
+                                    }
+                                }
+                                return '';
+                            },
+                            label: function(context) {
+                                const value = context.parsed.y;
+                                return context.dataset.label + ': $' + value.toFixed(0);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        ticks: {
+                            color: '#e5e7eb',
+                            font: { size: 11, weight: '500' },
+                            callback: function(value) {
+                                return '$' + value.toLocaleString();
+                            }
+                        },
+                        grid: {
+                            color: '#1f2937',
+                            drawBorder: false,
+                        },
+                    },
+                    x: {
+                        ticks: {
+                            color: '#e5e7eb',
+                            font: { size: 11, weight: '500' },
+                            maxRotation: 0,
+                            autoSkip: false,
+                            callback: function(_value, index) {
+                                const label = xLabels[index];
+                                return label || undefined;
+                            },
+                        },
+                        grid: {
+                            display: false,
+                            drawBorder: false,
+                        }
+                    }
+                }
+            }
         });
-        
+
         liveBacktestChartActive = false;
-        console.log('✅ Chart initialized -', order.filter(t => agentMap[t]).join(', '));
+        console.log('✅ Chart initialized -', series.map((s) => s.label).join(', '));
     }
 }
 

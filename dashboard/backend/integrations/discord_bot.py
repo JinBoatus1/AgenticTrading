@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import io
 import os
+import re
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 import discord
 import requests
@@ -17,6 +18,11 @@ from dashboard.backend.domain.chat.service import (
     chat_with_agent,
     reset_agent_conversation,
     synthesize_strategy_prompt,
+)
+from dashboard.backend.integrations.discord_dm_handler import (
+    ATL_DM_WELCOME,
+    deliver_connect_instructions,
+    handle_dm_message,
 )
 from dashboard.backend.infrastructure.llm.token_cost import is_free_model
 
@@ -51,10 +57,129 @@ DEFAULT_AGENT_ID = "default"
 # Value: {"agent_id", "name", "model_name", "session_id"}
 _selected_agents: dict[str, dict[str, Any]] = {}
 
+# Users who have already seen the one-time DM onboarding message.
+_dm_welcomed: set[str] = set()
+
+DM_WELCOME = (
+    "**Welcome to ATL** — this DM is your private trading agent chat.\n\n"
+    "• **Agents** — `show my agents` or `/atl connect` if not linked yet\n"
+    "• **Backtest** — `run backtest on AAPL MSFT last month` (confirm with button)\n"
+    "• **Status** — `status` or `latest run`\n"
+    "• **Help** — `help` or `/atl help`\n\n"
+    "Server channels are for onboarding only — chat here for everything else."
+)
+
+_AGENT_REQUIRED_MSG = (
+    "Bind a built-in agent first with `/agent` so backtests show on "
+    "that agent's card on the website."
+)
+
+# chat_user_id keys awaiting a yes/no or button confirm before backtest.
+_pending_backtest: set[str] = set()
 
 def selected_agent_for(user_id: str) -> Optional[dict[str, Any]]:
     """Return the built-in agent the Discord user last chose via /agent, if any."""
     return _selected_agents.get(str(user_id))
+
+
+def agent_status_line(user_id: str) -> str:
+    """Short footer showing which built-in agent is bound for this Discord user."""
+    selected = selected_agent_for(user_id)
+    if selected:
+        model = selected.get("model_name") or "local-model"
+        return (
+            f"**Agent:** {selected['name']} (`{model}`) — `/agent` to switch"
+        )
+    return (
+        "**Agent:** none selected — run `/agent` to bind a built-in agent "
+        "(required for backtests on the website)"
+    )
+
+
+def interaction_ephemeral(interaction: discord.Interaction) -> bool:
+    """DM slash responses must stay visible (dropdowns, backtest status, charts)."""
+    return not isinstance(interaction.channel, discord.DMChannel)
+
+
+def chat_user_id(discord_user_id: str, *, is_dm: bool) -> str:
+    """Per-surface chat identity so DM history never mixes with guild channels."""
+    surface = "dm" if is_dm else "guild"
+    return f"discord:{surface}:{discord_user_id}"
+
+
+def chat_user_id_for_interaction(interaction: discord.Interaction) -> str:
+    return chat_user_id(
+        str(interaction.user.id),
+        is_dm=isinstance(interaction.channel, discord.DMChannel),
+    )
+
+
+def chat_user_id_for_message(message: discord.Message, *, is_dm: bool) -> str:
+    return chat_user_id(str(message.author.id), is_dm=is_dm)
+
+
+_BACKTEST_INTENT_PHRASES = (
+    "run backtest",
+    "start backtest",
+    "launch backtest",
+    "trigger backtest",
+    "let's backtest",
+    "lets backtest",
+    "go ahead and backtest",
+    "开始回测",
+    "跑回测",
+    "运行回测",
+    "回测吧",
+)
+
+_BACKTEST_CONFIRM_WORDS = frozenset({
+    "yes", "y", "confirm", "ok", "okay", "sure", "go", "run", "好", "确认", "开始", "行",
+})
+
+_BACKTEST_CANCEL_WORDS = frozenset({
+    "no", "n", "cancel", "stop", "nevermind", "never mind", "不", "取消", "算了",
+})
+
+
+def detect_backtest_intent(text: str) -> bool:
+    """Natural-language trigger for the confirmation step (slash /backtest is direct)."""
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    if normalized in {"backtest", "回测"}:
+        return True
+    return any(phrase in normalized for phrase in _BACKTEST_INTENT_PHRASES)
+
+
+def is_backtest_confirmation(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    return normalized in _BACKTEST_CONFIRM_WORDS
+
+
+def is_backtest_cancellation(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text.strip().lower())
+    return normalized in _BACKTEST_CANCEL_WORDS
+
+
+def require_bound_agent(discord_user_id: str) -> Optional[dict[str, Any]]:
+    """Built-in agent binding required so backtests land on the website card."""
+    return selected_agent_for(discord_user_id)
+
+
+_TEXT_SLASH_COMMANDS = frozenset({"agent", "backtest", "reset", "strategy", "prompt"})
+
+
+def parse_text_slash_command(text: str) -> Optional[tuple[str, str]]:
+    """Treat typed ``/agent`` in DM as a command, not LLM chat."""
+    stripped = text.strip()
+    if not stripped.startswith("/"):
+        return None
+    body = stripped[1:]
+    if not body:
+        return None
+    name, _, rest = body.partition(" ")
+    name = name.lower()
+    if name not in _TEXT_SLASH_COMMANDS:
+        return None
+    return name, rest.strip()
 
 # Stable namespace so each Discord user maps to a fixed backtest session UUID
 # (the /backtest routes require a valid UUID X-Session-Id).
@@ -150,6 +275,48 @@ def extract_chat_prompt(content: str, *, bot_user_id: Optional[int]) -> str:
     return text.strip()
 
 
+async def maybe_send_dm_welcome(
+    channel: discord.abc.Messageable,
+    user_id: str,
+) -> None:
+    """Send one-time onboarding the first time a user talks to the bot in DM."""
+    if user_id in _dm_welcomed:
+        return
+    _dm_welcomed.add(user_id)
+    await channel.send(f"{DM_WELCOME}\n\n{agent_status_line(user_id)}")
+
+
+async def resolve_backtest_strategy(
+    chat_user_id: str,
+    discord_user_id: str,
+    *,
+    prompt: Optional[str],
+    code: Optional[str],
+) -> tuple[str, str, Optional[str]]:
+    """Return ``(strategy_prompt, label, share_url)`` for a backtest run."""
+    selected = selected_agent_for(discord_user_id)
+    agent_id = selected["agent_id"] if selected else DEFAULT_AGENT_ID
+
+    if prompt and prompt.strip():
+        return prompt.strip(), "custom", None
+
+    if code:
+        record = await api_get(f"/api/strategies/{code}")
+        strategy_prompt = record.get("prompt")
+        if not strategy_prompt:
+            raise ValueError(
+                f"No strategy found for code `{code}`. "
+                "Type a `prompt` directly or create one with `/strategy`."
+            )
+        return strategy_prompt, code, record.get("share_url")
+
+    strategy_prompt = await synthesize_strategy_prompt(
+        user_id=chat_user_id,
+        agent_id=agent_id,
+    )
+    return strategy_prompt, "from-chat", None
+
+
 def split_discord_message(
     text: str,
     limit: int = 1800,
@@ -222,11 +389,190 @@ async def fetch_builtin_agents() -> list[dict[str, Any]]:
     return data.get("agents", []) if isinstance(data, dict) else []
 
 
+async def build_agent_picker(
+    discord_user_id: str,
+    agents: list[dict[str, Any]],
+) -> tuple[str, Optional["AgentSelectView"]]:
+    current = selected_agent_for(discord_user_id)
+    lines = ["**Built-in agents**"]
+    for a in agents[:25]:
+        marker = "✅ " if current and current["agent_id"] == a["agent_id"] else "• "
+        lines.append(
+            f"{marker}**{a.get('name')}** — `{a.get('model_name') or 'local-model'}` "
+            f"· {a.get('run_count', 0)} backtest(s)"
+        )
+    if current:
+        lines.append(f"\nCurrently selected: **{current['name']}**")
+    lines.append("\nPick one below, then message me to chat.")
+    return "\n".join(lines), AgentSelectView(agents)
+
+
+async def present_agent_picker(
+    channel: discord.abc.Messageable,
+    discord_user_id: str,
+    *,
+    reply_to: Optional[discord.Message] = None,
+    is_dm: bool = False,
+) -> None:
+    if is_dm:
+        await maybe_send_dm_welcome(channel, discord_user_id)
+
+    try:
+        agents = await fetch_builtin_agents()
+    except Exception as exc:
+        print("Discord agent picker fetch failed:", repr(exc))
+        text = (
+            "Could not load built-in agents. Is the backend running at "
+            f"`{api_base()}`? (set ATL_API_BASE if not)"
+        )
+        if reply_to is not None:
+            await reply_to.reply(text, mention_author=False)
+        else:
+            await channel.send(text)
+        return
+
+    if not agents:
+        text = (
+            "No built-in agents yet. Create one on the website:\n"
+            "**My Agents → Add Agent → Create a Built-in Agent** — it will "
+            "then appear here for everyone to chat with."
+        )
+        if reply_to is not None:
+            await reply_to.reply(text, mention_author=False)
+        else:
+            await channel.send(text)
+        return
+
+    content, view = await build_agent_picker(discord_user_id, agents)
+    if reply_to is not None:
+        await reply_to.reply(content, view=view, mention_author=False)
+    else:
+        await channel.send(content, view=view)
+
+
+async def handle_text_slash_command(
+    message: discord.Message,
+    command: str,
+    args: str,
+    *,
+    is_dm: bool,
+) -> None:
+    """Run slash-equivalent flows when the user types ``/agent`` as plain text."""
+    discord_user_id = str(message.author.id)
+    user_chat_id = chat_user_id_for_message(message, is_dm=is_dm)
+
+    if command == "agent":
+        await present_agent_picker(
+            message.channel,
+            discord_user_id,
+            reply_to=message,
+            is_dm=is_dm,
+        )
+        return
+
+    if command == "reset":
+        selected = selected_agent_for(discord_user_id)
+        agent_id = selected["agent_id"] if selected else DEFAULT_AGENT_ID
+        reset_agent_conversation(user_id=user_chat_id, agent_id=agent_id)
+        await message.reply(
+            "Your temporary agent conversation has been cleared.",
+            mention_author=False,
+        )
+        return
+
+    if command == "backtest":
+        if not require_bound_agent(discord_user_id):
+            await message.reply(_AGENT_REQUIRED_MSG, mention_author=False)
+            return
+        status_msg = await message.reply(
+            "Starting backtest…",
+            mention_author=False,
+        )
+        prompt = args or None
+
+        async def status_update(text: str) -> None:
+            await status_msg.edit(content=text)
+
+        async def send_chart(png: bytes, run_id: str) -> None:
+            chart = discord.File(io.BytesIO(png), filename=f"backtest_{run_id}.png")
+            await message.channel.send(file=chart)
+
+        await run_backtest_flow(
+            discord_user_id=discord_user_id,
+            chat_user_id=user_chat_id,
+            status_update=status_update,
+            send_chart=send_chart,
+            prompt=prompt,
+        )
+        return
+
+    if command == "strategy":
+        selected = selected_agent_for(discord_user_id)
+        agent_id = selected["agent_id"] if selected else DEFAULT_AGENT_ID
+        idea = args or None
+        try:
+            prompt = await synthesize_strategy_prompt(
+                user_id=user_chat_id,
+                agent_id=agent_id,
+                extra=idea,
+            )
+        except ValueError as exc:
+            await message.reply(str(exc), mention_author=False)
+            return
+        except Exception as exc:
+            print("Discord text /strategy failed:", repr(exc))
+            await message.reply(
+                "Could not generate a strategy prompt. Check the hosted-model key.",
+                mention_author=False,
+            )
+            return
+        try:
+            record = await api_post(
+                "/api/strategies",
+                json={
+                    "prompt": prompt,
+                    "description": idea,
+                    "source": "discord",
+                    "owner": f"discord:{discord_user_id}",
+                },
+                headers={"X-Browser-Id": f"discord:{discord_user_id}"},
+            )
+        except Exception:
+            await message.reply(
+                f"Generated a strategy but could not save it. Is the backend at `{api_base()}`?",
+                mention_author=False,
+            )
+            return
+        code = record.get("code")
+        share_url = record.get("share_url")
+        await message.reply(
+            f"**Strategy saved** · code `{code}`\n{share_url}\n\n```\n{prompt}\n```",
+            mention_author=False,
+        )
+        return
+
+    if command == "prompt":
+        if not args:
+            await message.reply("Usage: `/prompt <code>`", mention_author=False)
+            return
+        try:
+            record = await api_get(f"/api/strategies/{args}")
+        except Exception:
+            await message.reply(f"No strategy found for code `{args}`.", mention_author=False)
+            return
+        await message.reply(
+            f"**Strategy `{args}`**\n{record.get('share_url', '')}\n\n"
+            f"```\n{record.get('prompt', '')}\n```",
+            mention_author=False,
+        )
+
+
 async def deliver_agent_chat(
+    chat_user_id: str,
     discord_user_id: str,
     prompt: str,
 ) -> tuple[list[str], Optional[str]]:
-    """Run the hosted-model chat path shared by ``/ask`` and free-form messages.
+    """Run the hosted-model chat path shared by free-form messages and slash chat.
 
     Returns ``(response_chunks, error_message)``. On success ``error_message`` is
     ``None``; on failure ``response_chunks`` is empty.
@@ -237,7 +583,7 @@ async def deliver_agent_chat(
 
     try:
         answer = await chat_with_agent(
-            user_id=discord_user_id,
+            user_id=chat_user_id,
             agent_id=agent_id,
             message=prompt,
             model=model,
@@ -291,8 +637,9 @@ class AgentSelect(discord.ui.Select):
             content=(
                 f"You're now chatting with **{agent.get('name')}** "
                 f"(model `{agent.get('model_name') or 'local-model'}`).\n"
-                "Message me directly (or use `/ask`) — `/backtest` to run a strategy; "
-                "results show up on the agent's card on the website."
+                "Message me directly to chat — use `/backtest` when you're ready to run; "
+                "results show up on the agent's card on the website.\n\n"
+                f"{agent_status_line(str(interaction.user.id))}"
             ),
             view=None,
         )
@@ -302,6 +649,207 @@ class AgentSelectView(discord.ui.View):
     def __init__(self, agents: list[dict[str, Any]], *, timeout: float = 120):
         super().__init__(timeout=timeout)
         self.add_item(AgentSelect(agents))
+
+
+class BacktestConfirmView(discord.ui.View):
+    """Yes/No buttons after a natural-language backtest request."""
+
+    def __init__(
+        self,
+        *,
+        discord_user_id: str,
+        chat_user_id: str,
+        is_dm: bool,
+        timeout: float = 180,
+    ):
+        super().__init__(timeout=timeout)
+        self.discord_user_id = discord_user_id
+        self.chat_user_id = chat_user_id
+        self.is_dm = is_dm
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if str(interaction.user.id) != self.discord_user_id:
+            await interaction.response.send_message(
+                "This confirmation is for another user.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    async def on_timeout(self) -> None:
+        _pending_backtest.discard(self.chat_user_id)
+
+    @discord.ui.button(label="Run backtest", style=discord.ButtonStyle.green)
+    async def run_backtest(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        _pending_backtest.discard(self.chat_user_id)
+        await interaction.response.defer()
+        await run_backtest_flow(
+            discord_user_id=self.discord_user_id,
+            chat_user_id=self.chat_user_id,
+            status_update=lambda text: interaction.edit_original_response(
+                content=text,
+                view=None,
+            ),
+            send_chart=lambda png, run_id: interaction.followup.send(
+                file=discord.File(io.BytesIO(png), filename=f"backtest_{run_id}.png"),
+                ephemeral=interaction_ephemeral(interaction),
+            ),
+        )
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel_backtest(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        _pending_backtest.discard(self.chat_user_id)
+        await interaction.response.edit_message(
+            content="Backtest cancelled. Keep chatting or use `/backtest` when ready.",
+            view=None,
+        )
+
+
+async def run_backtest_flow(
+    *,
+    discord_user_id: str,
+    chat_user_id: str,
+    status_update: Callable[[str], Awaitable[None]],
+    send_chart: Callable[[bytes, str], Awaitable[None]],
+    prompt: Optional[str] = None,
+    code: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+) -> None:
+    """Shared backtest runner for slash commands, buttons, and keyword confirm."""
+    selected = require_bound_agent(discord_user_id)
+    if not selected:
+        await status_update(_AGENT_REQUIRED_MSG)
+        return
+
+    session_id = session_for(discord_user_id)
+    headers = {"X-Session-Id": session_id}
+
+    try:
+        strategy_prompt, label, share_url = await resolve_backtest_strategy(
+            chat_user_id,
+            discord_user_id,
+            prompt=prompt,
+            code=code,
+        )
+    except ValueError as exc:
+        await status_update(str(exc))
+        return
+    except Exception as exc:
+        print("Discord backtest strategy resolve failed:", repr(exc))
+        await status_update(
+            "Could not prepare a strategy for backtest. Chat about your idea first, "
+            "or pass a `prompt` / saved `code`."
+        )
+        return
+
+    payload: dict[str, Any] = {
+        "strategy_prompt": strategy_prompt,
+        "agent_id": selected["agent_id"],
+    }
+    model_override = _model_override(selected.get("model_name"))
+    if model_override:
+        payload["model"] = model_override
+    if start:
+        payload["start_date"] = start
+    if end:
+        payload["end_date"] = end
+
+    try:
+        started = await api_post("/backtest/run", json=payload, headers=headers)
+    except Exception as exc:
+        print("Discord backtest start failed:", repr(exc))
+        await status_update(
+            f"Could not start the backtest. Is the backend running at `{api_base()}`?"
+        )
+        return
+
+    if not started.get("success", True):
+        await status_update(f"Backtest not started: {started.get('error', 'unknown error')}")
+        return
+
+    effective_session = started.get("session_id") or session_id
+    headers = {"X-Session-Id": effective_session}
+
+    agent_note = f"\n{agent_status_line(discord_user_id)}"
+    await status_update(
+        f"Backtest started (`{label}`) with real Alpaca bars + hosted model. "
+        f"Running… this can take a few minutes.{agent_note}"
+    )
+
+    max_polls = 130
+    for i in range(max_polls):
+        await asyncio.sleep(5)
+        try:
+            status = await api_get("/backtest/status", headers=headers)
+        except Exception:
+            continue
+
+        if status.get("running"):
+            if (i + 1) % 6 == 0:
+                await status_update(
+                    f"Backtest running (`{label}`)… ({(i + 1) * 5}s elapsed){agent_note}"
+                )
+            continue
+
+        if status.get("error"):
+            await status_update(f"Backtest failed: {status['error'][:1500]}")
+            return
+
+        if status.get("success") or status.get("runs_count"):
+            break
+    else:
+        await status_update(
+            "Backtest is taking longer than expected. Check results later on the dashboard."
+        )
+        return
+
+    try:
+        m = await api_get("/runs/latest/metrics", headers=headers)
+    except Exception:
+        await status_update(
+            "Backtest finished, but metrics could not be read. Check the dashboard."
+        )
+        return
+
+    def pct(v: Any) -> str:
+        return "—" if v is None else f"{float(v) * 100:.2f}%"
+
+    def num(v: Any) -> str:
+        return "—" if v is None else f"{float(v):.2f}"
+
+    summary = (
+        f"**Backtest complete** · `{label}`\n"
+        f"Window: {m.get('start_date', '?')} → {m.get('end_date', '?')}  ·  "
+        f"model: {m.get('llm_model', '?')}\n"
+        f"Return: **{pct(m.get('total_return'))}**  ·  Sharpe: {num(m.get('sharpe_ratio'))}  ·  "
+        f"Max DD: {pct(m.get('max_drawdown'))}  ·  Trades: {m.get('num_trades', 0)}\n"
+        f"Final equity: ${float(m.get('final_equity') or 0):,.0f}"
+    )
+    if share_url:
+        summary += f"\nView: {share_url}"
+    if selected.get("name"):
+        summary += (
+            f"\nSaved to **{selected['name']}**'s card — open *My Agents* on the "
+            "website to track the details."
+        )
+    await status_update(summary)
+
+    run_id = m.get("run_id")
+    if run_id:
+        try:
+            png = await api_get_bytes(f"/runs/{run_id}/plot.png", headers=headers)
+            await send_chart(png, str(run_id))
+        except Exception as exc:
+            print("Discord backtest plot failed:", repr(exc))
 
 
 class RestrictedCommandTree(app_commands.CommandTree):
@@ -314,16 +862,17 @@ class RestrictedCommandTree(app_commands.CommandTree):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         allowed = allowed_channel_ids()
-        if allowed and interaction.channel_id not in allowed:
-            try:
-                await interaction.response.send_message(
-                    "This bot only responds in its designated channel here. "
-                    "Please use the configured channel.",
-                    ephemeral=True,
-                )
-            except Exception:
-                pass
-            return False
+        if allowed and not isinstance(interaction.channel, discord.DMChannel):
+            if interaction.channel_id not in allowed:
+                try:
+                    await interaction.response.send_message(
+                        "This bot only responds in its designated channel here. "
+                        "Please use the configured channel, or DM me directly.",
+                        ephemeral=True,
+                    )
+                except Exception:
+                    pass
+                return False
         return True
 
 
@@ -355,11 +904,17 @@ class AgenticTradingDiscordBot(commands.Bot):
                 f"to guild {guild_id}."
             )
 
+        synced_global = await self.tree.sync()
+        print(
+            f"Synced {len(synced_global)} global Discord command(s) "
+            "(available in DMs and all servers)."
+        )
+
         allowed = allowed_channel_ids()
         if allowed:
             print(f"Command channel allowlist active: {sorted(allowed)}")
             print(
-                "Free chat: plain messages in allowlisted channels (no /ask). "
+                "Free chat: plain messages in allowlisted channels. "
                 "Also: DMs, @mention, or reply-to-bot elsewhere."
             )
         else:
@@ -385,8 +940,19 @@ async def on_ready() -> None:
 
 @bot.event
 async def on_message(message: discord.Message) -> None:
-    """Free-form chat: DMs, allowlisted channels, @mention, or reply-to-bot."""
+    """Free-form chat: DMs use the ATL intent router; guild uses legacy paths."""
     bot_user = bot.user
+    is_dm = isinstance(message.channel, discord.DMChannel)
+
+    if is_dm and not message.author.bot and (message.content or "").strip():
+        async def _dm_reply(content: str, **kwargs: Any) -> None:
+            await message.reply(content, mention_author=False, **kwargs)
+
+        handled = await handle_dm_message(message, reply=_dm_reply)
+        if handled:
+            await bot.process_commands(message)
+            return
+
     is_reply_to_bot = False
     if message.reference is not None:
         resolved = message.reference.resolved
@@ -394,7 +960,7 @@ async def on_message(message: discord.Message) -> None:
             is_reply_to_bot = resolved.author.id == bot_user.id
 
     mentions_bot = bool(bot_user and bot_user in message.mentions)
-    is_dm = isinstance(message.channel, discord.DMChannel)
+    # is_dm set above for DM-first routing
 
     if not should_handle_free_chat(
         author_is_bot=message.author.bot,
@@ -433,51 +999,174 @@ async def on_message(message: discord.Message) -> None:
         return
 
     discord_user_id = str(message.author.id)
+    user_chat_id = chat_user_id_for_message(message, is_dm=is_dm)
+    if is_dm:
+        await maybe_send_dm_welcome(message.channel, discord_user_id)
+
+    text_cmd = parse_text_slash_command(prompt)
+    if text_cmd is not None:
+        cmd_name, cmd_args = text_cmd
+        await handle_text_slash_command(message, cmd_name, cmd_args, is_dm=is_dm)
+        await bot.process_commands(message)
+        return
+
+    if user_chat_id in _pending_backtest:
+        if is_backtest_cancellation(prompt):
+            _pending_backtest.discard(user_chat_id)
+            await message.reply("Backtest cancelled.", mention_author=False)
+            await bot.process_commands(message)
+            return
+        if is_backtest_confirmation(prompt):
+            _pending_backtest.discard(user_chat_id)
+            if not require_bound_agent(discord_user_id):
+                await message.reply(_AGENT_REQUIRED_MSG, mention_author=False)
+                await bot.process_commands(message)
+                return
+            status_msg = await message.reply(
+                "Starting backtest from your DM conversation…",
+                mention_author=False,
+            )
+
+            async def status_update(text: str) -> None:
+                await status_msg.edit(content=text)
+
+            async def send_chart(png: bytes, run_id: str) -> None:
+                chart = discord.File(io.BytesIO(png), filename=f"backtest_{run_id}.png")
+                await message.channel.send(file=chart)
+
+            await run_backtest_flow(
+                discord_user_id=discord_user_id,
+                chat_user_id=user_chat_id,
+                status_update=status_update,
+                send_chart=send_chart,
+            )
+            await bot.process_commands(message)
+            return
+
+    if detect_backtest_intent(prompt):
+        if not require_bound_agent(discord_user_id):
+            await message.reply(_AGENT_REQUIRED_MSG, mention_author=False)
+            await bot.process_commands(message)
+            return
+        _pending_backtest.add(user_chat_id)
+        await message.reply(
+            "Compile your DM chat into a strategy and run a backtest?",
+            view=BacktestConfirmView(
+                discord_user_id=discord_user_id,
+                chat_user_id=user_chat_id,
+                is_dm=is_dm,
+            ),
+            mention_author=False,
+        )
+        await bot.process_commands(message)
+        return
+
     async with message.channel.typing():
-        chunks, error = await deliver_agent_chat(discord_user_id, prompt)
+        chunks, error = await deliver_agent_chat(user_chat_id, discord_user_id, prompt)
 
     if error:
         await message.reply(error, mention_author=False)
     else:
-        await message.reply(chunks[0], mention_author=False)
+        footer = agent_status_line(discord_user_id)
+        first = chunks[0]
+        if footer not in first:
+            first = f"{first}\n\n—\n{footer}"
+        await message.reply(first, mention_author=False)
         for chunk in chunks[1:]:
             await message.channel.send(chunk)
 
     await bot.process_commands(message)
 
 
-@bot.tree.command(
-    name="ask",
-    description="Chat with your Agentic Trading Lab agent (hosted model).",
-)
-@app_commands.describe(
-    prompt="The message you want to send to your trading agent."
-)
-async def ask(
-    interaction: discord.Interaction,
-    prompt: str,
-) -> None:
-    # The deferred response is ephemeral, so only the invoking user sees it.
-    await interaction.response.defer(
-        thinking=True,
-        ephemeral=True,
-    )
+# ---------------------------------------------------------------------------
+# /atl — minimal public entry points (start / connect / help)
+# ---------------------------------------------------------------------------
 
+atl_group = app_commands.Group(name="atl", description="Agentic Trading Lab")
+
+
+@atl_group.command(name="start", description="Open a private DM with the ATL agent.")
+async def atl_start(interaction: discord.Interaction) -> None:
     discord_user_id = str(interaction.user.id)
+    in_dm = isinstance(interaction.channel, discord.DMChannel)
 
-    chunks, error = await deliver_agent_chat(discord_user_id, prompt)
-    if error:
-        await interaction.edit_original_response(content=error)
+    if in_dm:
+        await interaction.response.send_message(
+            f"{ATL_DM_WELCOME}\n\nYou are already in DM — just type naturally.",
+            ephemeral=False,
+        )
         return
 
-    for index, chunk in enumerate(chunks):
-        if index == 0:
-            await interaction.edit_original_response(content=chunk)
-        else:
-            await interaction.followup.send(
-                chunk,
-                ephemeral=True,
+    await interaction.response.defer(ephemeral=True)
+    try:
+        dm = await interaction.user.create_dm()
+        await dm.send(ATL_DM_WELCOME)
+        await interaction.followup.send(
+            "I sent you a DM. Continue chatting with your ATL agent there.",
+            ephemeral=True,
+        )
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "I could not DM you. Enable **Allow direct messages from server members** "
+            "for this server (Server Settings → Privacy), or use the website: "
+            "https://agentic-trading-lab.vercel.app",
+            ephemeral=True,
+        )
+    except Exception as exc:
+        print("Discord /atl start failed:", repr(exc))
+        await interaction.followup.send(
+            "Could not open a DM. Try again or use the website.",
+            ephemeral=True,
+        )
+
+
+@atl_group.command(name="connect", description="Link your Discord to your ATL website account.")
+async def atl_connect(interaction: discord.Interaction) -> None:
+    discord_user_id = str(interaction.user.id)
+    guild_id = str(interaction.guild_id) if interaction.guild_id else None
+    username = str(interaction.user)
+    in_dm = isinstance(interaction.channel, discord.DMChannel)
+    ephemeral = not in_dm
+
+    await interaction.response.defer(ephemeral=ephemeral, thinking=True)
+    text, err = await deliver_connect_instructions(
+        discord_user_id=discord_user_id,
+        discord_username=username,
+        guild_id=guild_id,
+    )
+    if err:
+        await interaction.edit_original_response(
+            content=f"{err} (backend: `{api_base()}`)"
+        )
+        return
+
+    if in_dm:
+        await interaction.edit_original_response(content=text)
+    else:
+        try:
+            dm = await interaction.user.create_dm()
+            await dm.send(text)
+            await interaction.edit_original_response(
+                content="I sent linking instructions to your DM.",
             )
+        except discord.Forbidden:
+            await interaction.edit_original_response(
+                content=(
+                    "Enable DMs from this server, then say **connect** in DM.\n\n"
+                    f"{text}"
+                ),
+            )
+
+
+@atl_group.command(name="help", description="How to use ATL in Discord.")
+async def atl_help(interaction: discord.Interaction) -> None:
+    from dashboard.backend.integrations.discord_intents import help_message
+
+    ephemeral = interaction_ephemeral(interaction)
+    await interaction.response.send_message(help_message(), ephemeral=ephemeral)
+
+
+bot.tree.add_command(atl_group)
 
 
 @bot.tree.command(
@@ -485,21 +1174,25 @@ async def ask(
     description="Turn your idea / chat into a trading strategy prompt you can backtest.",
 )
 @app_commands.describe(
-    idea="Optional: describe your strategy. Omit to compile from your recent /ask chat.",
+    idea="Optional: describe your strategy. Omit to compile from your recent chat.",
 )
 async def strategy(
     interaction: discord.Interaction,
     idea: Optional[str] = None,
 ) -> None:
-    await interaction.response.defer(thinking=True, ephemeral=True)
+    await interaction.response.defer(
+        thinking=True,
+        ephemeral=interaction_ephemeral(interaction),
+    )
 
     discord_user_id = str(interaction.user.id)
+    user_chat_id = chat_user_id_for_interaction(interaction)
     selected = selected_agent_for(discord_user_id)
     agent_id = selected["agent_id"] if selected else DEFAULT_AGENT_ID
 
     try:
         prompt = await synthesize_strategy_prompt(
-            user_id=discord_user_id,
+            user_id=user_chat_id,
             agent_id=agent_id,
             extra=idea,
         )
@@ -553,7 +1246,10 @@ async def strategy(
         if index == 0:
             await interaction.edit_original_response(content=chunk)
         else:
-            await interaction.followup.send(chunk, ephemeral=True)
+            await interaction.followup.send(
+                chunk,
+                ephemeral=interaction_ephemeral(interaction),
+            )
 
 
 @bot.tree.command(
@@ -565,7 +1261,10 @@ async def prompt_cmd(
     interaction: discord.Interaction,
     code: str,
 ) -> None:
-    await interaction.response.defer(thinking=True, ephemeral=True)
+    await interaction.response.defer(
+        thinking=True,
+        ephemeral=interaction_ephemeral(interaction),
+    )
     try:
         record = await api_get(f"/api/strategies/{code}")
     except Exception:
@@ -582,15 +1281,18 @@ async def prompt_cmd(
         if index == 0:
             await interaction.edit_original_response(content=chunk)
         else:
-            await interaction.followup.send(chunk, ephemeral=True)
+            await interaction.followup.send(
+                chunk,
+                ephemeral=interaction_ephemeral(interaction),
+            )
 
 
 @bot.tree.command(
     name="backtest",
-    description="Run a backtest from your own strategy prompt (real Alpaca data + hosted model).",
+    description="Run a backtest (Alpaca data + hosted model). Uses recent chat when no prompt is given.",
 )
 @app_commands.describe(
-    prompt="Your strategy in plain language — used directly, no /strategy needed.",
+    prompt="Optional strategy in plain language. Omit to compile from your recent chat.",
     code="Optional saved strategy code (from /strategy); used only if no prompt is given.",
     start="Optional start date YYYY-MM-DD.",
     end="Optional end date YYYY-MM-DD.",
@@ -602,146 +1304,34 @@ async def backtest_cmd(
     start: Optional[str] = None,
     end: Optional[str] = None,
 ) -> None:
-    await interaction.response.defer(thinking=True, ephemeral=True)
+    await interaction.response.defer(
+        thinking=True,
+        ephemeral=interaction_ephemeral(interaction),
+    )
 
     discord_user_id = str(interaction.user.id)
-    selected = selected_agent_for(discord_user_id)
-    # Per-user fallback session; when a built-in agent is selected we pass
-    # agent_id in the payload so the API binds the run to that agent's card.
-    session_id = session_for(discord_user_id)
-    headers = {"X-Session-Id": session_id}
+    if isinstance(interaction.channel, discord.DMChannel):
+        await maybe_send_dm_welcome(interaction.channel, discord_user_id)
 
-    # 1) Resolve the strategy prompt: prefer a directly typed prompt; otherwise
-    # fall back to a saved share code. At least one is required.
-    share_url: Optional[str] = None
-    label = "custom"
-    if prompt and prompt.strip():
-        strategy_prompt = prompt.strip()
-    elif code:
-        label = code
-        try:
-            record = await api_get(f"/api/strategies/{code}")
-            strategy_prompt = record.get("prompt")
-            share_url = record.get("share_url")
-            if not strategy_prompt:
-                raise ValueError("empty prompt")
-        except Exception:
-            await interaction.edit_original_response(
-                content=f"No strategy found for code `{code}`. Type a `prompt` directly or create one with `/strategy`."
-            )
-            return
-    else:
-        await interaction.edit_original_response(
-            content="Give me a strategy: type a `prompt` directly, or pass a saved `code`."
-        )
+    if not require_bound_agent(discord_user_id):
+        await interaction.edit_original_response(content=_AGENT_REQUIRED_MSG)
         return
 
-    # 2) Kick off the backtest via the existing workflow.
-    payload: dict[str, Any] = {"strategy_prompt": strategy_prompt}
-    if selected:
-        payload["agent_id"] = selected["agent_id"]
-    # Only override the model when the agent has a real one; a sentinel
-    # ('local-model') would otherwise mislabel the run / fail the model call.
-    model_override = _model_override(selected.get("model_name")) if selected else None
-    if model_override:
-        payload["model"] = model_override
-    if start:
-        payload["start_date"] = start
-    if end:
-        payload["end_date"] = end
+    user_chat_id = chat_user_id_for_interaction(interaction)
 
-    try:
-        started = await api_post("/backtest/run", json=payload, headers=headers)
-    except Exception as exc:
-        print("Discord /backtest start failed:", repr(exc))
-        await interaction.edit_original_response(
-            content=f"Could not start the backtest. Is the backend running at `{api_base()}`?"
-        )
-        return
-
-    if not started.get("success", True):
-        await interaction.edit_original_response(
-            content=f"Backtest not started: {started.get('error', 'unknown error')}"
-        )
-        return
-
-    # Poll status against the session the API actually used (agent card session).
-    effective_session = started.get("session_id") or session_id
-    headers = {"X-Session-Id": effective_session}
-
-    await interaction.edit_original_response(
-        content=f"Backtest started (`{label}`) with real Alpaca bars + hosted model. Running… this can take a few minutes."
+    await run_backtest_flow(
+        discord_user_id=discord_user_id,
+        chat_user_id=user_chat_id,
+        status_update=interaction.edit_original_response,
+        send_chart=lambda png, run_id: interaction.followup.send(
+            file=discord.File(io.BytesIO(png), filename=f"backtest_{run_id}.png"),
+            ephemeral=interaction_ephemeral(interaction),
+        ),
+        prompt=prompt,
+        code=code,
+        start=start,
+        end=end,
     )
-
-    # 3) Poll status (cap well under Discord's 15-minute interaction window).
-    max_polls = 130  # ~11 minutes at 5s
-    for i in range(max_polls):
-        await asyncio.sleep(5)
-        try:
-            status = await api_get("/backtest/status", headers=headers)
-        except Exception:
-            continue
-
-        if status.get("running"):
-            if (i + 1) % 6 == 0:  # update roughly every 30s
-                await interaction.edit_original_response(
-                    content=f"Backtest running (`{label}`)… ({(i + 1) * 5}s elapsed)"
-                )
-            continue
-
-        if status.get("error"):
-            await interaction.edit_original_response(content=f"Backtest failed: {status['error'][:1500]}")
-            return
-
-        if status.get("success") or status.get("runs_count"):
-            break
-    else:
-        await interaction.edit_original_response(
-            content="Backtest is taking longer than expected. Check results later on the dashboard."
-        )
-        return
-
-    # 4) Fetch the latest agent metrics for this session and report.
-    try:
-        m = await api_get("/runs/latest/metrics", headers=headers)
-    except Exception:
-        await interaction.edit_original_response(
-            content="Backtest finished, but metrics could not be read. Check the dashboard."
-        )
-        return
-
-    def pct(v: Any) -> str:
-        return "—" if v is None else f"{float(v) * 100:.2f}%"
-
-    def num(v: Any) -> str:
-        return "—" if v is None else f"{float(v):.2f}"
-
-    summary = (
-        f"**Backtest complete** · `{label}`\n"
-        f"Window: {m.get('start_date', '?')} → {m.get('end_date', '?')}  ·  model: {m.get('llm_model', '?')}\n"
-        f"Return: **{pct(m.get('total_return'))}**  ·  Sharpe: {num(m.get('sharpe_ratio'))}  ·  "
-        f"Max DD: {pct(m.get('max_drawdown'))}  ·  Trades: {m.get('num_trades', 0)}\n"
-        f"Final equity: ${float(m.get('final_equity') or 0):,.0f}"
-    )
-    if share_url:
-        summary += f"\nView: {share_url}"
-    if selected and selected.get("name"):
-        summary += (
-            f"\nSaved to **{selected['name']}**'s card — open *My Agents* on the "
-            "website to track the details."
-        )
-    await interaction.edit_original_response(content=summary)
-
-    # 5) Render the equity-curve chart (agent vs baselines) and post it as an
-    # image, mirroring the website's plot.
-    run_id = m.get("run_id")
-    if run_id:
-        try:
-            png = await api_get_bytes(f"/runs/{run_id}/plot.png", headers=headers)
-            chart = discord.File(io.BytesIO(png), filename=f"backtest_{run_id}.png")
-            await interaction.followup.send(file=chart, ephemeral=True)
-        except Exception as exc:
-            print("Discord /backtest plot failed:", repr(exc))
 
 
 @bot.tree.command(
@@ -752,17 +1342,18 @@ async def reset(
     interaction: discord.Interaction,
 ) -> None:
     discord_user_id = str(interaction.user.id)
+    user_chat_id = chat_user_id_for_interaction(interaction)
     selected = selected_agent_for(discord_user_id)
     agent_id = selected["agent_id"] if selected else DEFAULT_AGENT_ID
 
     reset_agent_conversation(
-        user_id=discord_user_id,
+        user_id=user_chat_id,
         agent_id=agent_id,
     )
 
     await interaction.response.send_message(
         "Your temporary agent conversation has been cleared.",
-        ephemeral=True,
+        ephemeral=interaction_ephemeral(interaction),
     )
 
 
@@ -773,7 +1364,14 @@ async def reset(
 async def agent(
     interaction: discord.Interaction,
 ) -> None:
-    await interaction.response.defer(thinking=True, ephemeral=True)
+    await interaction.response.defer(
+        thinking=True,
+        ephemeral=interaction_ephemeral(interaction),
+    )
+
+    discord_user_id = str(interaction.user.id)
+    if isinstance(interaction.channel, discord.DMChannel):
+        await maybe_send_dm_welcome(interaction.channel, discord_user_id)
 
     try:
         agents = await fetch_builtin_agents()
@@ -797,22 +1395,8 @@ async def agent(
         )
         return
 
-    current = selected_agent_for(interaction.user.id)
-    lines = ["**Built-in agents**"]
-    for a in agents[:25]:
-        marker = "✅ " if current and current["agent_id"] == a["agent_id"] else "• "
-        lines.append(
-            f"{marker}**{a.get('name')}** — `{a.get('model_name') or 'local-model'}` "
-            f"· {a.get('run_count', 0)} backtest(s)"
-        )
-    if current:
-        lines.append(f"\nCurrently selected: **{current['name']}**")
-    lines.append("\nPick one below, then message the bot directly (or use `/ask`).")
-
-    await interaction.edit_original_response(
-        content="\n".join(lines),
-        view=AgentSelectView(agents),
-    )
+    content, view = await build_agent_picker(discord_user_id, agents)
+    await interaction.edit_original_response(content=content, view=view)
 
 
 def main() -> None:

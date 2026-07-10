@@ -6,6 +6,10 @@ from dashboard.backend.chart_style import (
     series_color,
     series_kind,
 )
+from dashboard.backend.equity_plot import (
+    gapless_chart_x_labels,
+    resolve_agent_chart_label,
+)
 
 
 def test_series_kind_and_colors_match_playground():
@@ -26,3 +30,10 @@ def test_format_playground_timestamp():
     from datetime import datetime
 
     assert format_playground_timestamp(datetime(2026, 5, 2, 14, 30)) == "May 2"
+
+
+def test_resolve_agent_chart_label_prefers_card_name():
+    assert resolve_agent_chart_label("Agent", "claude-haiku-4.5", "momentum alpha") == "momentum alpha"
+    assert resolve_agent_chart_label("my-bot", "claude-haiku-4.5") == "my-bot"
+    assert resolve_agent_chart_label("Agent", "claude-haiku-4.5") == "Agent"
+    assert resolve_agent_chart_label(None, None) == "Agent"

@@ -24,21 +24,13 @@ export function Navbar() {
           </div>
           <span className="brand-title">Agentic Trading Lab</span>
         </Link>
-        <div className="col-start-3 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            data-landing-auth="login"
-            className="inline-flex items-center justify-center rounded-md text-sm font-semibold h-9 px-4 border border-border bg-transparent text-foreground hover:bg-muted transition-colors"
-          >
-            Sign In
-          </button>
-          <button
-            type="button"
-            data-landing-auth="signup"
+        <div className="col-start-3 flex items-center justify-end">
+          <a
+            href="/app?view=home"
             className="inline-flex items-center justify-center rounded-md text-sm font-semibold h-9 px-4 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >
             Get Started
-          </button>
+          </a>
         </div>
       </div>
     </nav>
