@@ -304,6 +304,194 @@ class AgentSelectView(discord.ui.View):
         self.add_item(AgentSelect(agents))
 
 
+class StrategyRunBacktestView(discord.ui.View):
+    """One-click backtest after ``/strategy`` saves a prompt."""
+
+    def __init__(self, *, discord_user_id: str, code: str, timeout: float = 600):
+        super().__init__(timeout=timeout)
+        self.discord_user_id = discord_user_id
+        self.code = code
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if str(interaction.user.id) != self.discord_user_id:
+            await interaction.response.send_message(
+                "Only the person who ran `/strategy` can use this button.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="Run backtest", style=discord.ButtonStyle.green)
+    async def run_backtest_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        self.stop()
+        try:
+            await interaction.message.edit(view=None)
+        except Exception:
+            pass
+        await execute_backtest(
+            interaction,
+            self.discord_user_id,
+            code=self.code,
+        )
+
+
+async def execute_backtest(
+    interaction: discord.Interaction,
+    discord_user_id: str,
+    *,
+    prompt: Optional[str] = None,
+    code: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+) -> None:
+    """Shared backtest runner for ``/backtest`` and strategy buttons.
+
+    The interaction must already be deferred.
+    """
+    selected = selected_agent_for(discord_user_id)
+    session_id = session_for(discord_user_id)
+    headers = {"X-Session-Id": session_id}
+
+    share_url: Optional[str] = None
+    label = "custom"
+    if prompt and prompt.strip():
+        strategy_prompt = prompt.strip()
+    elif code:
+        label = code
+        try:
+            record = await api_get(f"/api/strategies/{code}")
+            strategy_prompt = record.get("prompt")
+            share_url = record.get("share_url")
+            if not strategy_prompt:
+                raise ValueError("empty prompt")
+        except Exception:
+            await interaction.edit_original_response(
+                content=(
+                    f"No strategy found for code `{code}`. "
+                    "Type a `prompt` directly or create one with `/strategy`."
+                )
+            )
+            return
+    else:
+        await interaction.edit_original_response(
+            content="Give me a strategy: type a `prompt` directly, or pass a saved `code`."
+        )
+        return
+
+    payload: dict[str, Any] = {"strategy_prompt": strategy_prompt}
+    if selected:
+        payload["agent_id"] = selected["agent_id"]
+    model_override = _model_override(selected.get("model_name")) if selected else None
+    if model_override:
+        payload["model"] = model_override
+    if start:
+        payload["start_date"] = start
+    if end:
+        payload["end_date"] = end
+
+    try:
+        started = await api_post("/backtest/run", json=payload, headers=headers)
+    except Exception as exc:
+        print("Discord /backtest start failed:", repr(exc))
+        await interaction.edit_original_response(
+            content=f"Could not start the backtest. Is the backend running at `{api_base()}`?"
+        )
+        return
+
+    if not started.get("success", True):
+        await interaction.edit_original_response(
+            content=f"Backtest not started: {started.get('error', 'unknown error')}"
+        )
+        return
+
+    effective_session = started.get("session_id") or session_id
+    headers = {"X-Session-Id": effective_session}
+
+    await interaction.edit_original_response(
+        content=(
+            f"Backtest started (`{label}`) with real Alpaca bars + hosted model. "
+            "Running… this can take a few minutes."
+        )
+    )
+
+    max_polls = 130
+    for i in range(max_polls):
+        await asyncio.sleep(5)
+        try:
+            status = await api_get("/backtest/status", headers=headers)
+        except Exception:
+            continue
+
+        if status.get("running"):
+            if (i + 1) % 6 == 0:
+                await interaction.edit_original_response(
+                    content=f"Backtest running (`{label}`)… ({(i + 1) * 5}s elapsed)"
+                )
+            continue
+
+        if status.get("error"):
+            await interaction.edit_original_response(
+                content=f"Backtest failed: {status['error'][:1500]}"
+            )
+            return
+
+        if status.get("success") or status.get("runs_count"):
+            break
+    else:
+        await interaction.edit_original_response(
+            content=(
+                "Backtest is taking longer than expected. "
+                "Check results later on the dashboard."
+            )
+        )
+        return
+
+    try:
+        m = await api_get("/runs/latest/metrics", headers=headers)
+    except Exception:
+        await interaction.edit_original_response(
+            content="Backtest finished, but metrics could not be read. Check the dashboard."
+        )
+        return
+
+    def pct(v: Any) -> str:
+        return "—" if v is None else f"{float(v) * 100:.2f}%"
+
+    def num(v: Any) -> str:
+        return "—" if v is None else f"{float(v):.2f}"
+
+    summary = (
+        f"**Backtest complete** · `{label}`\n"
+        f"Window: {m.get('start_date', '?')} → {m.get('end_date', '?')}  ·  "
+        f"model: {m.get('llm_model', '?')}\n"
+        f"Return: **{pct(m.get('total_return'))}**  ·  Sharpe: {num(m.get('sharpe_ratio'))}  ·  "
+        f"Max DD: {pct(m.get('max_drawdown'))}  ·  Trades: {m.get('num_trades', 0)}\n"
+        f"Final equity: ${float(m.get('final_equity') or 0):,.0f}"
+    )
+    if share_url:
+        summary += f"\nView: {share_url}"
+    if selected and selected.get("name"):
+        summary += (
+            f"\nSaved to **{selected['name']}**'s card — open *My Agents* on the "
+            "website to track the details."
+        )
+    await interaction.edit_original_response(content=summary)
+
+    run_id = m.get("run_id")
+    if run_id:
+        try:
+            png = await api_get_bytes(f"/runs/{run_id}/plot.png", headers=headers)
+            chart = discord.File(io.BytesIO(png), filename=f"backtest_{run_id}.png")
+            await interaction.followup.send(file=chart, ephemeral=True)
+        except Exception as exc:
+            print("Discord /backtest plot failed:", repr(exc))
+
+
 class RestrictedCommandTree(app_commands.CommandTree):
     """Command tree that optionally restricts commands to an allowlisted channel.
 
@@ -538,20 +726,19 @@ async def strategy(
         return
 
     code = record.get("code")
-    share_url = record.get("share_url")
 
     header = (
         f"**Strategy saved** · code `{code}`\n"
-        f"View / run on the site: {share_url}\n"
-        f"Or run it here: `/backtest code:{code}`\n\n"
+        "Click **Run backtest** below when you're ready.\n\n"
         "**Prompt:**\n"
     )
     body = f"```\n{prompt}\n```"
+    view = StrategyRunBacktestView(discord_user_id=discord_user_id, code=str(code))
 
     chunks = split_discord_message(header + body)
     for index, chunk in enumerate(chunks):
         if index == 0:
-            await interaction.edit_original_response(content=chunk)
+            await interaction.edit_original_response(content=chunk, view=view)
         else:
             await interaction.followup.send(chunk, ephemeral=True)
 
@@ -605,143 +792,14 @@ async def backtest_cmd(
     await interaction.response.defer(thinking=True, ephemeral=True)
 
     discord_user_id = str(interaction.user.id)
-    selected = selected_agent_for(discord_user_id)
-    # Per-user fallback session; when a built-in agent is selected we pass
-    # agent_id in the payload so the API binds the run to that agent's card.
-    session_id = session_for(discord_user_id)
-    headers = {"X-Session-Id": session_id}
-
-    # 1) Resolve the strategy prompt: prefer a directly typed prompt; otherwise
-    # fall back to a saved share code. At least one is required.
-    share_url: Optional[str] = None
-    label = "custom"
-    if prompt and prompt.strip():
-        strategy_prompt = prompt.strip()
-    elif code:
-        label = code
-        try:
-            record = await api_get(f"/api/strategies/{code}")
-            strategy_prompt = record.get("prompt")
-            share_url = record.get("share_url")
-            if not strategy_prompt:
-                raise ValueError("empty prompt")
-        except Exception:
-            await interaction.edit_original_response(
-                content=f"No strategy found for code `{code}`. Type a `prompt` directly or create one with `/strategy`."
-            )
-            return
-    else:
-        await interaction.edit_original_response(
-            content="Give me a strategy: type a `prompt` directly, or pass a saved `code`."
-        )
-        return
-
-    # 2) Kick off the backtest via the existing workflow.
-    payload: dict[str, Any] = {"strategy_prompt": strategy_prompt}
-    if selected:
-        payload["agent_id"] = selected["agent_id"]
-    # Only override the model when the agent has a real one; a sentinel
-    # ('local-model') would otherwise mislabel the run / fail the model call.
-    model_override = _model_override(selected.get("model_name")) if selected else None
-    if model_override:
-        payload["model"] = model_override
-    if start:
-        payload["start_date"] = start
-    if end:
-        payload["end_date"] = end
-
-    try:
-        started = await api_post("/backtest/run", json=payload, headers=headers)
-    except Exception as exc:
-        print("Discord /backtest start failed:", repr(exc))
-        await interaction.edit_original_response(
-            content=f"Could not start the backtest. Is the backend running at `{api_base()}`?"
-        )
-        return
-
-    if not started.get("success", True):
-        await interaction.edit_original_response(
-            content=f"Backtest not started: {started.get('error', 'unknown error')}"
-        )
-        return
-
-    # Poll status against the session the API actually used (agent card session).
-    effective_session = started.get("session_id") or session_id
-    headers = {"X-Session-Id": effective_session}
-
-    await interaction.edit_original_response(
-        content=f"Backtest started (`{label}`) with real Alpaca bars + hosted model. Running… this can take a few minutes."
+    await execute_backtest(
+        interaction,
+        discord_user_id,
+        prompt=prompt,
+        code=code,
+        start=start,
+        end=end,
     )
-
-    # 3) Poll status (cap well under Discord's 15-minute interaction window).
-    max_polls = 130  # ~11 minutes at 5s
-    for i in range(max_polls):
-        await asyncio.sleep(5)
-        try:
-            status = await api_get("/backtest/status", headers=headers)
-        except Exception:
-            continue
-
-        if status.get("running"):
-            if (i + 1) % 6 == 0:  # update roughly every 30s
-                await interaction.edit_original_response(
-                    content=f"Backtest running (`{label}`)… ({(i + 1) * 5}s elapsed)"
-                )
-            continue
-
-        if status.get("error"):
-            await interaction.edit_original_response(content=f"Backtest failed: {status['error'][:1500]}")
-            return
-
-        if status.get("success") or status.get("runs_count"):
-            break
-    else:
-        await interaction.edit_original_response(
-            content="Backtest is taking longer than expected. Check results later on the dashboard."
-        )
-        return
-
-    # 4) Fetch the latest agent metrics for this session and report.
-    try:
-        m = await api_get("/runs/latest/metrics", headers=headers)
-    except Exception:
-        await interaction.edit_original_response(
-            content="Backtest finished, but metrics could not be read. Check the dashboard."
-        )
-        return
-
-    def pct(v: Any) -> str:
-        return "—" if v is None else f"{float(v) * 100:.2f}%"
-
-    def num(v: Any) -> str:
-        return "—" if v is None else f"{float(v):.2f}"
-
-    summary = (
-        f"**Backtest complete** · `{label}`\n"
-        f"Window: {m.get('start_date', '?')} → {m.get('end_date', '?')}  ·  model: {m.get('llm_model', '?')}\n"
-        f"Return: **{pct(m.get('total_return'))}**  ·  Sharpe: {num(m.get('sharpe_ratio'))}  ·  "
-        f"Max DD: {pct(m.get('max_drawdown'))}  ·  Trades: {m.get('num_trades', 0)}\n"
-        f"Final equity: ${float(m.get('final_equity') or 0):,.0f}"
-    )
-    if share_url:
-        summary += f"\nView: {share_url}"
-    if selected and selected.get("name"):
-        summary += (
-            f"\nSaved to **{selected['name']}**'s card — open *My Agents* on the "
-            "website to track the details."
-        )
-    await interaction.edit_original_response(content=summary)
-
-    # 5) Render the equity-curve chart (agent vs baselines) and post it as an
-    # image, mirroring the website's plot.
-    run_id = m.get("run_id")
-    if run_id:
-        try:
-            png = await api_get_bytes(f"/runs/{run_id}/plot.png", headers=headers)
-            chart = discord.File(io.BytesIO(png), filename=f"backtest_{run_id}.png")
-            await interaction.followup.send(file=chart, ephemeral=True)
-        except Exception as exc:
-            print("Discord /backtest plot failed:", repr(exc))
 
 
 @bot.tree.command(
