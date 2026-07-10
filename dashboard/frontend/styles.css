@@ -4452,12 +4452,13 @@ a.header-brand:hover .title-section h1 {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    max-height: 140px;
-    overflow-y: auto;
 }
 
 .agent-run-link {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     width: 100%;
     padding: 6px 8px;
     border-radius: 4px;
@@ -4468,6 +4469,18 @@ a.header-brand:hover .title-section h1 {
     text-align: left;
     cursor: pointer;
     transition: border-color 0.15s, color 0.15s;
+}
+
+.agent-run-primary {
+    color: var(--text-primary);
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.agent-run-secondary {
+    color: var(--text-muted);
+    font-size: 10px;
+    line-height: 1.3;
 }
 
 .agent-run-link:hover {
@@ -5258,10 +5271,126 @@ body.agent-editor-open {
     flex: 1;
     overflow-y: auto;
     padding: 20px 24px 32px;
-    max-width: 1100px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.agent-editor-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 24px;
+    max-width: 1400px;
     width: 100%;
     margin: 0 auto;
-    box-sizing: border-box;
+    align-items: start;
+}
+
+.agent-editor-main {
+    min-width: 0;
+}
+
+.agent-editor-history {
+    position: sticky;
+    top: 12px;
+    align-self: start;
+}
+
+.agent-editor-history-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: calc(100vh - 120px);
+}
+
+.agent-editor-history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.agent-editor-history-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.agent-editor-run-count {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--home-accent-cyan, #22d3ee);
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(34, 211, 238, 0.1);
+    border: 1px solid rgba(34, 211, 238, 0.25);
+}
+
+.agent-editor-history-hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+.agent-editor-run-history {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow-y: auto;
+    min-height: 120px;
+}
+
+.agent-editor-run-empty {
+    margin: 0;
+    padding: 12px;
+    border-radius: 6px;
+    border: 1px dashed var(--border-color);
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.agent-editor-run-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.agent-editor-run-item:hover {
+    border-color: var(--info-color);
+    background: rgba(0, 191, 255, 0.08);
+    color: var(--text-primary);
+}
+
+.agent-editor-run-primary {
+    color: var(--text-primary);
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.agent-editor-run-secondary {
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.3;
+}
+
+.agent-editor-run-meta {
+    color: var(--text-secondary);
+    font-size: 10px;
+    line-height: 1.3;
 }
 
 .agent-editor-intro-head {
@@ -5573,6 +5702,25 @@ body.agent-editor-open {
 
 .agent-action-btn.agent-edit-btn:hover {
     background: rgba(34, 211, 238, 0.24);
+}
+
+@media (max-width: 1100px) {
+    .agent-editor-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .agent-editor-history {
+        position: static;
+        max-height: none;
+    }
+
+    .agent-editor-history-card {
+        max-height: none;
+    }
+
+    .agent-editor-run-history {
+        max-height: 360px;
+    }
 }
 
 @media (max-width: 900px) {

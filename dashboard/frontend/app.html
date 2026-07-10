@@ -761,28 +761,42 @@
             </div>
         </header>
         <div class="agent-editor-body">
-            <div class="agent-editor-intro section-card compact">
-                <div class="agent-editor-intro-head">
-                    <div>
-                        <h3 class="agent-editor-intro-title">Sub-agent pipeline</h3>
-                        <p class="agent-editor-intro-text">Configure sub-agents in order. Each step defines a task prompt and the output format passed to the next model.</p>
+            <div class="agent-editor-layout">
+                <div class="agent-editor-main">
+                    <div class="agent-editor-intro section-card compact">
+                        <div class="agent-editor-intro-head">
+                            <div>
+                                <h3 class="agent-editor-intro-title">Sub-agent pipeline</h3>
+                                <p class="agent-editor-intro-text">Configure sub-agents in order. Each step defines a task prompt and the output format passed to the next model.</p>
+                            </div>
+                            <span id="agentEditorStepCount" class="agent-editor-step-count">0 steps</span>
+                        </div>
                     </div>
-                    <span id="agentEditorStepCount" class="agent-editor-step-count">0 steps</span>
+                    <div id="agentEditorPipeline" class="agent-editor-pipeline" role="list"></div>
+                    <div class="agent-editor-add-row section-card compact">
+                        <label class="agent-editor-add-label" for="agentEditorAddSelect">Add sub-agent</label>
+                        <div class="agent-editor-add-controls">
+                            <select id="agentEditorAddSelect" class="agent-editor-add-select" aria-label="Select sub-agent type to add">
+                                <option value="">— Select type —</option>
+                            </select>
+                            <input id="agentEditorCustomName" class="agent-editor-custom-name" type="text" maxlength="80" placeholder="Custom name (optional)" hidden aria-label="Custom sub-agent name">
+                            <button id="agentEditorAddBtn" class="home-btn home-btn-secondary" type="button">+ Add</button>
+                        </div>
+                    </div>
+                    <p id="agentEditorSaveStatus" class="agent-editor-save-status" hidden></p>
+                    <p class="agent-editor-hint">Tip: use ↑↓ to reorder steps. Press <kbd>Ctrl</kbd>+<kbd>S</kbd> to save.</p>
                 </div>
+                <aside class="agent-editor-history" aria-label="Backtest history">
+                    <div class="agent-editor-history-card section-card compact">
+                        <div class="agent-editor-history-head">
+                            <h3 class="agent-editor-history-title">Backtest history</h3>
+                            <span id="agentEditorRunCount" class="agent-editor-run-count">0 runs</span>
+                        </div>
+                        <p class="agent-editor-history-hint">All backtest runs for this agent. Click a run to open it in Playground.</p>
+                        <div id="agentEditorRunHistory" class="agent-editor-run-history" role="list"></div>
+                    </div>
+                </aside>
             </div>
-            <div id="agentEditorPipeline" class="agent-editor-pipeline" role="list"></div>
-            <div class="agent-editor-add-row section-card compact">
-                <label class="agent-editor-add-label" for="agentEditorAddSelect">Add sub-agent</label>
-                <div class="agent-editor-add-controls">
-                    <select id="agentEditorAddSelect" class="agent-editor-add-select" aria-label="Select sub-agent type to add">
-                        <option value="">— Select type —</option>
-                    </select>
-                    <input id="agentEditorCustomName" class="agent-editor-custom-name" type="text" maxlength="80" placeholder="Custom name (optional)" hidden aria-label="Custom sub-agent name">
-                    <button id="agentEditorAddBtn" class="home-btn home-btn-secondary" type="button">+ Add</button>
-                </div>
-            </div>
-            <p id="agentEditorSaveStatus" class="agent-editor-save-status" hidden></p>
-            <p class="agent-editor-hint">Tip: use ↑↓ to reorder steps. Press <kbd>Ctrl</kbd>+<kbd>S</kbd> to save.</p>
         </div>
     </div>
 
@@ -1478,7 +1492,7 @@
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
     <script src="js/portfolio.js?v=2"></script>
-    <script src="js/agent-editor.js?v=5"></script>
+    <script src="js/agent-editor.js?v=6"></script>
     <script src="app.js?v=12"></script>
     <script src="js/leaderboard.js?v=11"></script>
     <script src="home-page.js"></script>

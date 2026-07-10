@@ -425,13 +425,15 @@ function renderAgentTokenCost(agent) {
 }
 
 function renderAgentRunList(agent) {
-  const runs = agent.runs || [];
+  const runs = (agent.runs || []).slice(0, 3);
   if (!runs.length) return '';
   const items = runs
-    .slice(0, 8)
     .map(
-      (run) =>
-        `<button type="button" class="agent-run-link" data-agent-id="${escapeHtml(agent.agent_id)}" data-run-id="${escapeHtml(run.run_id)}">${escapeHtml(formatBacktestRunLabel(run))}</button>`,
+      (run) => `
+        <button type="button" class="agent-run-link" data-agent-id="${escapeHtml(agent.agent_id)}" data-run-id="${escapeHtml(run.run_id)}">
+          <span class="agent-run-primary">${escapeHtml(formatBacktestRunPrimary(run))}</span>
+          <span class="agent-run-secondary">${escapeHtml(formatBacktestRunSecondary(run))}</span>
+        </button>`,
     )
     .join('');
   return `<div class="agent-run-list">${items}</div>`;
@@ -1130,6 +1132,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (nameEl) nameEl.textContent = agent.name || 'Agent';
         }
         await loadAgents();
+    });
+    window.addEventListener('agent-editor-open-run', async (event) => {
+        const { agent, runId } = event.detail || {};
+        if (!agent || !runId) return;
+        if (window.AgentEditor) window.AgentEditor.close(true);
+        await activateAgent(agent);
+        localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, runId);
+        navigateToPage('playground', { playgroundTab: 'backtest' });
+        currentMode = 'backtest';
+        await loadData();
     });
     await restoreActiveAgentSession();
     const config = loadConfigFromURL();
@@ -2591,19 +2603,32 @@ function scopedExternalRuns(sessionRuns, activeName) {
     return scoped.length ? scoped : externalRuns;
 }
 
-function formatBacktestRunLabel(run) {
+function formatBacktestRunReturn(run) {
+    if (run.total_return == null) return '—';
+    const pct = Math.abs(run.total_return) <= 1 ? run.total_return * 100 : run.total_return;
+    const sign = pct >= 0 ? '+' : '';
+    return `${sign}${pct.toFixed(2)}%`;
+}
+
+function formatBacktestRunPrimary(run) {
     const dates = [run.start_date, run.end_date].filter(Boolean).join(' → ');
-    let retLabel = '—';
-    if (run.total_return != null) {
-        const pct = Math.abs(run.total_return) <= 1 ? run.total_return * 100 : run.total_return;
-        const sign = pct >= 0 ? '+' : '';
-        retLabel = `${sign}${pct.toFixed(2)}%`;
-    }
+    return `${dates || run.run_id} · ${formatBacktestRunReturn(run)}`;
+}
+
+function formatBacktestRunSecondary(run) {
     const when = run.created_at ? new Date(run.created_at).toLocaleString() : '';
     const cost = formatUsd(run.est_cost_usd);
-    const costLabel = cost && Number(run.est_cost_usd) > 0 ? `${cost}` : '';
-    return [dates || run.run_id, retLabel, costLabel, when].filter(Boolean).join(' · ');
+    const costLabel = cost && Number(run.est_cost_usd) > 0 ? cost : '';
+    return [costLabel, when].filter(Boolean).join(' · ');
 }
+
+function formatBacktestRunLabel(run) {
+    return [formatBacktestRunPrimary(run), formatBacktestRunSecondary(run)].filter(Boolean).join(' · ');
+}
+
+window.formatBacktestRunPrimary = formatBacktestRunPrimary;
+window.formatBacktestRunSecondary = formatBacktestRunSecondary;
+window.formatBacktestRunLabel = formatBacktestRunLabel;
 
 function resolveSelectedExternalRun(externalRuns) {
     const selectedId = localStorage.getItem(SELECTED_BACKTEST_RUN_KEY);
