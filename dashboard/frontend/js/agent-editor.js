@@ -6,7 +6,15 @@
   'use strict';
 
   const STORAGE_PREFIX = 'agent-pipeline-config:';
+  const NAME_OVERRIDE_PREFIX = 'agent-name-override:';
   const API_BASE = window.location.origin;
+
+  // Demo/mock agents (see MOCK_AGENTS in app.js) only exist in the frontend —
+  // they have no database row, so PATCH would 404. We persist their edits
+  // locally instead so the rename is still reflected in the UI.
+  function isDemoAgent(agentId) {
+    return typeof agentId === 'string' && agentId.startsWith('mock-');
+  }
 
   const SUB_AGENT_PRESETS = [
     {
@@ -117,6 +125,16 @@
       prompt: item.prompt || (preset ? preset.defaultPrompt : ''),
       outputFormat: item.outputFormat || (preset ? preset.defaultOutputFormat : ''),
     };
+  }
+
+  // For real agents the backend-stored pipeline is the source of truth; fall
+  // back to any locally cached / default pipeline when the agent has none yet.
+  // Demo (mock) agents have no backend row, so they always use localStorage.
+  function resolvePipeline(agent) {
+    if (!isDemoAgent(agent.agent_id) && Array.isArray(agent.pipeline) && agent.pipeline.length) {
+      return agent.pipeline.map(normalizeLoadedSubAgent);
+    }
+    return loadPipeline(agent.agent_id);
   }
 
   function loadPipeline(agentId) {
@@ -396,7 +414,7 @@
     if (!agent || !agent.agent_id) return;
 
     currentAgent = { ...agent };
-    subAgents = loadPipeline(agent.agent_id);
+    subAgents = resolvePipeline(agent);
     fillHeader(agent);
     renderPipeline();
 
@@ -446,6 +464,33 @@
     if (saveBtn) {
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
+    }
+
+    // Demo agents have no backend row: persist name/description locally and skip
+    // the PATCH (which would 404) so the rename still sticks in the UI.
+    if (isDemoAgent(currentAgent.agent_id)) {
+      try {
+        localStorage.setItem(
+          `${NAME_OVERRIDE_PREFIX}${currentAgent.agent_id}`,
+          JSON.stringify({ name: state.name, description: state.description })
+        );
+        currentAgent = { ...currentAgent, name: state.name, description: state.description };
+        savePipelineLocal(currentAgent.agent_id, subAgents);
+        if (localStorage.getItem('active-agent-id') === currentAgent.agent_id) {
+          localStorage.setItem('active-agent-name', state.name);
+        }
+        captureSavedSnapshot();
+        showSaveStatus('Saved (demo agent — stored locally)');
+        window.dispatchEvent(
+          new CustomEvent('agent-editor-saved', { detail: { agent: currentAgent } })
+        );
+      } finally {
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save';
+        }
+      }
+      return;
     }
 
     try {

@@ -16,7 +16,7 @@ preserved exactly; only the call site moved.
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from dashboard.backend.domain.agents.repository import agent_store
+from dashboard.backend.domain.agents.repository import agent_store, _UNSET
 from dashboard.backend.domain.agents.version_repository import (
     VALID_EXECUTION_MODES,
     VALID_VERIFICATION_LEVELS,
@@ -171,9 +171,10 @@ class AgentService:
         *,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        pipeline: Any = _UNSET,
     ) -> Dict[str, Any]:
         agent = self.agents.update_agent(
-            agent_id, name=name, description=description
+            agent_id, name=name, description=description, pipeline=pipeline
         )
         if not agent:
             raise AgentNotFoundError()

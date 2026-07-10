@@ -9,6 +9,7 @@ location moved.
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
 import sqlite3
 import uuid
@@ -19,6 +20,10 @@ from typing import Any, Dict, List, Optional
 from dashboard.backend.database import DB_PATH
 
 DEFAULT_SCOPES = "agents:register,runs:write,context:read,decisions:write,runs:read"
+
+# Sentinel to distinguish "argument omitted" from an explicit ``None`` in
+# update_agent (so a caller can clear the pipeline vs. leave it untouched).
+_UNSET = object()
 
 
 def _utcnow_iso() -> str:
@@ -33,6 +38,19 @@ def _new_api_key() -> str:
     return f"ag_{secrets.token_urlsafe(24)}"
 
 
+def _parse_pipeline(raw: Any) -> Optional[List[Dict[str, Any]]]:
+    """Decode the stored sub-agent pipeline JSON. Returns None if unset/invalid."""
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(parsed, list):
+        return parsed
+    return None
+
+
 def _public_agent(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
     data = dict(row)
     raw_scopes = data.get("scopes") or DEFAULT_SCOPES
@@ -43,6 +61,7 @@ def _public_agent(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
         "model_name": data.get("model_name") or "local-model",
         "agent_type": data.get("agent_type") or "external",
         "description": data.get("description"),
+        "pipeline": _parse_pipeline(data.get("pipeline_config")),
         "api_key_prefix": data.get("api_key_prefix") or "",
         "owner_user_id": data.get("owner_user_id"),
         "scopes": [s for s in str(raw_scopes).split(",") if s],
@@ -110,6 +129,10 @@ class AgentStore:
         if "description" not in existing_columns:
             cursor.execute(
                 "ALTER TABLE external_agents ADD COLUMN description TEXT"
+            )
+        if "pipeline_config" not in existing_columns:
+            cursor.execute(
+                "ALTER TABLE external_agents ADD COLUMN pipeline_config TEXT"
             )
         if "scopes" not in existing_columns:
             cursor.execute(
@@ -405,8 +428,14 @@ class AgentStore:
         *,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        pipeline: Any = _UNSET,
     ) -> Optional[Dict[str, Any]]:
-        """Update display fields for an agent. Returns the updated record or None."""
+        """Update display fields for an agent. Returns the updated record or None.
+
+        ``pipeline`` uses a sentinel default so callers can distinguish "leave
+        the stored pipeline untouched" (omit the arg) from "clear it" (pass
+        ``None``). A list is serialized to JSON.
+        """
         sets: list[str] = []
         params: list[Any] = []
         if name is not None:
@@ -415,6 +444,9 @@ class AgentStore:
         if description is not None:
             sets.append("description = ?")
             params.append(description.strip() if description else None)
+        if pipeline is not _UNSET:
+            sets.append("pipeline_config = ?")
+            params.append(json.dumps(pipeline) if pipeline else None)
         if not sets:
             return self.get_agent(agent_id)
         sets.append("last_used_at = ?")

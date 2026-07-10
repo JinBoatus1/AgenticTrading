@@ -190,12 +190,31 @@ const MOCK_AGENTS = [
 let allAgents = [];
 let agentViewMode = 'grid';
 
+// Demo agents (MOCK_AGENTS) have no backend row, so renames made in the editor
+// are stored locally under `agent-name-override:{id}`. Apply those overrides so
+// the edited name/description survives reloads and demo re-seeding.
+function applyAgentNameOverride(agent) {
+  if (!agent || !agent.agent_id) return agent;
+  try {
+    const raw = localStorage.getItem(`agent-name-override:${agent.agent_id}`);
+    if (!raw) return agent;
+    const override = JSON.parse(raw);
+    return {
+      ...agent,
+      name: override.name || agent.name,
+      description: override.description ?? agent.description,
+    };
+  } catch (e) {
+    return agent;
+  }
+}
+
 function applyAgentFilters() {
   const filter = document.getElementById('agentFilterSelect')?.value || 'all';
   const query = (document.getElementById('agentSearchInput')?.value || '').trim().toLowerCase();
   const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
 
-  let list = allAgents.slice();
+  let list = allAgents.map(applyAgentNameOverride);
   if (filter === 'builtin') {
     list = list.filter((a) => a.agent_type === 'builtin');
   } else if (filter === 'external') {
