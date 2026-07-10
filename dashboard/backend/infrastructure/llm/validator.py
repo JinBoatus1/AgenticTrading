@@ -32,7 +32,7 @@ DJIA_30 = [
 ]
 
 # Top 10 DJIA stocks (for 10-stock buy-and-hold mode)
-TOP_10_STOCKS = ["AAPL", "MSFT", "JPM", "V", "JNJ", "WMT", "PG", "MA", "HD", "DIS"]
+TOP_10_STOCKS = ["AAPL", "MSFT", "JPM", "V", "JNJ", "WMT", "PG", "AXP", "HD", "DIS"]
 
 
 class TradingAction(str, Enum):
@@ -414,7 +414,7 @@ Rules:
 6. Do not change the JSON format.
 
 Stocks to buy on first hour:
-Top 10 DJIA stocks: AAPL, MSFT, JPM, V, JNJ, WMT, PG, MA, HD, DIS
+Top 10 DJIA stocks: AAPL, MSFT, JPM, V, JNJ, WMT, PG, AXP, HD, DIS
 
 First-hour buy logic:
 - allocation_per_stock = 10000 (which is 100000 / 10)

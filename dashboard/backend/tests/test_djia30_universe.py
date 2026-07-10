@@ -30,6 +30,10 @@ def _module_djia30_literal(path):
             for tgt in node.targets:
                 if isinstance(tgt, ast.Name) and tgt.id == "DJIA_30":
                     return {ast.literal_eval(e) for e in node.value.elts}
+        elif isinstance(node, ast.AnnAssign):
+            tgt = node.target
+            if isinstance(tgt, ast.Name) and tgt.id == "DJIA_30" and node.value is not None:
+                return {ast.literal_eval(e) for e in node.value.elts}
     return None
 
 
@@ -48,3 +52,9 @@ def test_backtest_script_imports_not_hardcodes():
 def test_api_universe_tracks_validator():
     from dashboard.backend.api.v2.models import UNIVERSE
     assert set(UNIVERSE) == EXPECTED
+
+
+def test_top10_is_subset_of_djia30():
+    from dashboard.backend.infrastructure.llm.validator import TOP_10_STOCKS
+    assert set(TOP_10_STOCKS) <= set(DJIA_30)
+    assert len(TOP_10_STOCKS) == 10

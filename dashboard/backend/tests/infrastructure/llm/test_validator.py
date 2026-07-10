@@ -36,7 +36,7 @@ def _portfolio(cash=100000):
 def test_djia_30_and_top10_unchanged():
     assert len(DJIA_30) == 30
     assert DJIA_30[0] == "AAPL"
-    assert TOP_10_STOCKS == ["AAPL", "MSFT", "JPM", "V", "JNJ", "WMT", "PG", "MA", "HD", "DIS"]
+    assert TOP_10_STOCKS == ["AAPL", "MSFT", "JPM", "V", "JNJ", "WMT", "PG", "AXP", "HD", "DIS"]
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +146,7 @@ def test_safe_prompt_exact_head_and_tail():
 def test_buy_and_hold_prompt_exact_head():
     prompt = validator_mod.BUY_AND_HOLD_PROMPT
     assert prompt.startswith("You are a buy-and-hold backtest agent.\n\n")
-    assert "Top 10 DJIA stocks: AAPL, MSFT, JPM, V, JNJ, WMT, PG, MA, HD, DIS\n" in prompt
+    assert "Top 10 DJIA stocks: AAPL, MSFT, JPM, V, JNJ, WMT, PG, AXP, HD, DIS\n" in prompt
 
 
 def test_create_safe_prompt_injects_symbols():
