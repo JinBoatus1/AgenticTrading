@@ -230,21 +230,15 @@ const MOCK_AGENTS = [
 // Holds the most recently loaded agents so the toolbar can re-filter without refetching.
 let allAgents = [];
 let agentViewMode = 'grid';
-let runningBacktestAgentId = null;
-
-function setBacktestRunningForAgent(agentId, running) {
-  runningBacktestAgentId = running ? agentId : null;
-  if (allAgents.length) {
-    applyAgentFilters();
+function resolveAgentStatusBadge(agent) {
+  if (agent.is_live === true || agent.deployment_status === 'live') {
+    return { label: 'Live', className: 'live' };
   }
-}
-
-function resolveAgentDeploymentBadge(agent) {
-  if (runningBacktestAgentId && agent.agent_id === runningBacktestAgentId) {
-    return { label: 'Backtesting', className: 'backtesting' };
+  const runCount = Number(agent.run_count) || (Array.isArray(agent.runs) ? agent.runs.length : 0);
+  if (runCount > 0) {
+    return { label: 'Backtested', className: 'backtested' };
   }
-  // Future: Paper trading / Live trading states when per-agent deployment exists.
-  return { label: 'Not live', className: 'not-live' };
+  return { label: 'Draft', className: 'draft' };
 }
 
 // Demo/mock agents (MOCK_AGENTS) have no database row, so renames made in the editor
@@ -366,7 +360,7 @@ function renderAgentsGrid(agents) {
 
   agents.forEach((agent) => {
     const isBuiltin = agent.agent_type === 'builtin';
-    const deploymentBadge = resolveAgentDeploymentBadge(agent);
+    const statusBadge = resolveAgentStatusBadge(agent);
     const card = document.createElement('div');
     card.className = `section-card agent-card agent-card--compact${isBuiltin ? ' agent-card-builtin' : ''}`;
 
@@ -385,7 +379,7 @@ function renderAgentsGrid(agents) {
     card.innerHTML = `
       <div class="agent-card-head">
         <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
-        <span class="status-badge ${deploymentBadge.className}">${deploymentBadge.label}</span>
+        <span class="status-badge ${statusBadge.className}">${statusBadge.label}</span>
       </div>
       <div class="agent-meta">
         <span>${escapeHtml(agent.model_name || 'local-model')}</span>
@@ -2614,7 +2608,6 @@ async function runBacktest() {
             });
             btn.textContent = '❌ Error - Try Again';
             btn.disabled = false;
-            setBacktestRunningForAgent(null, false);
             setTimeout(() => {
                 btn.textContent = '▶ Run Backtest';
                 showBacktestRunProgress(false);
@@ -2623,9 +2616,6 @@ async function runBacktest() {
         }
         
         console.log('✅ Backtest started:', data.message);
-        if (activeAgent?.agent_id) {
-            setBacktestRunningForAgent(activeAgent.agent_id, true);
-        }
         
         // Poll for status (now session-aware)
         await pollBacktestStatus(btn);
@@ -2639,7 +2629,6 @@ async function runBacktest() {
         });
         btn.textContent = '❌ Error - Try Again';
         btn.disabled = false;
-        setBacktestRunningForAgent(null, false);
         setTimeout(() => {
             btn.textContent = '▶ Run Backtest';
             showBacktestRunProgress(false);
@@ -2693,7 +2682,6 @@ async function pollBacktestStatus(btn) {
                     isComplete = true;
                     clearInterval(interval);
                     liveBacktestChartActive = false;
-                    setBacktestRunningForAgent(null, false);
                     
                     if (status.error) {
                         console.error('❌ Backtest error:', status.error);

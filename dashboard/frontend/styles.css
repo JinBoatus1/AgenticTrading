@@ -3030,7 +3030,7 @@ a.header-brand:hover .title-section h1 {
     color: var(--text-muted);
 }
 
-.status-badge.backtesting {
+.status-badge.backtested {
     background-color: rgba(34, 211, 238, 0.12);
     color: #67e8f9;
 }
