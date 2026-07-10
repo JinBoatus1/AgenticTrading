@@ -20,6 +20,8 @@
             var hash = window.location.hash.replace('#', '');
             var legacy = view || hash;
             var legacyMap = {
+                home: { page: 'home' },
+                community: { page: 'community' },
                 backtest: { page: 'playground', playgroundTab: 'backtest' },
                 paper: { page: 'playground', playgroundTab: 'paper' },
                 contest: { page: 'competition', competitionTab: 'leaderboard' },
