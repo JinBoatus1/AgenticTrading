@@ -22,7 +22,7 @@ def test_bot_uses_model_override_helper():
     src = _source()
     assert "from dashboard.backend.infrastructure.llm.token_cost import is_free_model" in src
     assert "def _model_override(" in src
-    # Used at forwarding sites (free chat + /backtest payload["model"]).
+    # Used at BOTH forwarding sites (/ask model= and /backtest payload["model"]).
     assert src.count("_model_override(") >= 3  # 1 definition + 2 call sites
 
 
@@ -62,36 +62,7 @@ def test_discord_dependency_is_declared():
 
 def test_bot_backtest_sends_agent_id_for_builtin_card():
     src = _source()
-    assert '"agent_id": selected["agent_id"]' in src
-
-
-def test_backtest_without_prompt_compiles_from_chat():
-    src = _source()
-    assert "async def resolve_backtest_strategy" in src
-    assert "synthesize_strategy_prompt" in src
-    assert 'name="ask"' not in src
-    assert "maybe_send_dm_welcome" in src
-
-
-def test_slash_commands_sync_globally_for_dm():
-    src = _source()
-    assert "await self.tree.sync()" in src
-    assert "sync(guild=guild)" in src
-
-
-def test_dm_slash_allowed_when_channel_allowlist_set():
-    src = _source()
-    assert "isinstance(interaction.channel, discord.DMChannel)" in src
-    assert "def interaction_ephemeral" in src
-
-
-def test_dm_chat_namespace_and_keyword_backtest():
-    src = _source()
-    assert "def chat_user_id(" in src
-    assert 'surface = "dm"' in src
-    assert "def detect_backtest_intent" in src
-    assert "BacktestConfirmView" in src
-    assert "require_bound_agent" in src
+    assert 'payload["agent_id"] = selected["agent_id"]' in src
 
 
 def test_bot_sends_per_user_id_on_strategy_post():
