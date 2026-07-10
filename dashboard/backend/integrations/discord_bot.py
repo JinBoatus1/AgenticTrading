@@ -1319,10 +1319,13 @@ async def backtest_cmd(
 
     user_chat_id = chat_user_id_for_interaction(interaction)
 
+    async def status_update(text: str) -> None:
+        await interaction.edit_original_response(content=text)
+
     await run_backtest_flow(
         discord_user_id=discord_user_id,
         chat_user_id=user_chat_id,
-        status_update=interaction.edit_original_response,
+        status_update=status_update,
         send_chart=lambda png, run_id: interaction.followup.send(
             file=discord.File(io.BytesIO(png), filename=f"backtest_{run_id}.png"),
             ephemeral=interaction_ephemeral(interaction),
