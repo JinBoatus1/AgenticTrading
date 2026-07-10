@@ -451,6 +451,105 @@
     }
   }
 
+  function formatRunPrimary(run) {
+    if (typeof window.formatBacktestRunPrimary === 'function') {
+      return window.formatBacktestRunPrimary(run);
+    }
+    const dates = [run.start_date, run.end_date].filter(Boolean).join(' → ');
+    return dates || run.run_id || 'Backtest run';
+  }
+
+  function formatRunSecondary(run) {
+    if (typeof window.formatBacktestRunSecondary === 'function') {
+      return window.formatBacktestRunSecondary(run);
+    }
+    return run.created_at ? new Date(run.created_at).toLocaleString() : '';
+  }
+
+  function formatRunMeta(run) {
+    const parts = [];
+    if (run.llm_model) parts.push(run.llm_model);
+    const tokens = Number(run.input_tokens || 0) + Number(run.output_tokens || 0);
+    if (tokens > 0) parts.push(`${tokens.toLocaleString()} tokens`);
+    if (run.num_trades != null) parts.push(`${run.num_trades} trades`);
+    return parts.join(' · ');
+  }
+
+  function renderRunHistory(runs) {
+    const container = document.getElementById('agentEditorRunHistory');
+    const countEl = document.getElementById('agentEditorRunCount');
+    if (!container) return;
+
+    const sorted = [...(runs || [])].sort(
+      (a, b) => (b.created_at || '').localeCompare(a.created_at || ''),
+    );
+
+    if (countEl) {
+      countEl.textContent = `${sorted.length} run${sorted.length === 1 ? '' : 's'}`;
+    }
+
+    if (!sorted.length) {
+      container.innerHTML = '<p class="agent-editor-run-empty">No backtest runs yet. Run a backtest from Playground to see history here.</p>';
+      return;
+    }
+
+    container.innerHTML = sorted
+      .map(
+        (run) => `
+          <button type="button" class="agent-editor-run-item" data-run-id="${escapeHtml(run.run_id)}" role="listitem">
+            <span class="agent-editor-run-primary">${escapeHtml(formatRunPrimary(run))}</span>
+            <span class="agent-editor-run-secondary">${escapeHtml(formatRunSecondary(run))}</span>
+            ${formatRunMeta(run) ? `<span class="agent-editor-run-meta">${escapeHtml(formatRunMeta(run))}</span>` : ''}
+          </button>`,
+      )
+      .join('');
+
+    container.querySelectorAll('.agent-editor-run-item').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const runId = btn.dataset.runId;
+        if (!currentAgent || !runId) return;
+        window.dispatchEvent(
+          new CustomEvent('agent-editor-open-run', {
+            detail: { agent: currentAgent, runId },
+          }),
+        );
+      });
+    });
+  }
+
+  async function refreshRunHistory(agent) {
+    if (!agent?.agent_id) {
+      renderRunHistory([]);
+      return;
+    }
+
+    if (isDemoAgent(agent.agent_id)) {
+      renderRunHistory(agent.runs || []);
+      return;
+    }
+
+    renderRunHistory(agent.runs || []);
+
+    try {
+      const headers = { 'x-session-id': window.SESSION_ID };
+      const token = localStorage.getItem('auth-token');
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const response = await fetch(
+        `${API_BASE}/api/v1/agents/${encodeURIComponent(agent.agent_id)}`,
+        { headers },
+      );
+      if (!response.ok) return;
+      const data = await response.json();
+      const fresh = data.agent;
+      if (!fresh) return;
+      currentAgent = { ...currentAgent, ...fresh };
+      renderRunHistory(fresh.runs || []);
+    } catch (error) {
+      console.warn('Could not refresh backtest history:', error);
+    }
+  }
+
   function open(agent) {
     if (!agent || !agent.agent_id) return;
 
@@ -458,6 +557,7 @@
     subAgents = resolvePipeline(agent);
     fillHeader(agent);
     renderPipeline();
+    refreshRunHistory(currentAgent);
 
     const view = document.getElementById('agentEditorView');
     if (view) {

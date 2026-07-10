@@ -57,11 +57,8 @@
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="agents"] .playground-subtabs [data-playground-tab="agents"],
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="backtest"] .playground-subtabs [data-playground-tab="backtest"],
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="paper"] .playground-subtabs [data-playground-tab="paper"] { background: var(--info-color); color: white; }
-    html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="agents"] #playgroundAgentHeader { display: none !important; }
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="backtest"] #playgroundAgentsPanel,
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="paper"] #playgroundAgentsPanel { display: none !important; }
-    html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="backtest"] #playgroundAgentHeader,
-    html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="paper"] #playgroundAgentHeader { display: flex !important; }
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="backtest"] .main-container.playground-backtest-panel { display: grid !important; }
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="paper"] #paperTradingView { display: block !important; }
     html[data-nav-boot][data-nav-page="competition"] .competition-subtabs .subtab-btn.active { background: transparent; color: var(--text-secondary); }
@@ -649,14 +646,6 @@
             <button class="subtab-btn" data-playground-tab="backtest">Backtest</button>
             <button class="subtab-btn" data-playground-tab="paper">Paper Trading</button>
         </div>
-        <div id="playgroundAgentHeader" class="playground-agent-header section-card compact">
-            <div class="playground-agent-info">
-                <h2 id="playgroundAgentName" class="playground-agent-name">Momentum Alpha</h2>
-                <span id="playgroundAgentStatus" class="status-badge live">Live</span>
-                <span id="playgroundAgentDiscord" class="agent-discord connected">Discord connected</span>
-            </div>
-            <a class="discord-nav-btn discord-nav-btn-sm" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
-        </div>
         <div id="playgroundAgentsPanel" class="playground-panel">
             <!-- My Portfolio -->
             <div class="page-header">
@@ -763,28 +752,42 @@
             </div>
         </header>
         <div class="agent-editor-body">
-            <div class="agent-editor-intro section-card compact">
-                <div class="agent-editor-intro-head">
-                    <div>
-                        <h3 class="agent-editor-intro-title">Sub-agent pipeline</h3>
-                        <p class="agent-editor-intro-text">Configure sub-agents in order. Each step defines a task prompt and the output format passed to the next model.</p>
+            <div class="agent-editor-layout">
+                <div class="agent-editor-main">
+                    <div class="agent-editor-intro section-card compact">
+                        <div class="agent-editor-intro-head">
+                            <div>
+                                <h3 class="agent-editor-intro-title">Sub-agent pipeline</h3>
+                                <p class="agent-editor-intro-text">Configure sub-agents in order. Each step defines a task prompt and the output format passed to the next model.</p>
+                            </div>
+                            <span id="agentEditorStepCount" class="agent-editor-step-count">0 steps</span>
+                        </div>
                     </div>
-                    <span id="agentEditorStepCount" class="agent-editor-step-count">0 steps</span>
+                    <div id="agentEditorPipeline" class="agent-editor-pipeline" role="list"></div>
+                    <div class="agent-editor-add-row section-card compact">
+                        <label class="agent-editor-add-label" for="agentEditorAddSelect">Add sub-agent</label>
+                        <div class="agent-editor-add-controls">
+                            <select id="agentEditorAddSelect" class="agent-editor-add-select" aria-label="Select sub-agent type to add">
+                                <option value="">— Select type —</option>
+                            </select>
+                            <input id="agentEditorCustomName" class="agent-editor-custom-name" type="text" maxlength="80" placeholder="Custom name (optional)" hidden aria-label="Custom sub-agent name">
+                            <button id="agentEditorAddBtn" class="home-btn home-btn-secondary" type="button">+ Add</button>
+                        </div>
+                    </div>
+                    <p id="agentEditorSaveStatus" class="agent-editor-save-status" hidden></p>
+                    <p class="agent-editor-hint">Tip: use ↑↓ to reorder steps. Press <kbd>Ctrl</kbd>+<kbd>S</kbd> to save.</p>
                 </div>
+                <aside class="agent-editor-history" aria-label="Backtest history">
+                    <div class="agent-editor-history-card section-card compact">
+                        <div class="agent-editor-history-head">
+                            <h3 class="agent-editor-history-title">Backtest history</h3>
+                            <span id="agentEditorRunCount" class="agent-editor-run-count">0 runs</span>
+                        </div>
+                        <p class="agent-editor-history-hint">All backtest runs for this agent. Click a run to open it in Playground.</p>
+                        <div id="agentEditorRunHistory" class="agent-editor-run-history" role="list"></div>
+                    </div>
+                </aside>
             </div>
-            <div id="agentEditorPipeline" class="agent-editor-pipeline" role="list"></div>
-            <div class="agent-editor-add-row section-card compact">
-                <label class="agent-editor-add-label" for="agentEditorAddSelect">Add sub-agent</label>
-                <div class="agent-editor-add-controls">
-                    <select id="agentEditorAddSelect" class="agent-editor-add-select" aria-label="Select sub-agent type to add">
-                        <option value="">— Select type —</option>
-                    </select>
-                    <input id="agentEditorCustomName" class="agent-editor-custom-name" type="text" maxlength="80" placeholder="Custom name (optional)" hidden aria-label="Custom sub-agent name">
-                    <button id="agentEditorAddBtn" class="home-btn home-btn-secondary" type="button">+ Add</button>
-                </div>
-            </div>
-            <p id="agentEditorSaveStatus" class="agent-editor-save-status" hidden></p>
-            <p class="agent-editor-hint">Tip: use ↑↓ to reorder steps. Press <kbd>Ctrl</kbd>+<kbd>S</kbd> to save.</p>
         </div>
     </div>
 
@@ -861,6 +864,14 @@
                     </div>
                 </div>
 
+                <div class="control-group">
+                    <label for="backtestAgentSelect">Agent</label>
+                    <p class="control-helper">Choose which agent's pipeline and session this backtest should use.</p>
+                    <select class="control-select" id="backtestAgentSelect" aria-label="Select agent for backtest">
+                        <option value="">Loading agents…</option>
+                    </select>
+                </div>
+
                 <div class="control-group universe-spacing">
                     <label>Model</label>
                     <select class="control-select" id="modelSelect">
@@ -874,6 +885,18 @@
                         <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                     </select>
+                </div>
+
+                <div id="backtestRunProgress" class="backtest-run-progress section-card compact" hidden>
+                    <div class="backtest-run-progress-head">
+                        <h4 class="backtest-run-progress-title">Backtest in progress</h4>
+                        <span id="backtestRunElapsed" class="backtest-run-elapsed">0:00</span>
+                    </div>
+                    <div class="backtest-run-progress-track" aria-hidden="true">
+                        <div id="backtestRunProgressBar" class="backtest-run-progress-bar"></div>
+                    </div>
+                    <p id="backtestRunProgressMessage" class="backtest-run-progress-message">Starting…</p>
+                    <p class="backtest-run-progress-hint">Multi-step agent pipelines can take several minutes (timeout: 10 min).</p>
                 </div>
             </section>
 
@@ -995,63 +1018,33 @@
                 <div class="section-header">
                     <h2>Trading Log</h2>
                     <div class="log-controls">
-                        <select class="filter-select">
-                            <option>All Trades</option>
-                            <option>Buys Only</option>
-                            <option>Sells Only</option>
+                        <select class="filter-select" id="tradingLogFilter">
+                            <option value="all">All Trades</option>
+                            <option value="buy">Buys Only</option>
+                            <option value="sell">Sells Only</option>
                         </select>
-                        <button class="filter-btn">Filter</button>
                     </div>
                 </div>
 
-                <table class="decision-table">
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>Action</th>
-                            <th>Company / Asset</th>
-                            <th>Quantity</th>
-                            <th>Price</th>
-                            <th>Total Value</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>May 14, 14:35:21</td>
-                            <td><span class="action-buy">BUY</span></td>
-                            <td>AAPL</td>
-                            <td>15 shares</td>
-                            <td>$150.25</td>
-                            <td>$2,253.75</td>
-                        </tr>
-                        <tr>
-                            <td>May 14, 14:42:10</td>
-                            <td><span class="action-sell">SELL</span></td>
-                            <td>MSFT</td>
-                            <td>8 shares</td>
-                            <td>$380.50</td>
-                            <td>$3,044.00</td>
-                        </tr>
-                        <tr>
-                            <td>May 14, 14:55:32</td>
-                            <td><span class="action-buy">BUY</span></td>
-                            <td>NVDA</td>
-                            <td>2 shares</td>
-                            <td>$875.10</td>
-                            <td>$1,750.20</td>
-                        </tr>
-                        <tr>
-                            <td>May 14, 15:03:18</td>
-                            <td><span class="action-sell">SELL</span></td>
-                            <td>GOOGL</td>
-                            <td>12 shares</td>
-                            <td>$162.45</td>
-                            <td>$1,949.40</td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                <button class="view-all-btn">View Full Trading Log →</button>
+                <div class="trading-log-scroll">
+                    <table class="decision-table trading-log-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Action</th>
+                                <th>Company / Asset</th>
+                                <th>Quantity</th>
+                                <th>Price</th>
+                                <th>Total Value</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradingLogBody">
+                            <tr>
+                                <td colspan="6" class="trading-log-empty">Run a backtest to see trades here.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </section>
 
@@ -1480,7 +1473,7 @@
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
     <script src="js/portfolio.js?v=2"></script>
-    <script src="js/agent-editor.js?v=5"></script>
+    <script src="js/agent-editor.js?v=6"></script>
     <script src="app.js?v=12"></script>
     <script src="js/leaderboard.js?v=11"></script>
     <script src="home-page.js"></script>

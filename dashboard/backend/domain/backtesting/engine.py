@@ -14,6 +14,7 @@ Baseline methods and result assembly intentionally remain here for now; they can
 be extracted in a later phase.
 """
 
+import json
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -44,7 +45,7 @@ from dashboard.backend.infrastructure.llm.backtest_harness import (
 class HourlyBacktester:
     """Runs hourly backtest with agent and baselines."""
     
-    def __init__(self, start_date: str, end_date: str, session_id: str = "legacy-demo-session", use_llm: bool = True, mode: str = "safe_trading", strategy_prompt: str = None, model: str = None):
+    def __init__(self, start_date: str, end_date: str, session_id: str = "legacy-demo-session", use_llm: bool = True, mode: str = "safe_trading", strategy_prompt: str = None, model: str = None, pipeline: list = None, live_run_id: str = None, progress_file: str = None):
         # Validate and swap dates if they're in the wrong order
         from datetime import datetime as dt_parser
         try:
@@ -63,8 +64,12 @@ class HourlyBacktester:
         self.mode = mode  # "safe_trading" or "buy_and_hold"
         # Optional free-form strategy that REPLACES the built-in prompt for this run.
         self.strategy_prompt = (strategy_prompt or "").strip() or None
+        # Optional sub-agent pipeline (when set, overrides strategy_prompt).
+        self.pipeline = pipeline if pipeline else None
         # Model id; defaults to the gateway-appropriate slug (CommonStack vs native).
         self.model = model or default_model_name()
+        self.live_run_id = (live_run_id or "").strip() or None
+        self.progress_file = (progress_file or "").strip() or None
         self.data_loader = AlpacaDataLoader()
         self.all_data = {}
         self.use_llm = use_llm and HAS_ANTHROPIC
@@ -83,6 +88,66 @@ class HourlyBacktester:
                 self.use_llm = False
             else:
                 print(f"✅ LLM initialized (model={self.model})")
+    
+    def _serialize_trades(self, trades: List[Dict]) -> List[Dict]:
+        serialized = []
+        for trade in trades:
+            ts = trade.get("timestamp")
+            if hasattr(ts, "isoformat"):
+                ts = ts.isoformat()
+            side = str(trade.get("side", "")).upper()
+            quantity = int(trade.get("shares") or trade.get("quantity") or 0)
+            price = float(trade.get("price") or 0)
+            value = float(
+                trade.get("cost")
+                or trade.get("proceeds")
+                or trade.get("value")
+                or quantity * price
+            )
+            serialized.append(
+                {
+                    "timestamp": ts,
+                    "symbol": trade.get("symbol"),
+                    "side": side,
+                    "quantity": quantity,
+                    "price": price,
+                    "value": value,
+                    "reason": trade.get("reason", ""),
+                }
+            )
+        return serialized
+
+    def _publish_live_progress(self, step: int, total_steps: int, manager) -> None:
+        """Write incremental equity curve snapshots for live dashboard charting."""
+        if not self.progress_file:
+            return
+        from pathlib import Path
+
+        curve = manager.get_equity_curve()
+        serialized = []
+        for entry in curve:
+            ts = entry.get("timestamp")
+            if hasattr(ts, "isoformat"):
+                ts = ts.isoformat()
+            serialized.append(
+                {
+                    "timestamp": ts,
+                    "equity": float(entry.get("equity", 0) or 0),
+                    "cash": float(entry.get("cash", 0) or 0),
+                    "positions_value": float(entry.get("positions_value", 0) or 0),
+                }
+            )
+        payload = {
+            "run_id": self.live_run_id,
+            "step": step,
+            "total_steps": total_steps,
+            "equity_curve": serialized,
+            "trades": self._serialize_trades(manager.trades),
+        }
+        try:
+            Path(self.progress_file).write_text(json.dumps(payload), encoding="utf-8")
+        except OSError as exc:
+            print(f"   ⚠️  Could not write live progress: {exc}")
     
     def load_data(self):
         """Fetch hourly data from Alpaca."""
@@ -167,6 +232,7 @@ class HourlyBacktester:
         all_timestamps = market_hours_only
         
         print(f"   Trading {len(all_timestamps)} hours during regular market hours (9:30 AM - 4:00 PM ET)...\n")
+        total_steps = len(all_timestamps)
         
         # Build forward-filled price cache to handle missing hourly data
         print("   Pre-computing forward-filled price cache...")
@@ -210,6 +276,7 @@ class HourlyBacktester:
                     mode=self.mode,
                     model=self.model,
                     strategy_prompt=self.strategy_prompt,
+                    pipeline=self.pipeline,
                 )
                 llm_calls_count += 1  # Track that LLM was used
                 if llm_calls_count == 1:  # Set on first call
@@ -222,6 +289,7 @@ class HourlyBacktester:
             
             # Update equity (uses forward-filled prices for smooth valuation)
             manager.update_equity(market_data, price_cache, timestamp)
+            self._publish_live_progress(i + 1, total_steps, manager)
             
             # Progress
             if (i + 1) % 100 == 0:
@@ -237,7 +305,7 @@ class HourlyBacktester:
                 entry["timestamp"] = entry["timestamp"].isoformat()
         
         # Store in database
-        run_id = f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        run_id = self.live_run_id or f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         initial_eq = equity_curve[0]["equity"] if equity_curve else INITIAL_CAPITAL
         final_eq = equity_curve[-1]["equity"] if equity_curve else INITIAL_CAPITAL
         total_return = (final_eq - INITIAL_CAPITAL) / INITIAL_CAPITAL
@@ -268,6 +336,7 @@ class HourlyBacktester:
         )
 
         db.insert_equity_points(run_id, equity_curve)
+        db.insert_trades(run_id, manager.trades)
         
         print(f"\n  ✅ Agent backtest complete")
         print(f"     • Run ID: {run_id}")
