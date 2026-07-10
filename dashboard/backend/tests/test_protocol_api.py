@@ -1241,7 +1241,7 @@ def test_observation_features_cover_configured_symbols(client, monkeypatch):
     agent constrained to N symbols can't trade what it can't see)."""
     import dashboard.backend.domain.backtesting.external_run_service as ebs
 
-    eleven = ["AAPL", "MSFT", "JPM", "V", "JNJ", "WMT", "PG", "MA", "HD", "DIS", "MCD"]
+    eleven = ["AAPL", "MSFT", "JPM", "V", "JNJ", "WMT", "PG", "AXP", "HD", "DIS", "MCD"]
 
     def _bars_for(symbols):
         times = []
