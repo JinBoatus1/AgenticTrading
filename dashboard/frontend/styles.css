@@ -73,8 +73,7 @@ body {
     gap: 20px;
 }
 
-.header-brand,
-.header-left {
+.header-brand {
     grid-column: 2;
     justify-self: center;
     display: flex;
@@ -84,6 +83,34 @@ body {
     text-decoration: none;
     color: inherit;
     cursor: pointer;
+}
+
+.header-left {
+    grid-column: 1;
+    justify-self: start;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    text-decoration: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    transition: color 0.15s ease;
+}
+
+.header-github-link:hover {
+    color: var(--text-primary);
+}
+
+.header-github-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.header-github-name {
+    white-space: nowrap;
 }
 
 a.header-brand:hover .title-section h1 {
@@ -179,7 +206,7 @@ a.header-brand:hover .title-section h1 {
     justify-self: end;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 14px;
     min-width: 0;
 }
 
@@ -403,15 +430,16 @@ a.header-brand:hover .title-section h1 {
 
 .mode-toggle {
     display: flex;
-    gap: 2px;
+    gap: 4px;
     background-color: var(--bg-card);
-    padding: 3px;
-    border-radius: 4px;
+    padding: 4px;
+    border-radius: 6px;
     border: 1px solid var(--border-color);
+    flex-shrink: 0;
 }
 
 .mode-btn {
-    padding: 5px 12px;
+    padding: 6px 14px;
     border: none;
     background-color: transparent;
     color: var(--text-secondary);
@@ -1993,16 +2021,27 @@ a.header-brand:hover .title-section h1 {
     }
 }
 
+@media (max-width: 700px) {
+    .header-github-name {
+        display: none;
+    }
+}
+
 @media (max-width: 900px) {
     .header {
         grid-template-columns: 1fr;
         gap: 10px;
     }
 
-    .header-brand,
+    .header-brand {
+        grid-column: 1;
+        justify-self: center;
+    }
+
     .header-left {
         grid-column: 1;
         justify-self: center;
+        order: -1;
     }
 
     .header-right {
@@ -2984,6 +3023,16 @@ a.header-brand:hover .title-section h1 {
 .status-badge.baseline {
     background-color: rgba(200, 200, 81, 0.15);
     color: #c8c851;
+}
+
+.status-badge.not-live {
+    background-color: rgba(107, 114, 128, 0.15);
+    color: var(--text-muted);
+}
+
+.status-badge.backtesting {
+    background-color: rgba(34, 211, 238, 0.12);
+    color: #67e8f9;
 }
 
 .leaderboard-footer {
@@ -4636,6 +4685,18 @@ a.header-brand:hover .title-section h1 {
     background: var(--bg-hover);
 }
 
+.agent-delete-btn {
+    border-color: rgba(248, 113, 113, 0.55);
+    background: rgba(248, 113, 113, 0.1);
+    color: #f87171;
+}
+
+.agent-delete-btn:hover {
+    border-color: #f87171;
+    background: rgba(248, 113, 113, 0.2);
+    color: #fca5a5;
+}
+
 .agent-action-discord {
     display: inline-flex;
     align-items: center;
@@ -4745,7 +4806,7 @@ a.header-brand:hover .title-section h1 {
 /* Allocation charts */
 .allocation-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 24px;
 }
@@ -4873,6 +4934,13 @@ a.header-brand:hover .title-section h1 {
 
 .agents-section-head .page-title {
     margin: 0;
+}
+
+.agents-section-title-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
 .agent-toolbar {
@@ -5094,19 +5162,19 @@ a.header-brand:hover .title-section h1 {
 
 .subtab-bar {
     display: flex;
-    gap: 4px;
+    gap: 6px;
     margin-bottom: 12px;
-    padding: 3px;
+    padding: 4px;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: 6px;
     width: fit-content;
     max-width: 100%;
     flex-wrap: wrap;
 }
 
 .subtab-btn {
-    padding: 6px 14px;
+    padding: 7px 16px;
     border: none;
     background: transparent;
     color: var(--text-secondary);
@@ -5336,6 +5404,52 @@ body.agent-editor-open {
 .agent-editor-description:focus {
     outline: none;
     border-color: rgba(34, 211, 238, 0.4);
+}
+
+.agent-editor-cash-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+    max-width: 220px;
+}
+
+.agent-editor-cash-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.agent-editor-cash-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: var(--font-mono);
+}
+
+.agent-editor-cash-input:focus {
+    outline: none;
+    border-color: rgba(34, 211, 238, 0.4);
+}
+
+.agent-cash-allocation {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(34, 211, 238, 0.1);
+    border: 1px solid rgba(34, 211, 238, 0.25);
+    color: #67e8f9;
+    font-size: 11px;
+    font-weight: 700;
 }
 
 .agent-editor-header-actions {

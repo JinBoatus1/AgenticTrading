@@ -183,9 +183,14 @@ class AgentService:
         name: Optional[str] = None,
         description: Optional[str] = None,
         pipeline: Any = _UNSET,
+        cash_allocation: Any = _UNSET,
     ) -> Dict[str, Any]:
         agent = self.agents.update_agent(
-            agent_id, name=name, description=description, pipeline=pipeline
+            agent_id,
+            name=name,
+            description=description,
+            pipeline=pipeline,
+            cash_allocation=cash_allocation,
         )
         if not agent:
             raise AgentNotFoundError()
@@ -200,6 +205,7 @@ class AgentService:
         owner_browser_session: Optional[str],
         agent_type: str = "external",
         description: Optional[str] = None,
+        cash_allocation: Optional[float] = None,
     ) -> Dict[str, Any]:
         return self.agents.create_agent(
             name=name,
@@ -208,6 +214,7 @@ class AgentService:
             owner_browser_session=owner_browser_session,
             agent_type=agent_type,
             description=description,
+            cash_allocation=cash_allocation,
         )
 
     def list_builtin_agents_with_stats(self) -> List[Dict[str, Any]]:

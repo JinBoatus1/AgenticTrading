@@ -129,6 +129,48 @@ function formatTokenCount(value) {
 // unavailable). Lets the redesigned My Agents page render without a backend.
 // TODO: Replace mock agent data with backend API data later.
 // ============================================================================
+const MAX_AGENT_CASH_ALLOCATION = 3000;
+const AGENT_CASH_OVERRIDE_PREFIX = 'agent-cash-allocation:';
+
+function formatAgentCashAllocation(value) {
+  if (value == null || value === '') return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Number(value));
+}
+
+function parseAgentCashAllocationInput(raw) {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`Initial cash must be between $0 and $${MAX_AGENT_CASH_ALLOCATION.toLocaleString()}.`);
+  }
+  if (value > MAX_AGENT_CASH_ALLOCATION) {
+    throw new Error(`Initial cash cannot exceed $${MAX_AGENT_CASH_ALLOCATION.toLocaleString()}.`);
+  }
+  return Math.round(value);
+}
+
+function applyAgentCashAllocationOverride(agent) {
+  if (!agent?.agent_id) return agent;
+  if (agent.cash_allocation != null) return agent;
+  try {
+    const raw = localStorage.getItem(`${AGENT_CASH_OVERRIDE_PREFIX}${agent.agent_id}`);
+    if (raw == null) return agent;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return agent;
+    return { ...agent, cash_allocation: value };
+  } catch (e) {
+    return agent;
+  }
+}
+
+function decorateAgent(agent) {
+  return applyAgentCashAllocationOverride(applyAgentNameOverride(agent));
+}
+
 const MOCK_AGENTS = [
   {
     agent_id: 'mock-test-agent-2', name: 'test agent 2', agent_type: 'builtin',
@@ -188,6 +230,22 @@ const MOCK_AGENTS = [
 // Holds the most recently loaded agents so the toolbar can re-filter without refetching.
 let allAgents = [];
 let agentViewMode = 'grid';
+let runningBacktestAgentId = null;
+
+function setBacktestRunningForAgent(agentId, running) {
+  runningBacktestAgentId = running ? agentId : null;
+  if (allAgents.length) {
+    applyAgentFilters();
+  }
+}
+
+function resolveAgentDeploymentBadge(agent) {
+  if (runningBacktestAgentId && agent.agent_id === runningBacktestAgentId) {
+    return { label: 'Backtesting', className: 'backtesting' };
+  }
+  // Future: Paper trading / Live trading states when per-agent deployment exists.
+  return { label: 'Not live', className: 'not-live' };
+}
 
 // Demo/mock agents (MOCK_AGENTS) have no database row, so renames made in the editor
 // are stored locally under `agent-name-override:{id}`. Real agents use the same key
@@ -213,7 +271,7 @@ function applyAgentFilters() {
   const query = (document.getElementById('agentSearchInput')?.value || '').trim().toLowerCase();
   const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
 
-  let list = allAgents.map(applyAgentNameOverride);
+  let list = allAgents.map(decorateAgent);
   if (filter === 'builtin') {
     list = list.filter((a) => a.agent_type === 'builtin');
   } else if (filter === 'external') {
@@ -306,14 +364,9 @@ function renderAgentsGrid(agents) {
   }
   if (empty) empty.hidden = true;
 
-  const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
-
   agents.forEach((agent) => {
-    const latest = agent.latest_run || {};
-    const totalReturn = latest.total_return;
-    const sharpe = latest.sharpe_ratio;
-    const isActive = agent.is_active === true || agent.agent_id === activeId;
     const isBuiltin = agent.agent_type === 'builtin';
+    const deploymentBadge = resolveAgentDeploymentBadge(agent);
     const card = document.createElement('div');
     card.className = `section-card agent-card agent-card--compact${isBuiltin ? ' agent-card-builtin' : ''}`;
 
@@ -321,33 +374,25 @@ function renderAgentsGrid(agents) {
       ? '<span class="status-badge builtin">Built-in</span>'
       : '<span class="agent-discord connected">External agent</span>';
 
-    const discordButton = isBuiltin
-      ? `<a class="agent-action-btn agent-action-discord" href="${DISCORD_SERVER_URL}" target="_blank" rel="noopener noreferrer">Chat on Discord</a>`
-      : '';
     const apiKeyButton = isBuiltin
       ? ''
       : `<button class="agent-action-btn agent-action-secondary agent-rotate-key-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">New API key</button>`;
 
+    const cashBadge = agent.cash_allocation != null
+      ? `<span class="agent-cash-allocation" title="Starting capital budget for this agent">Initial cash: ${formatAgentCashAllocation(agent.cash_allocation)}</span>`
+      : '';
+
     card.innerHTML = `
       <div class="agent-card-head">
         <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
-        <span class="status-badge ${isActive ? 'live' : 'baseline'}">${isActive ? 'Active' : 'Registered'}</span>
+        <span class="status-badge ${deploymentBadge.className}">${deploymentBadge.label}</span>
       </div>
       <div class="agent-meta">
         <span>${escapeHtml(agent.model_name || 'local-model')}</span>
         ${typeBadge}
+        ${cashBadge}
       </div>
       ${isBuiltin && agent.description ? `<p class="agent-description">${escapeHtml(agent.description)}</p>` : ''}
-      <div class="agent-metrics">
-        <div class="agent-metric">
-          <span class="metric-label">Return</span>
-          <span class="metric-value ${totalReturn >= 0 ? 'positive' : ''}">${formatAgentReturn(totalReturn)}</span>
-        </div>
-        <div class="agent-metric">
-          <span class="metric-label">Sharpe</span>
-          <span class="metric-value">${sharpe != null ? Number(sharpe).toFixed(2) : '—'}</span>
-        </div>
-      </div>
       <div class="agent-meta">
         <span>${agent.run_count || 0} backtest run(s)</span>
         ${renderAgentTokenCost(agent)}
@@ -356,9 +401,8 @@ function renderAgentsGrid(agents) {
       <div class="agent-card-actions">
         <button class="agent-action-btn agent-edit-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">Edit</button>
         <button class="agent-action-btn agent-select-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">View in Playground</button>
-        ${discordButton}
         ${apiKeyButton}
-        <button class="agent-action-btn agent-action-secondary agent-delete-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">Remove</button>
+        <button class="agent-action-btn agent-delete-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">Delete</button>
       </div>
     `;
     grid.appendChild(card);
@@ -419,7 +463,7 @@ function renderAgentsGrid(agents) {
   grid.querySelectorAll('.agent-delete-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const agentId = btn.dataset.agentId;
-      if (!agentId || !confirm('Remove this agent? Backtest history stays in the database.')) return;
+      if (!agentId || !confirm('Delete this agent? Backtest history stays in the database.')) return;
       try {
         if (isDemoAgent(agentId)) {
           hideDemoAgent(agentId);
@@ -437,7 +481,7 @@ function renderAgentsGrid(agents) {
         }
         await loadAgents();
       } catch (error) {
-        alert(error.message || 'Failed to remove agent');
+        alert(error.message || 'Failed to delete agent');
       }
     });
   });
@@ -588,6 +632,9 @@ async function loadAgents() {
     allAgents = agents;
     applyAgentFilters();
     populateBacktestAgentSelect();
+    if (typeof window.updateAgentAllocationFromAgents === 'function') {
+      window.updateAgentAllocationFromAgents(allAgents.map(decorateAgent));
+    }
   } catch (error) {
     console.warn('Failed to load agents:', error.message);
     if (isDemoMode()) {
@@ -644,7 +691,19 @@ async function submitCreateBuiltinAgent(event) {
   const name = nameInput?.value?.trim();
   const model_name = modelInput?.value?.trim() || 'anthropic/claude-haiku-4-5';
   const description = descInput?.value?.trim() || null;
+  const cashInput = document.getElementById('builtinAgentCashAllocation');
   if (!name) return;
+
+  let cash_allocation;
+  try {
+    cash_allocation = parseAgentCashAllocationInput(cashInput?.value);
+  } catch (error) {
+    if (errorEl) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    }
+    return;
+  }
 
   if (errorEl) errorEl.hidden = true;
   if (submitBtn) submitBtn.disabled = true;
@@ -655,6 +714,7 @@ async function submitCreateBuiltinAgent(event) {
       model_name,
       agent_type: 'builtin',
       description,
+      cash_allocation,
     });
     closeCreateBuiltinAgentModal();
     if (data.agent) applyActiveAgent(data.agent);
@@ -735,13 +795,25 @@ async function submitCreateExternalAgent(event) {
 
   const name = nameInput?.value?.trim();
   const model_name = modelInput?.value?.trim() || 'local-model';
+  const cashInput = document.getElementById('externalAgentCashAllocation');
   if (!name) return;
+
+  let cash_allocation;
+  try {
+    cash_allocation = parseAgentCashAllocationInput(cashInput?.value);
+  } catch (error) {
+    if (errorEl) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    }
+    return;
+  }
 
   if (errorEl) errorEl.hidden = true;
   if (submitBtn) submitBtn.disabled = true;
 
   try {
-    const data = await API.post(`${API_BASE}/api/v1/agents`, { name, model_name });
+    const data = await API.post(`${API_BASE}/api/v1/agents`, { name, model_name, cash_allocation });
     closeCreateExternalAgentModal();
     applyActiveAgent(data.agent);
     await loadAgents();
@@ -2542,6 +2614,7 @@ async function runBacktest() {
             });
             btn.textContent = '❌ Error - Try Again';
             btn.disabled = false;
+            setBacktestRunningForAgent(null, false);
             setTimeout(() => {
                 btn.textContent = '▶ Run Backtest';
                 showBacktestRunProgress(false);
@@ -2550,6 +2623,9 @@ async function runBacktest() {
         }
         
         console.log('✅ Backtest started:', data.message);
+        if (activeAgent?.agent_id) {
+            setBacktestRunningForAgent(activeAgent.agent_id, true);
+        }
         
         // Poll for status (now session-aware)
         await pollBacktestStatus(btn);
@@ -2563,6 +2639,7 @@ async function runBacktest() {
         });
         btn.textContent = '❌ Error - Try Again';
         btn.disabled = false;
+        setBacktestRunningForAgent(null, false);
         setTimeout(() => {
             btn.textContent = '▶ Run Backtest';
             showBacktestRunProgress(false);
@@ -2616,6 +2693,7 @@ async function pollBacktestStatus(btn) {
                     isComplete = true;
                     clearInterval(interval);
                     liveBacktestChartActive = false;
+                    setBacktestRunningForAgent(null, false);
                     
                     if (status.error) {
                         console.error('❌ Backtest error:', status.error);
@@ -2796,7 +2874,7 @@ function showPlaygroundPanel(tab) {
         loadPaperTradingData();
     } else {
         currentMode = 'agents';
-        if (typeof renderPortfolio === 'function') renderPortfolio();
+        if (typeof renderPortfolio === 'function') renderPortfolio(allAgents.map(decorateAgent));
         loadAgents();
     }
 

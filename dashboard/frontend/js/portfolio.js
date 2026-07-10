@@ -1,7 +1,7 @@
 /*
  * portfolio.js — "My Portfolio" section for the My Agents page.
  *
- * Renders four summary cards and three allocation donut charts using the
+ * Renders four summary cards and four allocation donut charts using the
  * existing Chart.js library (loaded in index.html). Everything here is a
  * static, frontend-only mockup — no API, database, broker, or auth calls.
  *
@@ -51,6 +51,14 @@ const PORTFOLIO_MOCK = {
                 { label: 'ADA',   pct: 6.1,  value: 2078.43,  color: '#3b82f6' },
                 { label: 'DOT',   pct: 4.2,  value: 1424.50,  color: '#ec4899' },
                 { label: 'Other', pct: 3.7,  value: 1269.99,  color: '#475569' },
+            ],
+        },
+        agent: {
+            total: 7500,
+            slices: [
+                { label: 'Momentum Alpha', pct: 40.0, value: 3000, color: '#22d3ee' },
+                { label: 'test discord bot', pct: 33.3, value: 2500, color: '#a855f7' },
+                { label: 'Risk Parity Bot', pct: 26.7, value: 2000, color: '#34d399' },
             ],
         },
     },
@@ -219,15 +227,47 @@ function renderAllocationChart(key, data) {
 }
 
 // ---------------------------------------------------------------------------
+// Agent allocation (mock by default; can refresh from loaded agents)
+// ---------------------------------------------------------------------------
+const AGENT_ALLOCATION_COLORS = ['#22d3ee', '#a855f7', '#34d399', '#fbbf24', '#f87171', '#c084fc', '#475569'];
+
+function buildAgentAllocationData(agents) {
+    const withCash = (agents || []).filter(
+        (agent) => agent.cash_allocation != null && Number(agent.cash_allocation) > 0,
+    );
+    if (!withCash.length) {
+        return PORTFOLIO_MOCK.allocations.agent;
+    }
+
+    const total = withCash.reduce((sum, agent) => sum + Number(agent.cash_allocation), 0);
+    const slices = withCash.map((agent, index) => {
+        const value = Number(agent.cash_allocation);
+        return {
+            label: agent.name || 'Agent',
+            value,
+            pct: total > 0 ? Math.round((value / total) * 1000) / 10 : 0,
+            color: AGENT_ALLOCATION_COLORS[index % AGENT_ALLOCATION_COLORS.length],
+        };
+    });
+    return { total, slices };
+}
+
+function updateAgentAllocationFromAgents(agents) {
+    renderAllocationChart('agent', buildAgentAllocationData(agents));
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point — called when the My Agents tab becomes visible.
 // ---------------------------------------------------------------------------
-function renderPortfolio() {
+function renderPortfolio(agents) {
     // TODO: Replace mock portfolio data with backend API data later.
     const data = PORTFOLIO_MOCK;
     renderPortfolioSummary(data.summary);
     renderAllocationChart('asset', data.allocations.asset);
     renderAllocationChart('stock', data.allocations.stock);
     renderAllocationChart('crypto', data.allocations.crypto);
+    renderAllocationChart('agent', buildAgentAllocationData(agents));
 }
 
 window.renderPortfolio = renderPortfolio;
+window.updateAgentAllocationFromAgents = updateAgentAllocationFromAgents;

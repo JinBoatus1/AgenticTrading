@@ -62,6 +62,7 @@ def _public_agent(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
         "agent_type": data.get("agent_type") or "external",
         "description": data.get("description"),
         "pipeline": _parse_pipeline(data.get("pipeline_config")),
+        "cash_allocation": data.get("cash_allocation"),
         "api_key_prefix": data.get("api_key_prefix") or "",
         "owner_user_id": data.get("owner_user_id"),
         "scopes": [s for s in str(raw_scopes).split(",") if s],
@@ -134,6 +135,10 @@ class AgentStore:
             cursor.execute(
                 "ALTER TABLE external_agents ADD COLUMN pipeline_config TEXT"
             )
+        if "cash_allocation" not in existing_columns:
+            cursor.execute(
+                "ALTER TABLE external_agents ADD COLUMN cash_allocation REAL"
+            )
         if "scopes" not in existing_columns:
             cursor.execute(
                 "ALTER TABLE external_agents ADD COLUMN scopes TEXT "
@@ -159,6 +164,7 @@ class AgentStore:
         session_id: Optional[str] = None,
         agent_type: str = "external",
         description: Optional[str] = None,
+        cash_allocation: Optional[float] = None,
     ) -> Dict[str, Any]:
         agent_id = f"agent_{uuid.uuid4().hex[:12]}"
         session_id = session_id or str(uuid.uuid4())
@@ -173,9 +179,9 @@ class AgentStore:
             """
             INSERT INTO external_agents (
                 agent_id, name, session_id, api_key_hash, api_key_prefix,
-                model_name, agent_type, description,
+                model_name, agent_type, description, cash_allocation,
                 owner_user_id, owner_browser_session, created_at, last_used_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 agent_id,
@@ -186,6 +192,7 @@ class AgentStore:
                 model_name.strip() or "local-model",
                 (agent_type or "external").strip() or "external",
                 (description or None),
+                cash_allocation,
                 owner_user_id,
                 owner_browser_session,
                 now,
@@ -452,6 +459,7 @@ class AgentStore:
         name: Optional[str] = None,
         description: Optional[str] = None,
         pipeline: Any = _UNSET,
+        cash_allocation: Any = _UNSET,
     ) -> Optional[Dict[str, Any]]:
         """Update display fields for an agent. Returns the updated record or None.
 
@@ -470,6 +478,9 @@ class AgentStore:
         if pipeline is not _UNSET:
             sets.append("pipeline_config = ?")
             params.append(json.dumps(pipeline) if pipeline else None)
+        if cash_allocation is not _UNSET:
+            sets.append("cash_allocation = ?")
+            params.append(cash_allocation)
         if not sets:
             return self.get_agent(agent_id)
         sets.append("last_used_at = ?")
