@@ -398,6 +398,29 @@ class AgentStore:
         conn.commit()
         conn.close()
 
+    def reclaim_agent(
+        self,
+        agent_id: str,
+        *,
+        owner_user_id: Optional[int] = None,
+        owner_browser_session: Optional[str] = None,
+    ) -> None:
+        """Re-bind an agent to the current browser/user (dashboard session proof)."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE external_agents
+            SET owner_user_id = COALESCE(?, owner_user_id),
+                owner_browser_session = ?,
+                last_used_at = ?
+            WHERE agent_id = ?
+            """,
+            (owner_user_id, owner_browser_session, _utcnow_iso(), agent_id),
+        )
+        conn.commit()
+        conn.close()
+
     def rotate_api_key(self, agent_id: str) -> Optional[str]:
         """Issue a new API key for an agent. Returns the raw key once."""
         api_key = _new_api_key()

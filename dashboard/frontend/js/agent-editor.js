@@ -388,26 +388,67 @@
     }
   }
 
-  async function patchAgent(agentId, name, description) {
-    const headers = {
-      'Content-Type': 'application/json',
-      'x-session-id': window.SESSION_ID,
-      'x-browser-id': window.BROWSER_OWNER_ID,
-    };
-    const token = localStorage.getItem('auth-token');
-    if (token) headers.Authorization = `Bearer ${token}`;
+  function serializePipeline(steps) {
+    return steps.map((sub) => ({
+      id: sub.id,
+      presetKey: sub.presetKey,
+      label: sub.label,
+      prompt: sub.prompt,
+      outputFormat: sub.outputFormat,
+    }));
+  }
 
-    const response = await fetch(`${API_BASE}/api/v1/agents/${encodeURIComponent(agentId)}`, {
-      method: 'PATCH',
-      headers,
-      body: JSON.stringify({ name, description: description || null }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const detail = data.detail || data.message || `HTTP ${response.status}`;
-      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+  async function patchAgent(agent, name, description, pipeline) {
+    const payload = {
+      name,
+      description: description || null,
+      pipeline: serializePipeline(pipeline),
+    };
+    const endpoint = `${API_BASE}/api/v1/agents/${encodeURIComponent(agent.agent_id)}`;
+
+    async function requestWithHeaders(extraHeaders) {
+      if (window.API?.patch) {
+        return window.API.patch(endpoint, payload, extraHeaders);
+      }
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-session-id': window.SESSION_ID,
+        ...extraHeaders,
+      };
+      const token = localStorage.getItem('auth-token');
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const response = await fetch(endpoint, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = data.detail || data.message || `HTTP ${response.status}`;
+        const error = new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+        error.status = response.status;
+        throw error;
+      }
+      return data;
     }
-    return data.agent;
+
+    try {
+      const data = await requestWithHeaders({
+        'x-browser-id': window.BROWSER_OWNER_ID,
+        'x-session-id': agent.session_id || window.SESSION_ID,
+      });
+      return data.agent;
+    } catch (error) {
+      // Legacy/imported agents may store owner_browser_session = session_id.
+      // Retry with session-only ownership (omit X-Browser-Id) when denied.
+      if (error.status !== 403 || !agent?.session_id) throw error;
+      const data = await requestWithHeaders({
+        'x-session-id': agent.session_id,
+        'x-browser-id': '',
+      });
+      return data.agent;
+    }
   }
 
   function open(agent) {
@@ -495,17 +536,20 @@
 
     try {
       const updated = await patchAgent(
-        currentAgent.agent_id,
+        currentAgent,
         state.name,
-        state.description
+        state.description,
+        subAgents
       );
-      currentAgent = { ...currentAgent, ...updated };
+      currentAgent = { ...currentAgent, ...updated, pipeline: subAgents };
       savePipelineLocal(currentAgent.agent_id, subAgents);
+      localStorage.removeItem(`${NAME_OVERRIDE_PREFIX}${currentAgent.agent_id}`);
 
       if (localStorage.getItem('active-agent-id') === currentAgent.agent_id) {
         localStorage.setItem('active-agent-name', state.name);
       }
 
+      fillHeader(currentAgent);
       captureSavedSnapshot();
       showSaveStatus('Saved successfully');
       window.dispatchEvent(
@@ -513,9 +557,19 @@
       );
     } catch (error) {
       savePipelineLocal(currentAgent.agent_id, subAgents);
+      localStorage.setItem(
+        `${NAME_OVERRIDE_PREFIX}${currentAgent.agent_id}`,
+        JSON.stringify({ name: state.name, description: state.description })
+      );
+      currentAgent = { ...currentAgent, name: state.name, description: state.description };
+      fillHeader(currentAgent);
+      captureSavedSnapshot();
       showSaveStatus(
-        `Pipeline saved locally; name update failed: ${error.message}`,
+        `Saved locally; server update failed: ${error.message}`,
         true
+      );
+      window.dispatchEvent(
+        new CustomEvent('agent-editor-saved', { detail: { agent: currentAgent } })
       );
     } finally {
       if (saveBtn) {

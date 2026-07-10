@@ -290,6 +290,61 @@ def test_leaked_session_id_cannot_take_over_agent(client):
     assert deleted.status_code == 200
 
 
+def test_patch_agent_name_and_pipeline(client):
+    browser_session = str(uuid.uuid4())
+    headers = {"X-Session-Id": browser_session, "X-Browser-Id": browser_session}
+
+    created = client.post(
+        "/api/v1/agents",
+        json={
+            "name": "Test_in",
+            "model_name": "anthropic/claude-haiku-4-5",
+            "agent_type": "builtin",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200
+    agent_id = created.json()["agent"]["agent_id"]
+
+    patched = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"name": "Renamed Agent"},
+        headers=headers,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["agent"]["name"] == "Renamed Agent"
+
+    listed = client.get("/api/v1/agents", headers=headers)
+    assert listed.json()["agents"][0]["name"] == "Renamed Agent"
+
+
+def test_patch_agent_legacy_session_owner(client):
+    """Dashboard may reclaim agents when X-Session-Id matches the agent session."""
+    browser_session = str(uuid.uuid4())
+    create_headers = {"X-Session-Id": browser_session, "X-Browser-Id": browser_session}
+    created = client.post(
+        "/api/v1/agents",
+        json={"name": "Legacy Owner", "agent_type": "builtin"},
+        headers=create_headers,
+    )
+    assert created.status_code == 200
+    agent = created.json()["agent"]
+    agent_id = agent["agent_id"]
+    session_id = agent["session_id"]
+
+    modern_headers = {
+        "X-Session-Id": session_id,
+        "X-Browser-Id": str(uuid.uuid4()),
+    }
+    patched = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"name": "Renamed Legacy"},
+        headers=modern_headers,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["agent"]["name"] == "Renamed Legacy"
+
+
 def test_builtin_listing_batches_run_stats_queries(client, monkeypatch):
     """LOW #9 — the public, unauthenticated /agents/builtin listing must not
     issue one runs-by-session query per agent (N+1): the stats lookup happens

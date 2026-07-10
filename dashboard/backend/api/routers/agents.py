@@ -224,7 +224,7 @@ async def update_agent(
 ):
     """Update agent display name, description, and/or sub-agent pipeline."""
     ctx = _require_owner_context(request, authorization)
-    _require_agent_access(agent_id, ctx)
+    _require_agent_access(agent_id, ctx, reclaim_on_session_match=True)
     fields_set = body.model_fields_set
     pipeline_provided = "pipeline" in fields_set
     if body.name is None and body.description is None and not pipeline_provided:
@@ -292,7 +292,7 @@ async def activate_agent(
 ):
     """Return session info for switching the dashboard to this agent."""
     ctx = _require_owner_context(request, authorization)
-    agent = _require_agent_access(agent_id, ctx)
+    agent = _require_agent_access(agent_id, ctx, reclaim_on_session_match=True)
     agent_service.activate_agent(
         agent_id,
         user_id=ctx.get("user_id"),
