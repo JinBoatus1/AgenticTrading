@@ -51,6 +51,7 @@ from dashboard.backend.infrastructure.llm.backtest_harness import (
     parse_llm_response as _parse_llm_response,
     request_trading_decision as _request_trading_decision,
 )
+from dashboard.backend.infrastructure.llm.pipeline_runner import run_pipeline_decision
 
 
 class PortfolioManager:
@@ -101,7 +102,15 @@ class PortfolioManager:
             cash=self.cash,
         )
     
-    def make_trading_decision_with_llm(self, portfolio_state: Dict, llm_client, mode: str = "safe_trading", model: str = None, strategy_prompt: str = None) -> Dict:
+    def make_trading_decision_with_llm(
+        self,
+        portfolio_state: Dict,
+        llm_client,
+        mode: str = "safe_trading",
+        model: str = None,
+        strategy_prompt: str = None,
+        pipeline: List[Dict] = None,
+    ) -> Dict:
         """
         Make trading decisions using Claude LLM with technical indicators.
         
@@ -266,8 +275,6 @@ class PortfolioManager:
                         print(f"       {symbol}: price=${signal.get('price', 'MISSING')}")
                 print()
             
-            prompt = create_prompt(market_snapshot, mode=mode, custom_prompt=strategy_prompt)
-            
             print(f"\n🤖 Calling LLM for trading decision...")
             print(f"   Signals analyzed: {len(market_snapshot['top_signals'])} stocks")
             print(f"   Portfolio: Cash=${market_snapshot['portfolio']['cash']:.0f}, Equity=${market_snapshot['portfolio']['total_equity']:.0f}")
@@ -276,29 +283,46 @@ class PortfolioManager:
                 rsi = signal.get('rsi', 50)
                 price = signal.get('price', 0)
                 print(f"      {symbol}: ${price:.2f} (RSI={rsi:.1f})")
-            
-            # ================================================================
-            # STEP 2: Call Claude with technical indicator analysis
-            # ================================================================
-            response = _request_trading_decision(llm_client, prompt=prompt, model=model)
 
-            llm_response = _extract_response_text(response)
-
-            # Record real token usage reported by the provider
-            try:
-                input_delta, output_delta = _extract_token_usage(response)
+            if pipeline:
+                print(f"   Sub-agent pipeline: {len(pipeline)} step(s)")
+                decision, (input_delta, output_delta), pipeline_calls = run_pipeline_decision(
+                    llm_client,
+                    pipeline=pipeline,
+                    market_snapshot=market_snapshot,
+                    model=model,
+                )
                 self.input_tokens += input_delta
                 self.output_tokens += output_delta
-                self.llm_calls += 1
-            except Exception as usage_err:
-                print(f"   ⚠️  Could not read token usage: {usage_err}")
+                self.llm_calls += pipeline_calls
+                if decision is None:
+                    print("   Falling back to rule-based logic")
+                    return self.make_trading_decision(portfolio_state)
+            else:
+                prompt = create_prompt(market_snapshot, mode=mode, custom_prompt=strategy_prompt)
 
-            # ================================================================
-            # STEP 3: Parse and validate LLM response
-            # ================================================================
-            decision = _parse_llm_response(llm_response)
-            if decision is None:
-                return {"actions": []}
+                # ================================================================
+                # STEP 2: Call Claude with technical indicator analysis
+                # ================================================================
+                response = _request_trading_decision(llm_client, prompt=prompt, model=model)
+
+                llm_response = _extract_response_text(response)
+
+                # Record real token usage reported by the provider
+                try:
+                    input_delta, output_delta = _extract_token_usage(response)
+                    self.input_tokens += input_delta
+                    self.output_tokens += output_delta
+                    self.llm_calls += 1
+                except Exception as usage_err:
+                    print(f"   ⚠️  Could not read token usage: {usage_err}")
+
+                # ================================================================
+                # STEP 3: Parse and validate LLM response
+                # ================================================================
+                decision = _parse_llm_response(llm_response)
+                if decision is None:
+                    return {"actions": []}
 
             # ================================================================
             # STEP 4: Convert LLM decisions to actions

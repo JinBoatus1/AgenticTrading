@@ -2019,6 +2019,50 @@ function getSelectedAssets() {
     }
 }
 
+/**
+ * Load the saved sub-agent pipeline for an agent (backend or localStorage).
+ */
+function loadAgentPipelineForBacktest(agent) {
+    if (!agent) return null;
+    if (Array.isArray(agent.pipeline) && agent.pipeline.length) {
+        return agent.pipeline;
+    }
+    if (!agent.agent_id || typeof agent.agent_id !== 'string') return null;
+    try {
+        const raw = localStorage.getItem(`agent-pipeline-config:${agent.agent_id}`);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.subAgents) && parsed.subAgents.length) {
+            return parsed.subAgents.map((sub) => ({
+                id: sub.id,
+                presetKey: sub.presetKey,
+                label: sub.label,
+                prompt: sub.prompt,
+                outputFormat: sub.outputFormat,
+            }));
+        }
+    } catch (error) {
+        console.warn('Could not load local pipeline config:', error);
+    }
+    return null;
+}
+
+/**
+ * Resolve the active agent object for backtest (API-backed or mock list).
+ */
+function resolveActiveAgentForBacktest() {
+    if (window.ACTIVE_AGENT?.agent_id) {
+        return window.ACTIVE_AGENT;
+    }
+    const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
+    if (!activeId) return null;
+    if (typeof allAgents !== 'undefined' && Array.isArray(allAgents)) {
+        const found = allAgents.find((a) => a.agent_id === activeId);
+        if (found) return found;
+    }
+    return null;
+}
+
 async function runBacktest() {
     // Get dates from form
     const startDateInput = document.getElementById('startDate');
@@ -2040,11 +2084,20 @@ async function runBacktest() {
     // Get selected assets and model
     const assets = getSelectedAssets();
     const modelSelect = document.getElementById('modelSelect');
-    const model = modelSelect ? modelSelect.value : 'claude-haiku-4.5';
+    const activeAgent = resolveActiveAgentForBacktest();
+    const pipeline = loadAgentPipelineForBacktest(activeAgent);
+    const model = activeAgent?.model_name
+        || (modelSelect ? modelSelect.value : 'claude-haiku-4.5');
     
     console.log(`Running backtest: ${startDate} to ${endDate}`);
     console.log(`Assets: ${assets.join(', ')}`);
     console.log(`Model: ${model}`);
+    if (activeAgent?.agent_id) {
+        console.log(`Agent: ${activeAgent.name} (${activeAgent.agent_id})`);
+    }
+    if (pipeline?.length) {
+        console.log(`Sub-agent pipeline: ${pipeline.length} step(s)`);
+    }
     
     const btn = document.querySelector('.run-backtest-btn');
     btn.textContent = '⏳ Running...';
@@ -2058,7 +2111,18 @@ async function runBacktest() {
             assets: assets.join(','),
             model: model
         });
-        const data = await API.post(`${API_BASE}/backtest/run?${params.toString()}`, {});
+        const payload = {
+            start_date: startDate,
+            end_date: endDate,
+            model,
+        };
+        if (activeAgent?.agent_id && !String(activeAgent.agent_id).startsWith('mock-')) {
+            payload.agent_id = activeAgent.agent_id;
+        }
+        if (pipeline?.length) {
+            payload.pipeline = pipeline;
+        }
+        const data = await API.post(`${API_BASE}/backtest/run?${params.toString()}`, payload);
         
         if (!data.success) {
             console.error('❌ Backtest failed:', data.error || 'Unknown error');

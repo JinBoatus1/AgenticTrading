@@ -178,6 +178,7 @@ def main():
     parser.add_argument("--no-llm", dest="use_llm", action="store_false", help="Disable LLM, use rule-based logic")
     parser.add_argument("--mode", default="safe_trading", choices=["safe_trading", "buy_and_hold"], help="Agent mode: 'safe_trading' (risk management) or 'buy_and_hold' (debug)")
     parser.add_argument("--strategy-prompt-file", default=None, help="Path to a UTF-8 file with a free-form strategy prompt that REPLACES the built-in agent prompt for this run")
+    parser.add_argument("--pipeline-file", default=None, help="Path to a UTF-8 JSON file with the sub-agent pipeline steps for this run")
     parser.add_argument("--model", default=None, help="Override the LLM model id (e.g. anthropic/claude-haiku-4-5). Defaults to the gateway-appropriate slug.")
     
     args = parser.parse_args()
@@ -192,6 +193,18 @@ def main():
         except OSError as exc:
             print(f"⚠️  Could not read --strategy-prompt-file ({args.strategy_prompt_file}): {exc}")
             strategy_prompt = None
+
+    pipeline = None
+    if args.pipeline_file:
+        try:
+            raw_pipeline = json.loads(Path(args.pipeline_file).read_text(encoding="utf-8"))
+            if isinstance(raw_pipeline, list) and raw_pipeline:
+                pipeline = raw_pipeline
+            else:
+                print(f"⚠️  --pipeline-file must contain a non-empty JSON array; ignoring")
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"⚠️  Could not read --pipeline-file ({args.pipeline_file}): {exc}")
+            pipeline = None
     
     # Validate and swap dates if backwards
     from datetime import datetime as dt_parser
@@ -218,9 +231,11 @@ def main():
     print(f"Capital: ${INITIAL_CAPITAL:,.0f}")
     
     # Show mode
-    mode_display = "Custom Prompt" if strategy_prompt else args.mode.replace("_", " ").title()
+    mode_display = "Sub-agent Pipeline" if pipeline else ("Custom Prompt" if strategy_prompt else args.mode.replace("_", " ").title())
     print(f"Mode: {mode_display}")
-    if strategy_prompt:
+    if pipeline:
+        print(f"Sub-agent pipeline: {len(pipeline)} step(s)")
+    if strategy_prompt and not pipeline:
         print(f"Custom strategy prompt: {len(strategy_prompt)} chars")
     print(f"{'='*70}\n")
     
@@ -234,6 +249,7 @@ def main():
         mode=args.mode,
         strategy_prompt=strategy_prompt,
         model=args.model,
+        pipeline=pipeline,
     )
     
     if backtester.use_llm:

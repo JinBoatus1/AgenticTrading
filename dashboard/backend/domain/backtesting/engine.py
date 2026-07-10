@@ -44,7 +44,7 @@ from dashboard.backend.infrastructure.llm.backtest_harness import (
 class HourlyBacktester:
     """Runs hourly backtest with agent and baselines."""
     
-    def __init__(self, start_date: str, end_date: str, session_id: str = "legacy-demo-session", use_llm: bool = True, mode: str = "safe_trading", strategy_prompt: str = None, model: str = None):
+    def __init__(self, start_date: str, end_date: str, session_id: str = "legacy-demo-session", use_llm: bool = True, mode: str = "safe_trading", strategy_prompt: str = None, model: str = None, pipeline: list = None):
         # Validate and swap dates if they're in the wrong order
         from datetime import datetime as dt_parser
         try:
@@ -63,6 +63,8 @@ class HourlyBacktester:
         self.mode = mode  # "safe_trading" or "buy_and_hold"
         # Optional free-form strategy that REPLACES the built-in prompt for this run.
         self.strategy_prompt = (strategy_prompt or "").strip() or None
+        # Optional sub-agent pipeline (when set, overrides strategy_prompt).
+        self.pipeline = pipeline if pipeline else None
         # Model id; defaults to the gateway-appropriate slug (CommonStack vs native).
         self.model = model or default_model_name()
         self.data_loader = AlpacaDataLoader()
@@ -210,6 +212,7 @@ class HourlyBacktester:
                     mode=self.mode,
                     model=self.model,
                     strategy_prompt=self.strategy_prompt,
+                    pipeline=self.pipeline,
                 )
                 llm_calls_count += 1  # Track that LLM was used
                 if llm_calls_count == 1:  # Set on first call

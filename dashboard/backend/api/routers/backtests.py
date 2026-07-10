@@ -12,12 +12,13 @@ registered before ``/api/backtest/{run_id}`` and ``/runs/latest/metrics`` before
 ``/runs/{run_id}``.
 """
 
+import json
 import re
 import threading
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import pytz
 from datetime import datetime
@@ -154,11 +155,13 @@ def run_backtest_background(
     session_id: str,
     strategy_prompt: Optional[str] = None,
     model: Optional[str] = None,
+    pipeline: Optional[List[Dict[str, Any]]] = None,
 ):
     """Run backtest in background thread."""
     global backtest_status, backtest_session_id
 
     strategy_prompt_path = None
+    pipeline_path = None
     try:
         import subprocess
         import sys
@@ -206,11 +209,17 @@ def run_backtest_background(
 
         # Optional free-form strategy prompt: written to a temp file (avoids
         # shell-escaping a long prompt) and passed via --strategy-prompt-file.
-        if strategy_prompt and strategy_prompt.strip():
+        if strategy_prompt and strategy_prompt.strip() and not pipeline:
             fd, strategy_prompt_path = tempfile.mkstemp(prefix="strategy_prompt_", suffix=".txt")
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(strategy_prompt.strip())
             cmd += ["--strategy-prompt-file", strategy_prompt_path]
+
+        if pipeline:
+            fd, pipeline_path = tempfile.mkstemp(prefix="agent_pipeline_", suffix=".json")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(pipeline, f)
+            cmd += ["--pipeline-file", pipeline_path]
 
         if model and model.strip():
             cmd += ["--model", model.strip()]
@@ -256,6 +265,12 @@ def run_backtest_background(
                 os.remove(strategy_prompt_path)
             except OSError:
                 pass
+        if pipeline_path:
+            try:
+                import os
+                os.remove(pipeline_path)
+            except OSError:
+                pass
         print(f"✋ Backtest background thread finished", flush=True)
 
 class BacktestRunRequest(BaseModel):
@@ -265,13 +280,15 @@ class BacktestRunRequest(BaseModel):
     defaults. ``strategy_prompt`` is a free-form strategy that REPLACES the
     built-in agent prompt for this run, and ``model`` overrides the LLM model id.
     ``agent_id`` targets a built-in agent's trading session (Discord / website).
-    Long prompts belong in the body (not the query string).
+    ``pipeline`` is the sub-agent step chain from the agent editor; when set it
+    overrides ``strategy_prompt``. Long prompts belong in the body (not the query string).
     """
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     strategy_prompt: Optional[str] = None
     model: Optional[str] = None
     agent_id: Optional[str] = None
+    pipeline: Optional[List[Dict[str, Any]]] = None
 
 
 # /backtest/run spends real operator LLM credits per trading hour of the run, on
@@ -280,6 +297,8 @@ class BacktestRunRequest(BaseModel):
 # handler rather than only on the Pydantic body.
 MAX_STRATEGY_PROMPT_CHARS = 4000
 MAX_BACKTEST_DAYS = 31
+MAX_PIPELINE_STEPS = 20
+MAX_PIPELINE_JSON_CHARS = 32000
 
 # A model id is a provider/model slug: letters, digits, and . _ / - only, bounded
 # length. This rejects a garbage/injection string reaching the backtest subprocess
@@ -303,7 +322,7 @@ def _parse_ymd(value: str, field: str) -> datetime:
         raise HTTPException(status_code=422, detail=f"{field} must be a date in YYYY-MM-DD format.")
 
 
-def _validate_backtest_params(start_date, end_date, strategy_prompt, model) -> None:
+def _validate_backtest_params(start_date, end_date, strategy_prompt, model, pipeline=None) -> None:
     """Reject malformed / cost-abuse inputs before scheduling the background run.
 
     - ``model`` must look like a model id (charset + length), which rejects an
@@ -323,6 +342,23 @@ def _validate_backtest_params(start_date, end_date, strategy_prompt, model) -> N
             status_code=422,
             detail=f"strategy_prompt too long (max {MAX_STRATEGY_PROMPT_CHARS} characters).",
         )
+    if pipeline is not None:
+        if not isinstance(pipeline, list) or not pipeline:
+            raise HTTPException(status_code=422, detail="pipeline must be a non-empty array.")
+        if len(pipeline) > MAX_PIPELINE_STEPS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"pipeline too long (max {MAX_PIPELINE_STEPS} steps).",
+            )
+        try:
+            encoded = json.dumps(pipeline)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="pipeline must be JSON-serializable.")
+        if len(encoded) > MAX_PIPELINE_JSON_CHARS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"pipeline too large (max {MAX_PIPELINE_JSON_CHARS} characters).",
+            )
     start = _parse_ymd(start_date, "start_date")
     end = _parse_ymd(end_date, "end_date")
     if end < start:
@@ -332,6 +368,24 @@ def _validate_backtest_params(start_date, end_date, strategy_prompt, model) -> N
             status_code=422,
             detail=f"Date range too large (max {MAX_BACKTEST_DAYS} days).",
         )
+
+
+def _resolve_backtest_pipeline(
+    agent_id: Optional[str],
+    body_pipeline: Any,
+) -> Optional[List[Dict[str, Any]]]:
+    """Resolve the sub-agent pipeline for a backtest run."""
+    if body_pipeline is not None:
+        return body_pipeline
+    if not agent_id:
+        return None
+    agent = agent_service.get_agent(agent_id)
+    if not agent:
+        return None
+    pipeline = agent.get("pipeline")
+    if isinstance(pipeline, list) and pipeline:
+        return pipeline
+    return None
 
 
 def _resolve_backtest_session(request: Request, agent_id: Optional[str]) -> str:
@@ -374,17 +428,27 @@ async def run_backtest_endpoint(
     """
     # Body (when provided) overrides query params.
     agent_id: Optional[str] = None
+    pipeline: Optional[List[Dict[str, Any]]] = None
     if body is not None:
         start_date = body.start_date or start_date
         end_date = body.end_date or end_date
         strategy_prompt = body.strategy_prompt or strategy_prompt
         model = body.model or model
         agent_id = body.agent_id
+        if body.pipeline is not None:
+            pipeline = body.pipeline
+
+    pipeline = _resolve_backtest_pipeline(agent_id, pipeline)
+
+    if agent_id and not model:
+        agent = agent_service.get_agent(agent_id)
+        if agent and agent.get("model_name"):
+            model = agent["model_name"]
 
     # Guard operator LLM spend BEFORE scheduling anything. Validation first (so a
     # caller correcting a bad request isn't charged rate budget for a typo), then
     # the per-client run budget.
-    _validate_backtest_params(start_date, end_date, strategy_prompt, model)
+    _validate_backtest_params(start_date, end_date, strategy_prompt, model, pipeline)
     if not _backtest_rate_limiter.allow(client_key(request)):
         raise HTTPException(
             status_code=429,
@@ -394,8 +458,10 @@ async def run_backtest_endpoint(
     session_id = _resolve_backtest_session(request, agent_id)
     print(f"📌 /backtest/run endpoint called: start_date={start_date}, end_date={end_date}", flush=True)
     print(f"   Session: {session_id[:8]}...", flush=True)
-    if strategy_prompt:
+    if strategy_prompt and not pipeline:
         print(f"   Custom strategy prompt: {len(strategy_prompt)} chars", flush=True)
+    if pipeline:
+        print(f"   Sub-agent pipeline: {len(pipeline)} step(s)", flush=True)
     if model:
         print(f"   Model override: {model}", flush=True)
     
@@ -410,7 +476,7 @@ async def run_backtest_endpoint(
     print(f"🧵 Starting background thread for backtest", flush=True)
     thread = threading.Thread(
         target=run_backtest_background,
-        args=(start_date, end_date, session_id, strategy_prompt, model),
+        args=(start_date, end_date, session_id, strategy_prompt, model, pipeline),
         daemon=True
     )
     thread.start()
