@@ -24,9 +24,10 @@ def test_default_agent_id_unchanged():
     assert bot_mod.DEFAULT_AGENT_ID == "default"
 
 
-def test_command_names_and_registration_unchanged():
+def test_command_names_and_registration():
     names = {cmd.name for cmd in bot_mod.bot.tree.get_commands()}
-    assert {"ask", "reset", "agent"} <= names
+    assert {"reset", "agent", "backtest", "strategy", "atl"} <= names
+    assert "ask" not in names
 
 
 def test_bot_prefix_and_message_content_intent():
@@ -34,6 +35,68 @@ def test_bot_prefix_and_message_content_intent():
     expected = discord.Intents.default()
     expected.message_content = True
     assert bot_mod.bot.intents.value == expected.value
+
+
+def test_dm_welcome_copy():
+    assert "private" in bot_mod.DM_WELCOME.lower() or "dm" in bot_mod.DM_WELCOME.lower()
+    assert "backtest" in bot_mod.DM_WELCOME.lower()
+    assert "/atl" in bot_mod.DM_WELCOME or "show my agents" in bot_mod.DM_WELCOME
+
+
+def test_agent_status_line_none_selected():
+    bot_mod._selected_agents.clear()
+    line = bot_mod.agent_status_line("user-1")
+    assert "none selected" in line
+    assert "/agent" in line
+
+
+def test_agent_status_line_shows_selection():
+    bot_mod._selected_agents["user-1"] = {
+        "agent_id": "abc",
+        "name": "Haiku Trader",
+        "model_name": "claude-haiku-4-5-20251001",
+    }
+    line = bot_mod.agent_status_line("user-1")
+    assert "Haiku Trader" in line
+    assert "claude-haiku" in line
+    bot_mod._selected_agents.clear()
+
+
+def test_interaction_ephemeral_visible_in_guild_only():
+    class _GuildChannel:
+        pass
+
+    interaction = type("I", (), {"channel": _GuildChannel()})()
+    assert bot_mod.interaction_ephemeral(interaction) is True
+
+
+def test_chat_user_id_isolates_dm_and_guild():
+    dm = bot_mod.chat_user_id("42", is_dm=True)
+    guild = bot_mod.chat_user_id("42", is_dm=False)
+    assert dm != guild
+    assert dm == "discord:dm:42"
+    assert guild == "discord:guild:42"
+
+
+def test_detect_backtest_intent():
+    assert bot_mod.detect_backtest_intent("let's run backtest")
+    assert bot_mod.detect_backtest_intent("回测")
+    assert not bot_mod.detect_backtest_intent("what is a backtest?")
+
+
+def test_parse_text_slash_command():
+    assert bot_mod.parse_text_slash_command("/agent") == ("agent", "")
+    assert bot_mod.parse_text_slash_command("/backtest momentum") == (
+        "backtest",
+        "momentum",
+    )
+    assert bot_mod.parse_text_slash_command("hello") is None
+    assert bot_mod.parse_text_slash_command("/unknown") is None
+
+    assert bot_mod.is_backtest_confirmation("yes")
+    assert bot_mod.is_backtest_confirmation("确认")
+    assert bot_mod.is_backtest_cancellation("cancel")
+    assert bot_mod.is_backtest_cancellation("取消")
 
 
 def test_should_handle_free_chat():

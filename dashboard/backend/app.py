@@ -54,7 +54,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["content-type", "authorization", "x-session-id", "x-browser-id", "x-api-key", "accept"],
+    allow_headers=["content-type", "authorization", "x-session-id", "x-browser-id", "x-api-key", "x-discord-service-token", "accept"],
     # x-ratelimit-*/retry-after: the v2 spec promises these to agent clients;
     # browsers strip headers absent from Access-Control-Expose-Headers.
     expose_headers=["content-type", "cache-control", "etag", "x-session-id",
