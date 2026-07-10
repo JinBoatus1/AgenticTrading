@@ -6,7 +6,9 @@ import pytest
 import pytz
 
 from dashboard.backend.equity_plot import (
+    build_backtest_chart_data,
     compute_index_baseline_values,
+    gapless_chart_x_labels,
     gapless_market_axis,
     render_backtest_equity_png,
 )
@@ -41,6 +43,49 @@ def test_compute_index_baseline_values_scales_to_initial_capital(monkeypatch):
         100_000.0,
     )
     assert values == [100_000.0, pytest.approx(102_500.0)]
+
+
+def test_gapless_chart_x_labels_anchor_at_day_start():
+    et = pytz.timezone("US/Eastern")
+    stamps = [
+        et.localize(datetime(2026, 5, 1, 10, 30)),
+        et.localize(datetime(2026, 5, 1, 11, 30)),
+        et.localize(datetime(2026, 5, 4, 10, 30)),
+    ]
+    labels = gapless_chart_x_labels(stamps)
+    assert labels == ["2026-05-01", "", "2026-05-04"]
+
+
+def test_build_backtest_chart_data_uses_card_name(monkeypatch):
+    et = pytz.timezone("US/Eastern")
+    t0 = et.localize(datetime(2026, 5, 1, 10, 30))
+    t1 = et.localize(datetime(2026, 5, 1, 11, 30))
+    curve = [
+        {"timestamp": t0.isoformat(), "equity": 100_000},
+        {"timestamp": t1.isoformat(), "equity": 100_500},
+    ]
+
+    monkeypatch.setattr(
+        "dashboard.backend.equity_plot.market_index_baselines_for_run",
+        lambda *_a, **_k: [
+            ("DJIA index", "index:^DJI", [100_000, 99_800]),
+            ("Nasdaq-100", "index:^NDX", [100_000, 99_700]),
+        ],
+    )
+
+    payload = build_backtest_chart_data(
+        run_id="agent_test_1",
+        agent_name="Agent",
+        llm_model="claude-haiku-4.5",
+        start_date="2026-05-01",
+        end_date="2026-05-01",
+        initial_capital=100_000,
+        agent_curve=curve,
+        card_name="test agent 1",
+    )
+    assert payload["series"][0]["label"] == "test agent 1"
+    assert [s["label"] for s in payload["series"][1:]] == ["DJIA index", "Nasdaq-100"]
+    assert payload["x_labels"] == ["2026-05-01", ""]
 
 
 def test_render_backtest_equity_png_bytes():

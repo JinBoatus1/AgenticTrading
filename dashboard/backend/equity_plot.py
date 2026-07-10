@@ -17,7 +17,7 @@ import pytz
 from matplotlib.figure import Figure
 from matplotlib.ticker import FixedFormatter, FixedLocator, FuncFormatter, NullFormatter
 
-from dashboard.backend.chart_style import PLAYGROUND_THEME, series_color
+from dashboard.backend.chart_style import PLAYGROUND_THEME, series_color, series_kind
 from dashboard.backend.domain.leaderboard.strategies._yahoo import fetch_index_hourly
 
 _ET = pytz.timezone("US/Eastern")
@@ -135,6 +135,91 @@ def align_equity(reference: Sequence[datetime], lookup: Dict[datetime, float]) -
             raise ValueError("baseline curve missing equity for agent timestamps")
         values.append(last)
     return values
+
+
+def resolve_agent_chart_label(
+    agent_name: Optional[str],
+    llm_model: Optional[str] = None,
+    card_name: Optional[str] = None,
+) -> str:
+    """Human-readable legend label for an agent equity series.
+
+    Prefer the My Agents card name (``card_name``), then a non-generic run
+    ``agent_name``. ``llm_model`` is ignored for display — model ids belong in
+    metrics, not the chart legend.
+    """
+    _ = llm_model  # kept for call-site compatibility
+    label = (card_name or "").strip()
+    if label:
+        return label
+    name = (agent_name or "").strip()
+    if name and name.lower() != "agent":
+        return name
+    return name or "Agent"
+
+
+def gapless_chart_x_labels(timestamps: Sequence[datetime]) -> List[str]:
+    """Chart.js x labels: YYYY-MM-DD on the first bar of each trading day."""
+    if not timestamps:
+        return []
+    ts_et = [_to_et(ts) for ts in timestamps]
+    labels = [""] * len(ts_et)
+    i = 0
+    while i < len(ts_et):
+        labels[i] = ts_et[i].strftime("%Y-%m-%d")
+        day = ts_et[i].date()
+        i += 1
+        while i < len(ts_et) and ts_et[i].date() == day:
+            i += 1
+    return labels
+
+
+def build_backtest_chart_data(
+    *,
+    run_id: str,
+    agent_name: str,
+    llm_model: Optional[str],
+    start_date: str,
+    end_date: str,
+    initial_capital: float,
+    agent_curve: Sequence[Dict[str, Any]],
+    card_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """JSON chart payload for the Playground backtest page (matches plot.png baselines)."""
+    timestamps, agent_values = curve_timestamps_and_values(agent_curve)
+    if not timestamps:
+        raise ValueError("No equity data to plot for this run")
+
+    label = resolve_agent_chart_label(agent_name, llm_model, card_name)
+    series: List[Dict[str, Any]] = [
+        {
+            "run_id": run_id,
+            "label": label,
+            "values": list(agent_values),
+            "color": series_color(run_id, label),
+            "dashed": False,
+        }
+    ]
+
+    for bl_label, bl_run_id, bl_values in market_index_baselines_for_run(
+        timestamps, start_date, end_date, initial_capital
+    ):
+        series.append(
+            {
+                "run_id": bl_run_id,
+                "label": bl_label,
+                "values": list(bl_values),
+                "color": series_color(bl_run_id, bl_label),
+                "dashed": True,
+            }
+        )
+
+    return {
+        "agent_run_id": run_id,
+        "timestamps": [t.isoformat() for t in timestamps],
+        "x_labels": gapless_chart_x_labels(timestamps),
+        "series": series,
+    }
 
 
 def curve_timestamps_and_values(

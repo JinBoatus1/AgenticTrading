@@ -38,9 +38,11 @@ from dashboard.backend.middleware import get_session_id_from_request
 from dashboard.backend.api.rate_limit import FixedWindowRateLimiter, client_key
 from dashboard.backend.domain.agents.service import agent_service
 from dashboard.backend.equity_plot import (
+    build_backtest_chart_data,
     curve_timestamps_and_values,
     market_index_baselines_for_run,
     render_backtest_equity_png,
+    resolve_agent_chart_label,
 )
 
 router = APIRouter()
@@ -138,6 +140,21 @@ class EquityCurve(BaseModel):
 class ComparisonResponse(BaseModel):
     runs: List[EquityCurve]
     summary: dict
+
+
+class ChartSeries(BaseModel):
+    run_id: str
+    label: str
+    values: List[float]
+    color: str
+    dashed: bool = False
+
+
+class BacktestChartData(BaseModel):
+    agent_run_id: str
+    timestamps: List[str]
+    x_labels: List[str]
+    series: List[ChartSeries]
 
 
 # ============================================================================
@@ -532,6 +549,45 @@ async def compare_latest_backtests(request: Request):
     )
 
 
+@router.get("/api/backtest/{run_id}/chart-data", response_model=BacktestChartData)
+async def get_backtest_chart_data(run_id: str, request: Request):
+    """Chart-ready equity series for the Playground backtest page.
+
+    Uses the same DJIA index + Nasdaq-100 baselines and gapless market-hour
+    x-axis as ``/runs/{run_id}/plot.png`` (Discord chart).
+    """
+    session_id = get_session_id_from_request(request)
+    run = db.get_run_with_session(run_id, session_id)
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found or not yours")
+
+    agent_curve = filter_market_hours(db.get_equity_curve(run_id))
+    if not agent_curve:
+        raise HTTPException(status_code=404, detail="No equity data to plot for this run")
+
+    initial_capital = float(
+        run.get("initial_equity") or agent_curve[0].get("equity") or 100_000
+    )
+    agent_card = agent_service.agents.get_agent_by_session(session_id)
+    card_name = (agent_card or {}).get("name")
+
+    try:
+        payload = build_backtest_chart_data(
+            run_id=run_id,
+            agent_name=run.get("agent_name") or "Agent",
+            llm_model=run.get("llm_model"),
+            start_date=run.get("start_date") or "",
+            end_date=run.get("end_date") or "",
+            initial_capital=initial_capital,
+            agent_curve=agent_curve,
+            card_name=card_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return BacktestChartData(**payload)
+
+
 @router.get("/api/backtest/{run_id}", response_model=EquityCurve)
 async def get_backtest_run(run_id: str, request: Request):
     """Get specific backtest run with equity curve."""
@@ -658,7 +714,12 @@ def _render_run_plot_png(run_id: str) -> bytes:
     if not run:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
-    agent_label = run.get("agent_name") or "Agent"
+    agent_card = agent_service.agents.get_agent_by_session(run.get("session_id") or "")
+    agent_label = resolve_agent_chart_label(
+        run.get("agent_name"),
+        run.get("llm_model"),
+        (agent_card or {}).get("name"),
+    )
     agent_curve = filter_market_hours(db.get_equity_curve(run_id))
     timestamps, agent_values = curve_timestamps_and_values(agent_curve)
     if not timestamps:
