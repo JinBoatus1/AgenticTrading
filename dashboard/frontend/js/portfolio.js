@@ -53,14 +53,6 @@ const PORTFOLIO_MOCK = {
                 { label: 'Other', pct: 3.7,  value: 1269.99,  color: '#475569' },
             ],
         },
-        agent: {
-            total: 7500,
-            slices: [
-                { label: 'Momentum Alpha', pct: 40.0, value: 3000, color: '#22d3ee' },
-                { label: 'test discord bot', pct: 33.3, value: 2500, color: '#a855f7' },
-                { label: 'Risk Parity Bot', pct: 26.7, value: 2000, color: '#34d399' },
-            ],
-        },
     },
 };
 
@@ -194,7 +186,10 @@ function renderAllocationChart(key, data) {
                     callbacks: {
                         label: (ctx) => {
                             const slice = data.slices[ctx.dataIndex];
-                            return `${slice.label}: ${slice.pct}% · ${pfMoney(slice.value)}`;
+                            const amount = slice.assignedCapital != null
+                                ? slice.assignedCapital
+                                : slice.value;
+                            return `${slice.label}: ${slice.pct}% · ${pfMoney(amount)}`;
                         },
                     },
                 },
@@ -211,15 +206,18 @@ function renderAllocationChart(key, data) {
     if (legendEl) {
         const rows = data.slices
             .map(
-                (s) => `
+                (s) => {
+                    const displayValue = s.assignedCapital != null ? s.assignedCapital : s.value;
+                    return `
             <li class="allocation-legend-row">
                 <span class="allocation-legend-name">
                     <span class="allocation-legend-dot" style="background:${s.color}"></span>
                     ${s.label}
                 </span>
                 <span class="allocation-legend-pct">${s.pct}%</span>
-                <span class="allocation-legend-value">${pfMoney(s.value)}</span>
-            </li>`,
+                <span class="allocation-legend-value">${pfMoney(displayValue)}</span>
+            </li>`;
+                },
             )
             .join('');
         legendEl.innerHTML = rows;
@@ -227,33 +225,92 @@ function renderAllocationChart(key, data) {
 }
 
 // ---------------------------------------------------------------------------
-// Agent allocation (mock by default; can refresh from loaded agents)
+// Capital allocation by agent (portfolio-wide: assigned + unassigned)
 // ---------------------------------------------------------------------------
-const AGENT_ALLOCATION_COLORS = ['#22d3ee', '#a855f7', '#34d399', '#fbbf24', '#f87171', '#c084fc', '#475569'];
+const AGENT_SLICE_COLORS = ['#22d3ee', '#a855f7', '#34d399', '#fbbf24', '#f87171', '#c084fc', '#38bdf8', '#2dd4bf'];
+const UNASSIGNED_SLICE_COLOR = '#64748b';
 
-function buildAgentAllocationData(agents) {
-    const withCash = (agents || []).filter(
+function portfolioPct(value, totalPortfolioValue) {
+    const total = Number(totalPortfolioValue) || 0;
+    if (total <= 0) return 0;
+    return Math.round((Number(value) / total) * 1000) / 10;
+}
+
+function getTotalPortfolioValue() {
+    return Number(PORTFOLIO_MOCK.summary.totalValue) || 0;
+}
+
+function buildAgentAllocationData(agents, totalPortfolioValue) {
+    const total = Number(totalPortfolioValue) || 0;
+
+    const assignedAgents = (agents || []).filter(
         (agent) => agent.cash_allocation != null && Number(agent.cash_allocation) > 0,
     );
-    if (!withCash.length) {
-        return PORTFOLIO_MOCK.allocations.agent;
+
+    if (total <= 0) {
+        return {
+            total: 0,
+            slices: [{ label: 'Unassigned', value: 0, pct: 0, color: UNASSIGNED_SLICE_COLOR }],
+        };
     }
 
-    const total = withCash.reduce((sum, agent) => sum + Number(agent.cash_allocation), 0);
-    const slices = withCash.map((agent, index) => {
-        const value = Number(agent.cash_allocation);
+    if (!assignedAgents.length) {
         return {
-            label: agent.name || 'Agent',
-            value,
-            pct: total > 0 ? Math.round((value / total) * 1000) / 10 : 0,
-            color: AGENT_ALLOCATION_COLORS[index % AGENT_ALLOCATION_COLORS.length],
+            total,
+            slices: [{
+                label: 'Unassigned',
+                value: total,
+                pct: 100,
+                color: UNASSIGNED_SLICE_COLOR,
+            }],
         };
+    }
+
+    const assignedTotal = assignedAgents.reduce(
+        (sum, agent) => sum + Number(agent.cash_allocation),
+        0,
+    );
+    const unassigned = Math.max(total - assignedTotal, 0);
+    const overAllocated = assignedTotal > total;
+    const chartScale = overAllocated && assignedTotal > 0 ? total / assignedTotal : 1;
+
+    const slices = [];
+
+    if (unassigned > 0) {
+        slices.push({
+            label: 'Unassigned',
+            value: unassigned,
+            pct: portfolioPct(unassigned, total),
+            color: UNASSIGNED_SLICE_COLOR,
+        });
+    }
+
+    assignedAgents.forEach((agent, index) => {
+        const assignedCapital = Number(agent.cash_allocation);
+        const chartValue = assignedCapital * chartScale;
+        slices.push({
+            label: agent.name || 'Agent',
+            value: chartValue,
+            assignedCapital,
+            pct: portfolioPct(assignedCapital, total),
+            color: AGENT_SLICE_COLORS[index % AGENT_SLICE_COLORS.length],
+        });
     });
-    return { total, slices };
+
+    if (!slices.length) {
+        slices.push({
+            label: 'Unassigned',
+            value: total,
+            pct: 100,
+            color: UNASSIGNED_SLICE_COLOR,
+        });
+    }
+
+    return { total, slices, overAllocated };
 }
 
 function updateAgentAllocationFromAgents(agents) {
-    renderAllocationChart('agent', buildAgentAllocationData(agents));
+    renderAllocationChart('agent', buildAgentAllocationData(agents, getTotalPortfolioValue()));
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +323,7 @@ function renderPortfolio(agents) {
     renderAllocationChart('asset', data.allocations.asset);
     renderAllocationChart('stock', data.allocations.stock);
     renderAllocationChart('crypto', data.allocations.crypto);
-    renderAllocationChart('agent', buildAgentAllocationData(agents));
+    renderAllocationChart('agent', buildAgentAllocationData(agents, getTotalPortfolioValue()));
 }
 
 window.renderPortfolio = renderPortfolio;
