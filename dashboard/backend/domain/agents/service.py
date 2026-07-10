@@ -16,7 +16,7 @@ preserved exactly; only the call site moved.
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from dashboard.backend.domain.agents.repository import agent_store
+from dashboard.backend.domain.agents.repository import agent_store, _UNSET
 from dashboard.backend.domain.agents.version_repository import (
     VALID_EXECUTION_MODES,
     VALID_VERIFICATION_LEVELS,
@@ -142,6 +142,8 @@ class AgentService:
         *,
         user_id: Optional[int] = None,
         browser_session: Optional[str] = None,
+        trading_session: Optional[str] = None,
+        reclaim_on_session_match: bool = False,
     ) -> Dict[str, Any]:
         agent = self.agents.get_agent(agent_id)
         if not agent:
@@ -152,10 +154,19 @@ class AgentService:
             owner_browser_session=browser_session,
         ):
             return agent
-        # A matching trading session_id is intentionally NOT accepted here: it is
-        # discoverable, so it cannot serve as an ownership credential. Callers
-        # that hold the agent's API key are authorized at the route/dependency
-        # layer instead (see api/dependencies._require_agent_access).
+        if (
+            reclaim_on_session_match
+            and trading_session
+            and browser_session
+            and agent.get("session_id") == trading_session
+        ):
+            self.agents.reclaim_agent(
+                agent_id,
+                owner_user_id=user_id,
+                owner_browser_session=browser_session,
+            )
+            reclaimed = self.agents.get_agent(agent_id)
+            return reclaimed or agent
         raise AgentAccessDeniedError()
 
     # ------------------------------------------------------------------
@@ -164,6 +175,21 @@ class AgentService:
 
     def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
         return self.agents.get_agent(agent_id)
+
+    def update_agent(
+        self,
+        agent_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        pipeline: Any = _UNSET,
+    ) -> Dict[str, Any]:
+        agent = self.agents.update_agent(
+            agent_id, name=name, description=description, pipeline=pipeline
+        )
+        if not agent:
+            raise AgentNotFoundError()
+        return self.agent_with_stats(agent)
 
     def create_agent(
         self,

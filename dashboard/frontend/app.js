@@ -16,15 +16,12 @@ const NAV_STATE_KEY = 'nav-state';
 const DISCORD_SERVER_URL = 'https://discord.gg/9HnQ6XDG98';
 
 function initSession() {
-  // Stable browser identity — never changes when switching agents
+  // Stable browser identity — never changes when switching agents.
+  // Bootstrap from trading-session-id so legacy agents whose
+  // owner_browser_session equals their session id keep working.
   let browserOwnerId = localStorage.getItem(BROWSER_OWNER_KEY);
   if (!browserOwnerId) {
-    const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
-    if (!activeId) {
-      browserOwnerId = localStorage.getItem('trading-session-id') || crypto.randomUUID();
-    } else {
-      browserOwnerId = crypto.randomUUID();
-    }
+    browserOwnerId = localStorage.getItem('trading-session-id') || crypto.randomUUID();
     localStorage.setItem(BROWSER_OWNER_KEY, browserOwnerId);
   }
   window.BROWSER_OWNER_ID = browserOwnerId;
@@ -190,12 +187,31 @@ const MOCK_AGENTS = [
 let allAgents = [];
 let agentViewMode = 'grid';
 
+// Demo/mock agents (MOCK_AGENTS) have no database row, so renames made in the editor
+// are stored locally under `agent-name-override:{id}`. Real agents use the same key
+// only when a server PATCH fails, so the edited name still shows in the UI.
+function applyAgentNameOverride(agent) {
+  if (!agent || !agent.agent_id) return agent;
+  try {
+    const raw = localStorage.getItem(`agent-name-override:${agent.agent_id}`);
+    if (!raw) return agent;
+    const override = JSON.parse(raw);
+    return {
+      ...agent,
+      name: override.name || agent.name,
+      description: override.description ?? agent.description,
+    };
+  } catch (e) {
+    return agent;
+  }
+}
+
 function applyAgentFilters() {
   const filter = document.getElementById('agentFilterSelect')?.value || 'all';
   const query = (document.getElementById('agentSearchInput')?.value || '').trim().toLowerCase();
   const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
 
-  let list = allAgents.slice();
+  let list = allAgents.map(applyAgentNameOverride);
   if (filter === 'builtin') {
     list = list.filter((a) => a.agent_type === 'builtin');
   } else if (filter === 'external') {
@@ -759,7 +775,9 @@ const API = {
       
       if (!response.ok) {
         const errorMsg = data.detail || data.error || data.message || `HTTP ${response.status}`;
-        throw new Error(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+        const error = new Error(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+        error.status = response.status;
+        throw error;
       }
       
       return data;
@@ -775,6 +793,14 @@ const API = {
   
   post(endpoint, data) {
     return this.request(endpoint, { method: 'POST', body: JSON.stringify(data) });
+  },
+
+  patch(endpoint, data, extraHeaders = {}) {
+    return this.request(endpoint, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+      headers: extraHeaders,
+    });
   },
 };
 
@@ -1090,6 +1116,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSession();
     initAuthUI();
     applyInitialNavigation();
+    window.addEventListener('agent-editor-saved', async (event) => {
+        const agent = event.detail?.agent;
+        if (agent?.agent_id) {
+            const idx = allAgents.findIndex((a) => a.agent_id === agent.agent_id);
+            if (idx >= 0) {
+                allAgents[idx] = { ...allAgents[idx], ...agent };
+            }
+            applyAgentFilters();
+        }
+        if (agent?.agent_id === localStorage.getItem(ACTIVE_AGENT_KEY)) {
+            localStorage.setItem(ACTIVE_AGENT_NAME_KEY, agent.name || '');
+            const nameEl = document.getElementById('playgroundAgentName');
+            if (nameEl) nameEl.textContent = agent.name || 'Agent';
+        }
+        await loadAgents();
+    });
     await restoreActiveAgentSession();
     const config = loadConfigFromURL();
     window.CURRENT_CONFIG = config;

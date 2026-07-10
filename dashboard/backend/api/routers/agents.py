@@ -7,12 +7,14 @@ exception messages, ownership/auth behavior, and ``AgentService`` calls are
 unchanged; only the module location moved.
 """
 
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from dashboard.backend.domain.agents.repository import _UNSET
 from dashboard.backend.domain.agents.service import (
+    AgentNotFoundError,
     NoExternalRunsError,
     agent_service,
 )
@@ -30,6 +32,24 @@ class CreateAgentBody(BaseModel):
     model_name: str = Field(default="local-model", max_length=100)
     agent_type: str = Field(default="external", max_length=20)
     description: Optional[str] = Field(default=None, max_length=280)
+
+
+class PipelineStep(BaseModel):
+    """One sub-agent in the editor pipeline. Extra keys are ignored."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: Optional[str] = Field(default=None, max_length=100)
+    presetKey: Optional[str] = Field(default=None, max_length=50)
+    label: str = Field(default="Sub-agent", max_length=100)
+    prompt: str = Field(default="", max_length=8000)
+    outputFormat: str = Field(default="", max_length=8000)
+
+
+class UpdateAgentBody(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=280)
+    pipeline: Optional[List[PipelineStep]] = Field(default=None, max_length=50)
 
 
 @router.post("")
@@ -195,6 +215,42 @@ async def get_agent(
     return {"agent": agent_service.agent_with_stats(agent)}
 
 
+@router.patch("/{agent_id}")
+async def update_agent(
+    agent_id: str,
+    body: UpdateAgentBody,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+):
+    """Update agent display name, description, and/or sub-agent pipeline."""
+    ctx = _require_owner_context(request, authorization)
+    _require_agent_access(agent_id, ctx, reclaim_on_session_match=True)
+    fields_set = body.model_fields_set
+    pipeline_provided = "pipeline" in fields_set
+    if body.name is None and body.description is None and not pipeline_provided:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    if pipeline_provided:
+        pipeline_arg = (
+            [step.model_dump() for step in body.pipeline]
+            if body.pipeline is not None
+            else None
+        )
+    else:
+        pipeline_arg = _UNSET
+
+    try:
+        agent = agent_service.update_agent(
+            agent_id,
+            name=body.name.strip() if body.name is not None else None,
+            description=body.description,
+            pipeline=pipeline_arg,
+        )
+    except AgentNotFoundError:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return {"agent": agent}
+
+
 @router.delete("/{agent_id}")
 async def delete_agent(
     agent_id: str,
@@ -236,7 +292,7 @@ async def activate_agent(
 ):
     """Return session info for switching the dashboard to this agent."""
     ctx = _require_owner_context(request, authorization)
-    agent = _require_agent_access(agent_id, ctx)
+    agent = _require_agent_access(agent_id, ctx, reclaim_on_session_match=True)
     agent_service.activate_agent(
         agent_id,
         user_id=ctx.get("user_id"),

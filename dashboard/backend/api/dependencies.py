@@ -65,6 +65,7 @@ def _require_agent_access(
     ctx: Dict[str, Any],
     *,
     api_key: Optional[str] = None,
+    reclaim_on_session_match: bool = False,
 ) -> Dict[str, Any]:
     # The agent's own API key is a valid credential for its own agent — this is
     # how API-only clients (which have no logged-in user or browser session)
@@ -78,6 +79,8 @@ def _require_agent_access(
             agent_id,
             user_id=ctx.get("user_id"),
             browser_session=ctx.get("browser_session"),
+            trading_session=ctx.get("trading_session"),
+            reclaim_on_session_match=reclaim_on_session_match,
         )
     except AgentNotFoundError:
         raise HTTPException(status_code=404, detail="Agent not found")
