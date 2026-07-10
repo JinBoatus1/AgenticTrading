@@ -1547,6 +1547,51 @@ a.header-brand:hover .title-section h1 {
     font-weight: 700;
 }
 
+.trading-log-scroll {
+    max-height: 280px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: rgba(8, 18, 40, 0.35);
+}
+
+.trading-log-scroll .decision-table {
+    margin-bottom: 0;
+}
+
+.trading-log-scroll .decision-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background-color: var(--bg-input);
+    box-shadow: 0 1px 0 var(--border-color);
+}
+
+.trading-log-scroll::-webkit-scrollbar {
+    width: 8px;
+}
+
+.trading-log-scroll::-webkit-scrollbar-track {
+    background: var(--bg-card);
+}
+
+.trading-log-scroll::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 4px;
+}
+
+.trading-log-scroll::-webkit-scrollbar-thumb:hover {
+    background: #5a6574;
+}
+
+.trading-log-empty {
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 1.25rem 0;
+    font-size: 0.9rem;
+}
+
 .action-hold {
     color: var(--text-secondary);
     font-weight: 700;
@@ -3723,6 +3768,74 @@ a.header-brand:hover .title-section h1 {
     color: var(--danger-color);
 }
 
+.backtest-run-progress {
+    margin-top: 12px;
+    padding: 14px 16px;
+    border: 1px solid rgba(34, 211, 238, 0.35);
+    background: rgba(34, 211, 238, 0.06);
+}
+
+.backtest-run-progress-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.backtest-run-progress-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.backtest-run-elapsed {
+    font-size: 13px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--home-accent-cyan, #22d3ee);
+}
+
+.backtest-run-progress-track {
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.backtest-run-progress-bar {
+    height: 100%;
+    width: 0%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(34, 211, 238, 0.85), rgba(0, 191, 255, 0.95));
+    transition: width 0.8s ease;
+}
+
+.backtest-run-progress-message {
+    margin: 0 0 6px;
+    font-size: 12px;
+    color: var(--text-primary);
+    line-height: 1.45;
+}
+
+.backtest-run-progress-hint {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.backtest-run-progress.is-error {
+    border-color: rgba(248, 113, 113, 0.45);
+    background: rgba(248, 113, 113, 0.08);
+}
+
+.backtest-run-progress.is-error .backtest-run-elapsed {
+    color: #f87171;
+}
+
 .algo-setup-status {
     margin-top: 8px;
     padding: 10px 14px;
@@ -4452,12 +4565,13 @@ a.header-brand:hover .title-section h1 {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    max-height: 140px;
-    overflow-y: auto;
 }
 
 .agent-run-link {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     width: 100%;
     padding: 6px 8px;
     border-radius: 4px;
@@ -4468,6 +4582,18 @@ a.header-brand:hover .title-section h1 {
     text-align: left;
     cursor: pointer;
     transition: border-color 0.15s, color 0.15s;
+}
+
+.agent-run-primary {
+    color: var(--text-primary);
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.agent-run-secondary {
+    color: var(--text-muted);
+    font-size: 10px;
+    line-height: 1.3;
 }
 
 .agent-run-link:hover {
@@ -5258,10 +5384,126 @@ body.agent-editor-open {
     flex: 1;
     overflow-y: auto;
     padding: 20px 24px 32px;
-    max-width: 1100px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.agent-editor-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 24px;
+    max-width: 1400px;
     width: 100%;
     margin: 0 auto;
-    box-sizing: border-box;
+    align-items: start;
+}
+
+.agent-editor-main {
+    min-width: 0;
+}
+
+.agent-editor-history {
+    position: sticky;
+    top: 12px;
+    align-self: start;
+}
+
+.agent-editor-history-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: calc(100vh - 120px);
+}
+
+.agent-editor-history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.agent-editor-history-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.agent-editor-run-count {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--home-accent-cyan, #22d3ee);
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(34, 211, 238, 0.1);
+    border: 1px solid rgba(34, 211, 238, 0.25);
+}
+
+.agent-editor-history-hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+.agent-editor-run-history {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow-y: auto;
+    min-height: 120px;
+}
+
+.agent-editor-run-empty {
+    margin: 0;
+    padding: 12px;
+    border-radius: 6px;
+    border: 1px dashed var(--border-color);
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.agent-editor-run-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.agent-editor-run-item:hover {
+    border-color: var(--info-color);
+    background: rgba(0, 191, 255, 0.08);
+    color: var(--text-primary);
+}
+
+.agent-editor-run-primary {
+    color: var(--text-primary);
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.agent-editor-run-secondary {
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.3;
+}
+
+.agent-editor-run-meta {
+    color: var(--text-secondary);
+    font-size: 10px;
+    line-height: 1.3;
 }
 
 .agent-editor-intro-head {
@@ -5573,6 +5815,25 @@ body.agent-editor-open {
 
 .agent-action-btn.agent-edit-btn:hover {
     background: rgba(34, 211, 238, 0.24);
+}
+
+@media (max-width: 1100px) {
+    .agent-editor-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .agent-editor-history {
+        position: static;
+        max-height: none;
+    }
+
+    .agent-editor-history-card {
+        max-height: none;
+    }
+
+    .agent-editor-run-history {
+        max-height: 360px;
+    }
 }
 
 @media (max-width: 900px) {

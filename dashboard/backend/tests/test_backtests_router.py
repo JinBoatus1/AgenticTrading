@@ -8,6 +8,8 @@
 """
 
 import inspect
+import json
+import time
 import uuid
 
 import pytest
@@ -106,7 +108,14 @@ class _Spy:
 @pytest.fixture(autouse=True)
 def _reset_backtest_guards(monkeypatch):
     bt._backtest_rate_limiter.reset()
-    bt.backtest_status.update({"running": False, "error": None, "runs_count": 0})
+    bt.backtest_status.update({
+        "running": False,
+        "error": None,
+        "runs_count": 0,
+        "started_at": None,
+        "progress_file": None,
+        "live_run_id": None,
+    })
     # Safety net: no test in this file may launch a real backtest thread.
     monkeypatch.setattr(bt, "run_backtest_background", lambda *a, **k: None)
     yield
@@ -246,6 +255,74 @@ def test_backtest_run_rejects_bad_date_format():
         headers=_sess(),
     )
     assert resp.status_code == 422
+
+
+def test_backtest_status_includes_live_progress(tmp_path):
+    progress_file = tmp_path / "progress.json"
+    progress_file.write_text(json.dumps({
+        "run_id": "agent_test",
+        "step": 5,
+        "total_steps": 100,
+        "equity_curve": [{"timestamp": "2026-05-01T10:00:00", "equity": 100500, "cash": 50000, "positions_value": 50500}],
+        "trades": [{
+            "timestamp": "2026-05-01T10:00:00",
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 10,
+            "price": 150.25,
+            "value": 1502.5,
+        }],
+    }), encoding="utf-8")
+    bt.backtest_status.update({
+        "running": True,
+        "error": None,
+        "started_at": time.time(),
+        "progress_file": str(progress_file),
+        "live_run_id": "agent_test",
+    })
+    resp = TestClient(app).get("/backtest/status", headers=_sess())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["running"] is True
+    assert body["progress"]["step"] == 5
+    assert body["progress"]["total_steps"] == 100
+    assert len(body["progress"]["equity_curve"]) == 1
+    assert len(body["progress"]["equity_curve"]) == 1
+    assert len(body["progress"]["trades"]) == 1
+    assert body["progress"]["trades"][0]["symbol"] == "AAPL"
+    assert "step 5/100" in body["message"]
+
+
+def test_get_run_trades_endpoint(client, monkeypatch):
+    session_id = str(uuid.uuid4())
+    run_id = "agent_test_trades"
+
+    def fake_get_run_with_session(rid, sid):
+        if rid == run_id and sid == session_id:
+            return {"run_id": run_id, "agent_name": "Agent", "mode": "backtest"}
+        return None
+
+    def fake_get_trades(rid):
+        if rid == run_id:
+            return [{
+                "timestamp": "2026-05-01T10:00:00",
+                "symbol": "MSFT",
+                "quantity": 5,
+                "side": "BUY",
+                "price": 380.5,
+                "value": 1902.5,
+            }]
+        return []
+
+    monkeypatch.setattr(bt.db, "get_run_with_session", fake_get_run_with_session)
+    monkeypatch.setattr(bt.db, "get_trades", fake_get_trades)
+
+    resp = client.get(f"/runs/{run_id}/trades", headers={"X-Session-Id": session_id})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["run_id"] == run_id
+    assert body["count"] == 1
+    assert body["trades"][0]["symbol"] == "MSFT"
 
 
 def test_backtest_run_rate_limited_per_client(monkeypatch):

@@ -50,12 +50,16 @@ class _FakeDB:
     def __init__(self):
         self.runs = []
         self.equity_points = []
+        self.trades = []
 
     def insert_run(self, **kwargs):
         self.runs.append(kwargs)
 
     def insert_equity_points(self, run_id, points):
         self.equity_points.append((run_id, list(points)))
+
+    def insert_trades(self, run_id, trades):
+        self.trades.append((run_id, list(trades)))
 
 
 def _make_bars(symbols, n_hours=70):

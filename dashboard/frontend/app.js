@@ -11,9 +11,11 @@
 const ACTIVE_AGENT_KEY = 'active-agent-id';
 const ACTIVE_AGENT_NAME_KEY = 'active-agent-name';
 const BROWSER_OWNER_KEY = 'browser-owner-id';
+const HIDDEN_DEMO_AGENTS_KEY = 'hidden-demo-agent-ids';
 const SELECTED_BACKTEST_RUN_KEY = 'selected-backtest-run-id';
 const NAV_STATE_KEY = 'nav-state';
 const DISCORD_SERVER_URL = 'https://discord.gg/9HnQ6XDG98';
+const BACKTEST_POLL_MAX_SECONDS = 600; // 10 minutes at 1-second polling intervals
 
 function initSession() {
   // Stable browser identity — never changes when switching agents.
@@ -241,14 +243,39 @@ function setAgentViewMode(mode) {
   document.getElementById('agentViewList')?.classList.toggle('active', agentViewMode === 'list');
 }
 
-// Demo mode: only then may the page show illustrative MOCK_AGENTS. Real users
-// (production host, no ?demo flag) see the genuine empty/error states instead of
-// fabricated agents.
+function isDemoAgent(agentId) {
+  return typeof agentId === 'string' && agentId.startsWith('mock-');
+}
+
+function getHiddenDemoAgentIds() {
+  try {
+    const raw = localStorage.getItem(HIDDEN_DEMO_AGENTS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function hideDemoAgent(agentId) {
+  const hidden = getHiddenDemoAgentIds();
+  if (!hidden.includes(agentId)) {
+    hidden.push(agentId);
+    localStorage.setItem(HIDDEN_DEMO_AGENTS_KEY, JSON.stringify(hidden));
+  }
+}
+
+function visibleMockAgents() {
+  const hidden = new Set(getHiddenDemoAgentIds());
+  return MOCK_AGENTS.filter((agent) => !hidden.has(agent.agent_id));
+}
+
+// Demo mode is opt-in via ?demo=1 so local development does not show fake agents
+// that cannot be deleted from the database.
 function isDemoMode() {
   try {
     const params = new URLSearchParams(window.location.search);
-    if (params.has('demo')) return params.get('demo') !== '0';
-    return ['localhost', '127.0.0.1', ''].includes(window.location.hostname);
+    return params.get('demo') === '1';
   } catch (e) {
     return false;
   }
@@ -394,6 +421,15 @@ function renderAgentsGrid(agents) {
       const agentId = btn.dataset.agentId;
       if (!agentId || !confirm('Remove this agent? Backtest history stays in the database.')) return;
       try {
+        if (isDemoAgent(agentId)) {
+          hideDemoAgent(agentId);
+          if (localStorage.getItem(ACTIVE_AGENT_KEY) === agentId) {
+            localStorage.removeItem(ACTIVE_AGENT_KEY);
+            localStorage.removeItem(ACTIVE_AGENT_NAME_KEY);
+          }
+          await loadAgents();
+          return;
+        }
         await API.request(`${API_BASE}/api/v1/agents/${agentId}`, { method: 'DELETE' });
         if (localStorage.getItem(ACTIVE_AGENT_KEY) === agentId) {
           localStorage.removeItem(ACTIVE_AGENT_KEY);
@@ -425,16 +461,87 @@ function renderAgentTokenCost(agent) {
 }
 
 function renderAgentRunList(agent) {
-  const runs = agent.runs || [];
+  const runs = (agent.runs || []).slice(0, 3);
   if (!runs.length) return '';
   const items = runs
-    .slice(0, 8)
     .map(
-      (run) =>
-        `<button type="button" class="agent-run-link" data-agent-id="${escapeHtml(agent.agent_id)}" data-run-id="${escapeHtml(run.run_id)}">${escapeHtml(formatBacktestRunLabel(run))}</button>`,
+      (run) => `
+        <button type="button" class="agent-run-link" data-agent-id="${escapeHtml(agent.agent_id)}" data-run-id="${escapeHtml(run.run_id)}">
+          <span class="agent-run-primary">${escapeHtml(formatBacktestRunPrimary(run))}</span>
+          <span class="agent-run-secondary">${escapeHtml(formatBacktestRunSecondary(run))}</span>
+        </button>`,
     )
     .join('');
   return `<div class="agent-run-list">${items}</div>`;
+}
+
+function listBacktestableAgents() {
+  return (allAgents || []).filter((agent) => agent?.agent_id && !isDemoAgent(agent.agent_id));
+}
+
+function populateBacktestAgentSelect() {
+  const select = document.getElementById('backtestAgentSelect');
+  if (!select) return;
+
+  const agents = listBacktestableAgents();
+  const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
+
+  if (!agents.length) {
+    select.innerHTML = '<option value="">No agents yet — create one in My Agents</option>';
+    select.disabled = true;
+    return;
+  }
+
+  select.disabled = false;
+  select.innerHTML = agents
+    .map((agent) => {
+      const type = agent.agent_type === 'builtin' ? 'Built-in' : 'External';
+      const model = agent.model_name || 'local-model';
+      const label = `${agent.name} · ${model} · ${type}`;
+      return `<option value="${escapeHtml(agent.agent_id)}">${escapeHtml(label)}</option>`;
+    })
+    .join('');
+
+  const selectedId =
+    activeId && agents.some((agent) => agent.agent_id === activeId)
+      ? activeId
+      : agents[0].agent_id;
+  select.value = selectedId;
+}
+
+function syncModelSelectFromAgent(agent) {
+  const modelSelect = document.getElementById('modelSelect');
+  if (!modelSelect || !agent?.model_name) return;
+  const hasOption = Array.from(modelSelect.options).some(
+    (option) => option.value === agent.model_name,
+  );
+  if (hasOption) {
+    modelSelect.value = agent.model_name;
+  }
+}
+
+function getSelectedBacktestAgent() {
+  const select = document.getElementById('backtestAgentSelect');
+  if (select?.value) {
+    const agent = allAgents.find((item) => item.agent_id === select.value);
+    if (agent) return agent;
+  }
+  return resolveActiveAgentForBacktest();
+}
+
+async function onBacktestAgentSelectChange() {
+  const select = document.getElementById('backtestAgentSelect');
+  if (!select?.value) return;
+  const agent = allAgents.find((item) => item.agent_id === select.value);
+  if (!agent) return;
+
+  await activateAgent(agent);
+  syncModelSelectFromAgent(agent);
+  localStorage.removeItem(SELECTED_BACKTEST_RUN_KEY);
+  if (currentMode === 'backtest') {
+    await loadData();
+    loadPerformanceMetrics();
+  }
 }
 
 async function loadAgents() {
@@ -475,20 +582,23 @@ async function loadAgents() {
     // backend. Real users get the genuine empty-state (rendered by
     // renderAgentsGrid) instead of fabricated agents.
     if (!agents.length && isDemoMode()) {
-      agents = MOCK_AGENTS;
+      agents = visibleMockAgents();
     }
 
     allAgents = agents;
     applyAgentFilters();
+    populateBacktestAgentSelect();
   } catch (error) {
     console.warn('Failed to load agents:', error.message);
     if (isDemoMode()) {
-      allAgents = MOCK_AGENTS;
+      allAgents = visibleMockAgents();
       applyAgentFilters();
+      populateBacktestAgentSelect();
     } else {
       // Real backend outage: show a distinct error-state, never fake data.
       allAgents = [];
       renderAgentsError();
+      populateBacktestAgentSelect();
     }
   }
 }
@@ -1101,6 +1211,10 @@ function initAuthUI() {
 window.DEFAULT_RUNS = {};
 
 let chartInstance = null;
+let liveBacktestChartActive = false;
+let liveBacktestChartMeta = { timestamps: [] };
+let tradingLogCache = [];
+let tradingLogFilter = 'all';
 let currentMode = "home";
 let currentPage = "home";
 let playgroundTab = "agents";
@@ -1130,6 +1244,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (nameEl) nameEl.textContent = agent.name || 'Agent';
         }
         await loadAgents();
+    });
+    window.addEventListener('agent-editor-open-run', async (event) => {
+        const { agent, runId } = event.detail || {};
+        if (!agent || !runId) return;
+        if (window.AgentEditor) window.AgentEditor.close(true);
+        await activateAgent(agent);
+        localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, runId);
+        navigateToPage('playground', { playgroundTab: 'backtest' });
+        currentMode = 'backtest';
+        await loadData();
     });
     await restoreActiveAgentSession();
     const config = loadConfigFromURL();
@@ -1181,6 +1305,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                 localStorage.removeItem(SELECTED_BACKTEST_RUN_KEY);
             }
             await loadData();
+        });
+    }
+
+    const tradingLogFilterSelect = document.getElementById('tradingLogFilter');
+    if (tradingLogFilterSelect) {
+        tradingLogFilterSelect.addEventListener('change', () => {
+            tradingLogFilter = tradingLogFilterSelect.value || 'all';
+            renderTradingLog(tradingLogCache, {
+                emptyMessage: tradingLogCache.length
+                    ? 'No trades match this filter.'
+                    : 'Run a backtest to see trades here.',
+            });
+        });
+    }
+
+    const backtestAgentSelect = document.getElementById('backtestAgentSelect');
+    if (backtestAgentSelect) {
+        backtestAgentSelect.addEventListener('change', () => {
+            onBacktestAgentSelectChange();
         });
     }
 
@@ -2019,6 +2162,300 @@ function getSelectedAssets() {
     }
 }
 
+/**
+ * Load the saved sub-agent pipeline for an agent (backend or localStorage).
+ */
+function loadAgentPipelineForBacktest(agent) {
+    if (!agent) return null;
+    if (Array.isArray(agent.pipeline) && agent.pipeline.length) {
+        return agent.pipeline;
+    }
+    if (!agent.agent_id || typeof agent.agent_id !== 'string') return null;
+    try {
+        const raw = localStorage.getItem(`agent-pipeline-config:${agent.agent_id}`);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.subAgents) && parsed.subAgents.length) {
+            return parsed.subAgents.map((sub) => ({
+                id: sub.id,
+                presetKey: sub.presetKey,
+                label: sub.label,
+                prompt: sub.prompt,
+                outputFormat: sub.outputFormat,
+            }));
+        }
+    } catch (error) {
+        console.warn('Could not load local pipeline config:', error);
+    }
+    return null;
+}
+
+/**
+ * Resolve the active agent object for backtest (API-backed or mock list).
+ */
+function resolveActiveAgentForBacktest() {
+    if (window.ACTIVE_AGENT?.agent_id) {
+        return window.ACTIVE_AGENT;
+    }
+    const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
+    if (!activeId) return null;
+    if (typeof allAgents !== 'undefined' && Array.isArray(allAgents)) {
+        const found = allAgents.find((a) => a.agent_id === activeId);
+        if (found) return found;
+    }
+    return null;
+}
+
+function formatBacktestElapsed(seconds) {
+    const total = Math.max(0, Number(seconds) || 0);
+    const minutes = Math.floor(total / 60);
+    const secs = total % 60;
+    return `${minutes}:${String(secs).padStart(2, '0')}`;
+}
+
+function showBacktestRunProgress(show, { isError = false } = {}) {
+    const panel = document.getElementById('backtestRunProgress');
+    if (!panel) return;
+    panel.hidden = !show;
+    panel.classList.toggle('is-error', !!isError);
+}
+
+function updateBacktestRunProgress({ elapsedSeconds = 0, message = '', maxSeconds = BACKTEST_POLL_MAX_SECONDS, stepPct = null }) {
+    const elapsedEl = document.getElementById('backtestRunElapsed');
+    const messageEl = document.getElementById('backtestRunProgressMessage');
+    const barEl = document.getElementById('backtestRunProgressBar');
+    const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
+
+    if (elapsedEl) elapsedEl.textContent = formatBacktestElapsed(elapsed);
+    if (messageEl && message) messageEl.textContent = message;
+    if (barEl) {
+        const pct = Number.isFinite(stepPct)
+            ? Math.min(99, Math.round(stepPct))
+            : Math.min(95, Math.round((elapsed / maxSeconds) * 100));
+        barEl.style.width = `${pct}%`;
+    }
+}
+
+function getPerformanceChartOptions(timestampMeta) {
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: {
+            mode: 'index',
+            intersect: false,
+        },
+        plugins: {
+            legend: {
+                display: true,
+                labels: {
+                    color: '#e5e7eb',
+                    font: { size: 12, weight: '600' },
+                    padding: 15,
+                    usePointStyle: true,
+                    pointStyle: 'line',
+                    boxWidth: 12,
+                    boxHeight: 2,
+                }
+            },
+            tooltip: {
+                enabled: true,
+                backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                titleColor: '#e5e7eb',
+                bodyColor: '#e5e7eb',
+                borderColor: '#1f2937',
+                borderWidth: 1,
+                padding: 12,
+                displayColors: true,
+                callbacks: {
+                    title(context) {
+                        if (context.length > 0) {
+                            const dataIndex = context[0].dataIndex;
+                            const timestamp = timestampMeta.timestamps[dataIndex];
+                            try {
+                                const date = new Date(timestamp);
+                                const month = date.toLocaleString('en-US', { month: 'short' });
+                                const day = date.getDate();
+                                const hour = String(date.getHours()).padStart(2, '0');
+                                return `${month} ${day} ${hour}:00`;
+                            } catch (e) {
+                                return timestamp;
+                            }
+                        }
+                        return '';
+                    },
+                    label(context) {
+                        const value = context.parsed.y;
+                        return `${context.dataset.label}: $${value.toFixed(0)}`;
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: false,
+                ticks: {
+                    color: '#e5e7eb',
+                    font: { size: 11, weight: '500' },
+                    callback(value) {
+                        return '$' + value.toLocaleString();
+                    }
+                },
+                grid: {
+                    color: '#1f2937',
+                    drawBorder: false,
+                },
+            },
+            x: {
+                ticks: {
+                    color: '#e5e7eb',
+                    font: { size: 11, weight: '500' }
+                },
+                grid: {
+                    display: false,
+                    drawBorder: false,
+                }
+            }
+        }
+    };
+}
+
+function initLiveBacktestChart() {
+    const perfCtx = document.getElementById('performanceChart');
+    if (!perfCtx || !perfCtx.getContext) return;
+
+    if (chartInstance) {
+        chartInstance.destroy();
+    }
+
+    liveBacktestChartMeta = { timestamps: [] };
+    liveBacktestChartActive = true;
+    const ctx = perfCtx.getContext('2d');
+    chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Agent (live)',
+                data: [],
+                borderColor: '#4FC3F7',
+                backgroundColor: 'transparent',
+                borderWidth: 2.5,
+                tension: 0,
+                fill: false,
+                pointRadius: 0,
+                pointHoverRadius: 5,
+            }],
+        },
+        options: getPerformanceChartOptions(liveBacktestChartMeta),
+    });
+}
+
+function updateLiveBacktestChart(progress) {
+    if (!liveBacktestChartActive || !chartInstance || !progress) return;
+
+    const curve = progress.equity_curve;
+    if (!Array.isArray(curve) || curve.length === 0) return;
+
+    liveBacktestChartMeta.timestamps = curve.map((point) => point.timestamp);
+    chartInstance.data.labels = formatTimestamps(liveBacktestChartMeta.timestamps);
+    chartInstance.data.datasets[0].data = curve.map((point) => point.equity);
+    chartInstance.update('none');
+}
+
+function normalizeTradeRecord(trade) {
+    const side = String(trade?.side || trade?.action || '').toUpperCase();
+    const quantity = Number(trade?.quantity ?? trade?.shares ?? 0);
+    const price = Number(trade?.price || 0);
+    const value = Number(
+        trade?.value ?? trade?.total_value ?? trade?.cost ?? trade?.proceeds ?? quantity * price
+    );
+    return {
+        timestamp: trade?.timestamp,
+        side,
+        symbol: trade?.symbol || '--',
+        quantity,
+        price,
+        value,
+    };
+}
+
+function formatTradeTimestamp(ts) {
+    if (!ts) return '--';
+    try {
+        const date = new Date(ts);
+        return date.toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false,
+        });
+    } catch (e) {
+        return String(ts);
+    }
+}
+
+function renderTradingLog(trades, { emptyMessage = 'No trades yet.' } = {}) {
+    const tbody = document.getElementById('tradingLogBody');
+    if (!tbody) return;
+
+    tradingLogCache = Array.isArray(trades) ? trades.map(normalizeTradeRecord) : [];
+    let filtered = tradingLogCache;
+    if (tradingLogFilter === 'buy') {
+        filtered = tradingLogCache.filter((trade) => trade.side === 'BUY');
+    } else if (tradingLogFilter === 'sell') {
+        filtered = tradingLogCache.filter((trade) => trade.side === 'SELL');
+    }
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="trading-log-empty">${emptyMessage}</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map((trade) => {
+        const actionClass = trade.side === 'SELL' ? 'action-sell' : 'action-buy';
+        const actionLabel = trade.side === 'SELL' ? 'SELL' : 'BUY';
+        const totalValue = trade.value.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        });
+        return `<tr>
+            <td>${formatTradeTimestamp(trade.timestamp)}</td>
+            <td><span class="${actionClass}">${actionLabel}</span></td>
+            <td>${trade.symbol}</td>
+            <td>${trade.quantity} shares</td>
+            <td>$${trade.price.toFixed(2)}</td>
+            <td>$${totalValue}</td>
+        </tr>`;
+    }).join('');
+}
+
+function clearTradingLog(message = 'Waiting for trades…') {
+    tradingLogCache = [];
+    renderTradingLog([], { emptyMessage: message });
+}
+
+function updateLiveTradingLog(progress) {
+    if (!progress?.trades) return;
+    renderTradingLog(progress.trades);
+}
+
+async function loadTradingLogForRun(runId) {
+    if (!runId) {
+        clearTradingLog('Run a backtest to see trades here.');
+        return;
+    }
+    try {
+        const data = await API.get(`${API_BASE}/runs/${encodeURIComponent(runId)}/trades?t=${Date.now()}`);
+        renderTradingLog(data.trades || [], { emptyMessage: 'No trades recorded for this run.' });
+    } catch (error) {
+        console.warn('Could not load trades:', error.message);
+        clearTradingLog('No trades recorded for this run.');
+    }
+}
+
 async function runBacktest() {
     // Get dates from form
     const startDateInput = document.getElementById('startDate');
@@ -2036,19 +2473,43 @@ async function runBacktest() {
         console.warn('⚠️ Please select both start and end dates');
         return;
     }
-    
-    // Get selected assets and model
+
     const assets = getSelectedAssets();
     const modelSelect = document.getElementById('modelSelect');
-    const model = modelSelect ? modelSelect.value : 'claude-haiku-4.5';
+    const activeAgent = getSelectedBacktestAgent();
+    if (!activeAgent) {
+        alert('Please create or select an agent first.');
+        return;
+    }
+
+    await activateAgent(activeAgent);
+    syncModelSelectFromAgent(activeAgent);
+    const pipeline = loadAgentPipelineForBacktest(activeAgent);
+    const model = activeAgent?.model_name
+        || (modelSelect ? modelSelect.value : 'claude-haiku-4.5');
     
     console.log(`Running backtest: ${startDate} to ${endDate}`);
     console.log(`Assets: ${assets.join(', ')}`);
     console.log(`Model: ${model}`);
+    if (activeAgent?.agent_id) {
+        console.log(`Agent: ${activeAgent.name} (${activeAgent.agent_id})`);
+    }
+    if (pipeline?.length) {
+        console.log(`Sub-agent pipeline: ${pipeline.length} step(s)`);
+    }
     
     const btn = document.querySelector('.run-backtest-btn');
     btn.textContent = '⏳ Running...';
     btn.disabled = true;
+    showBacktestRunProgress(true);
+    initLiveBacktestChart();
+    clearTradingLog('Backtest running… trades will appear here.');
+    updateBacktestRunProgress({
+        elapsedSeconds: 0,
+        message: pipeline?.length
+            ? `Running ${pipeline.length}-step agent pipeline…`
+            : 'Starting backtest…',
+    });
     
     try {
         // Call API with session ID, assets, and model
@@ -2058,15 +2519,32 @@ async function runBacktest() {
             assets: assets.join(','),
             model: model
         });
-        const data = await API.post(`${API_BASE}/backtest/run?${params.toString()}`, {});
+        const payload = {
+            start_date: startDate,
+            end_date: endDate,
+            model,
+        };
+        if (activeAgent?.agent_id && !String(activeAgent.agent_id).startsWith('mock-')) {
+            payload.agent_id = activeAgent.agent_id;
+        }
+        if (pipeline?.length) {
+            payload.pipeline = pipeline;
+        }
+        const data = await API.post(`${API_BASE}/backtest/run?${params.toString()}`, payload);
         
         if (!data.success) {
             console.error('❌ Backtest failed:', data.error || 'Unknown error');
+            showBacktestRunProgress(true, { isError: true });
+            updateBacktestRunProgress({
+                elapsedSeconds: 0,
+                message: data.error || 'Failed to start backtest.',
+            });
             btn.textContent = '❌ Error - Try Again';
             btn.disabled = false;
             setTimeout(() => {
                 btn.textContent = '▶ Run Backtest';
-            }, 3000);
+                showBacktestRunProgress(false);
+            }, 5000);
             return;
         }
         
@@ -2077,11 +2555,17 @@ async function runBacktest() {
         
     } catch (error) {
         console.error('❌ Error starting backtest:', error.message);
+        showBacktestRunProgress(true, { isError: true });
+        updateBacktestRunProgress({
+            elapsedSeconds: 0,
+            message: error.message || 'Failed to start backtest.',
+        });
         btn.textContent = '❌ Error - Try Again';
         btn.disabled = false;
         setTimeout(() => {
             btn.textContent = '▶ Run Backtest';
-        }, 3000);
+            showBacktestRunProgress(false);
+        }, 5000);
     }
 }
 
@@ -2089,7 +2573,7 @@ async function runBacktest() {
  * Poll backtest status until complete
  */
 async function pollBacktestStatus(btn) {
-    const maxAttempts = 120; // 2 minutes with 1-second intervals
+    const maxAttempts = BACKTEST_POLL_MAX_SECONDS;
     let attempts = 0;
     let isComplete = false;
     
@@ -2098,23 +2582,55 @@ async function pollBacktestStatus(btn) {
             if (isComplete) return; // Prevent re-entry
             
             attempts++;
+            const elapsedSeconds = attempts;
             
             try {
-                // Status endpoint now session-specific
                 const status = await API.get(`${API_BASE}/backtest/status`);
+                const serverElapsed = Number(status.elapsed_seconds);
+                const displayElapsed = Number.isFinite(serverElapsed) && serverElapsed > 0
+                    ? serverElapsed
+                    : elapsedSeconds;
+
+                if (status.running) {
+                    if (status.progress) {
+                        updateLiveBacktestChart(status.progress);
+                        updateLiveTradingLog(status.progress);
+                    }
+                    const step = Number(status.progress?.step);
+                    const total = Number(status.progress?.total_steps);
+                    const stepPct = Number.isFinite(step) && Number.isFinite(total) && total > 0
+                        ? (100 * step / total)
+                        : null;
+                    updateBacktestRunProgress({
+                        elapsedSeconds: displayElapsed,
+                        message: status.message || 'Backtest is running…',
+                        stepPct,
+                    });
+                    if (btn) {
+                        btn.textContent = `⏳ Running… ${formatBacktestElapsed(displayElapsed)}`;
+                    }
+                }
                 
                 if (!status.running) {
                     isComplete = true;
                     clearInterval(interval);
+                    liveBacktestChartActive = false;
                     
                     if (status.error) {
                         console.error('❌ Backtest error:', status.error);
+                        showBacktestRunProgress(true, { isError: true });
+                        updateBacktestRunProgress({
+                            elapsedSeconds: displayElapsed,
+                            message: status.error,
+                        });
                     } else if (status.success) {
                         console.log('✅ Backtest completed:', status.message);
                         console.log(`   Found ${status.runs_count} runs`);
+                        updateBacktestRunProgress({
+                            elapsedSeconds: displayElapsed,
+                            message: `Completed in ${formatBacktestElapsed(displayElapsed)}.`,
+                        });
                         
-                        // A fresh run should show the newest result: clear any
-                        // prior selection so resolveSelectedRun picks the latest.
                         console.log('→ Reloading backtest data...');
                         localStorage.removeItem(SELECTED_BACKTEST_RUN_KEY);
                         const runSelect = document.getElementById('backtestRunSelect');
@@ -2126,21 +2642,32 @@ async function pollBacktestStatus(btn) {
                         await loadPerformanceMetrics();
                         
                         console.log('✅ Dashboard updated with latest backtest results');
+                        setTimeout(() => showBacktestRunProgress(false), 2500);
+                    } else {
+                        showBacktestRunProgress(false);
                     }
                     
-                    btn.textContent = '▶ Run Backtest';
-                    btn.disabled = false;
+                    if (btn) {
+                        btn.textContent = '▶ Run Backtest';
+                        btn.disabled = false;
+                    }
                     resolve();
-                } else if (attempts % 10 === 0) {
-                    console.log(`⏳ Backtest running... (${attempts}s elapsed)`);
+                    return;
                 }
                 
                 if (attempts >= maxAttempts) {
                     isComplete = true;
                     clearInterval(interval);
-                    console.warn('⚠️ Backtest timeout - still running after 2 minutes');
-                    btn.textContent = '▶ Run Backtest';
-                    btn.disabled = false;
+                    console.warn('⚠️ Backtest timeout - still running after 10 minutes');
+                    showBacktestRunProgress(true, { isError: true });
+                    updateBacktestRunProgress({
+                        elapsedSeconds: maxAttempts,
+                        message: 'Timed out after 10 minutes. The backtest may still be running in the background.',
+                    });
+                    if (btn) {
+                        btn.textContent = '▶ Run Backtest';
+                        btn.disabled = false;
+                    }
                     resolve();
                 }
             } catch (error) {
@@ -2251,10 +2778,6 @@ function showPlaygroundPanel(tab) {
     const agents = document.getElementById('playgroundAgentsPanel');
     const backtest = document.querySelector('.main-container');
     const paper = document.getElementById('paperTradingView');
-    const agentHeader = document.getElementById('playgroundAgentHeader');
-
-    // The agent/session header only applies to Backtest and Paper Trading.
-    if (agentHeader) agentHeader.style.display = tab === 'agents' ? 'none' : 'flex';
 
     if (agents) agents.style.display = tab === 'agents' ? 'block' : 'none';
     if (backtest) backtest.style.display = tab === 'backtest' ? 'grid' : 'none';
@@ -2262,6 +2785,7 @@ function showPlaygroundPanel(tab) {
 
     if (tab === 'backtest') {
         currentMode = 'backtest';
+        populateBacktestAgentSelect();
         loadData();
         loadPerformanceMetrics();
     } else if (tab === 'paper') {
@@ -2527,19 +3051,32 @@ function scopedExternalRuns(sessionRuns, activeName) {
     return scoped.length ? scoped : externalRuns;
 }
 
-function formatBacktestRunLabel(run) {
+function formatBacktestRunReturn(run) {
+    if (run.total_return == null) return '—';
+    const pct = Math.abs(run.total_return) <= 1 ? run.total_return * 100 : run.total_return;
+    const sign = pct >= 0 ? '+' : '';
+    return `${sign}${pct.toFixed(2)}%`;
+}
+
+function formatBacktestRunPrimary(run) {
     const dates = [run.start_date, run.end_date].filter(Boolean).join(' → ');
-    let retLabel = '—';
-    if (run.total_return != null) {
-        const pct = Math.abs(run.total_return) <= 1 ? run.total_return * 100 : run.total_return;
-        const sign = pct >= 0 ? '+' : '';
-        retLabel = `${sign}${pct.toFixed(2)}%`;
-    }
+    return `${dates || run.run_id} · ${formatBacktestRunReturn(run)}`;
+}
+
+function formatBacktestRunSecondary(run) {
     const when = run.created_at ? new Date(run.created_at).toLocaleString() : '';
     const cost = formatUsd(run.est_cost_usd);
-    const costLabel = cost && Number(run.est_cost_usd) > 0 ? `${cost}` : '';
-    return [dates || run.run_id, retLabel, costLabel, when].filter(Boolean).join(' · ');
+    const costLabel = cost && Number(run.est_cost_usd) > 0 ? cost : '';
+    return [costLabel, when].filter(Boolean).join(' · ');
 }
+
+function formatBacktestRunLabel(run) {
+    return [formatBacktestRunPrimary(run), formatBacktestRunSecondary(run)].filter(Boolean).join(' · ');
+}
+
+window.formatBacktestRunPrimary = formatBacktestRunPrimary;
+window.formatBacktestRunSecondary = formatBacktestRunSecondary;
+window.formatBacktestRunLabel = formatBacktestRunLabel;
 
 function resolveSelectedExternalRun(externalRuns) {
     const selectedId = localStorage.getItem(SELECTED_BACKTEST_RUN_KEY);
@@ -2706,6 +3243,7 @@ async function loadData() {
                 console.warn('No backtest runs for this session');
                 comparisonData = null;
                 displayNoMetrics();
+                clearTradingLog('Run a backtest to see trades here.');
                 return;
             }
 
@@ -2724,6 +3262,7 @@ async function loadData() {
 
             initializeCharts();
             displayPerformanceMetrics(selectedRun);
+            await loadTradingLogForRun(selectedRun.run_id);
         }
         
     } catch (error) {
@@ -2791,6 +3330,7 @@ function initializeCharts() {
             ? ['my-algo', 'djia', 'buy-and-hold']
             : ['agent', 'djia', 'buy-and-hold'];
         const timestamps = runs[0].data.map(point => point.timestamp);
+        const chartMeta = { timestamps };
         
         order.forEach(agentType => {
             if (agentMap[agentType]) {
@@ -2820,88 +3360,10 @@ function initializeCharts() {
                 labels: formatTimestamps(timestamps),
                 datasets: datasets
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                    mode: 'index',
-                    intersect: false,
-                },
-                plugins: {
-                    legend: {
-                        display: true,
-                        labels: {
-                            color: '#e5e7eb',
-                            font: { size: 12, weight: '600' },
-                            padding: 15,
-                            usePointStyle: true,
-                            pointStyle: 'line',
-                            boxWidth: 12,
-                            boxHeight: 2,
-                        }
-                    },
-                    tooltip: {
-                        enabled: true,
-                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                        titleColor: '#e5e7eb',
-                        bodyColor: '#e5e7eb',
-                        borderColor: '#1f2937',
-                        borderWidth: 1,
-                        padding: 12,
-                        displayColors: true,
-                        callbacks: {
-                            title: function(context) {
-                                if (context.length > 0) {
-                                    const dataIndex = context[0].dataIndex;
-                                    const timestamp = timestamps[dataIndex];
-                                    try {
-                                        const date = new Date(timestamp);
-                                        const month = date.toLocaleString('en-US', { month: 'short' });
-                                        const day = date.getDate();
-                                        const hour = String(date.getHours()).padStart(2, '0');
-                                        return `${month} ${day} ${hour}:00`;
-                                    } catch (e) {
-                                        return timestamp;
-                                    }
-                                }
-                                return '';
-                            },
-                            label: function(context) {
-                                const value = context.parsed.y;
-                                return context.dataset.label + ': $' + value.toFixed(0);
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: false,
-                        ticks: {
-                            color: '#e5e7eb',
-                            font: { size: 11, weight: '500' },
-                            callback: function(value) {
-                                return '$' + value.toLocaleString();
-                            }
-                        },
-                        grid: {
-                            color: '#1f2937',
-                            drawBorder: false,
-                        },
-                    },
-                    x: {
-                        ticks: {
-                            color: '#e5e7eb',
-                            font: { size: 11, weight: '500' }
-                        },
-                        grid: {
-                            display: false,
-                            drawBorder: false,
-                        }
-                    }
-                }
-            }
+            options: getPerformanceChartOptions(chartMeta),
         });
         
+        liveBacktestChartActive = false;
         console.log('✅ Chart initialized -', order.filter(t => agentMap[t]).join(', '));
     }
 }
