@@ -15,6 +15,8 @@ registered before ``/api/backtest/{run_id}`` and ``/runs/latest/metrics`` before
 import json
 import re
 import threading
+import time
+import uuid
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -146,8 +148,30 @@ class ComparisonResponse(BaseModel):
 # ============================================================================
 
 # Global state for background backtest
-backtest_status = {"running": False, "error": None, "runs_count": 0}
+backtest_status = {
+    "running": False,
+    "error": None,
+    "runs_count": 0,
+    "started_at": None,
+    "progress_file": None,
+    "live_run_id": None,
+}
 backtest_session_id = None  # Track which session owns the running backtest
+
+
+def _read_backtest_progress() -> Optional[Dict[str, Any]]:
+    """Load incremental equity snapshots written by the backtest subprocess."""
+    progress_file = backtest_status.get("progress_file")
+    if not progress_file:
+        return None
+    path = Path(progress_file)
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 def run_backtest_background(
     start_date: str,
@@ -162,6 +186,7 @@ def run_backtest_background(
 
     strategy_prompt_path = None
     pipeline_path = None
+    progress_file = None
     try:
         import subprocess
         import sys
@@ -170,7 +195,13 @@ def run_backtest_background(
         
         backtest_status["running"] = True
         backtest_status["error"] = None
+        backtest_status["started_at"] = time.time()
         backtest_session_id = session_id  # Store session for status polling
+
+        live_run_id = f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        progress_file = str(Path(tempfile.gettempdir()) / f"backtest_progress_{live_run_id}.json")
+        backtest_status["live_run_id"] = live_run_id
+        backtest_status["progress_file"] = progress_file
         
         print(f"🚀 Background: Running backtest: {start_date} to {end_date}", flush=True)
         print(f"   Session: {session_id[:8]}...", flush=True)
@@ -224,6 +255,8 @@ def run_backtest_background(
         if model and model.strip():
             cmd += ["--model", model.strip()]
 
+        cmd += ["--run-id", live_run_id, "--progress-file", progress_file]
+
         print(f"📋 Running: {' '.join(cmd)}", flush=True)
         
         result = subprocess.run(
@@ -259,6 +292,15 @@ def run_backtest_background(
         print(f"❌ Backtest exception: {e}", flush=True)
     finally:
         backtest_status["running"] = False
+        backtest_status["started_at"] = None
+        backtest_status["live_run_id"] = None
+        if progress_file:
+            try:
+                import os
+                os.remove(progress_file)
+            except OSError:
+                pass
+        backtest_status["progress_file"] = None
         if strategy_prompt_path:
             try:
                 import os
@@ -494,10 +536,26 @@ async def get_backtest_status(request: Request):
     session_id = request.state.session_id
     
     if backtest_status["running"]:
-        return {
+        elapsed = 0
+        started_at = backtest_status.get("started_at")
+        if started_at:
+            elapsed = max(0, int(time.time() - started_at))
+        progress = _read_backtest_progress()
+        message = "Backtest is running… (multi-step agent pipeline; may take several minutes)"
+        if progress:
+            step = int(progress.get("step") or 0)
+            total = int(progress.get("total_steps") or 0)
+            if total > 0:
+                pct = min(99, round(100 * step / total))
+                message = f"Backtest running… step {step}/{total} ({pct}%)"
+        payload = {
             "running": True,
-            "message": "Backtest is running... (may take 2-5 minutes)"
+            "message": message,
+            "elapsed_seconds": elapsed,
         }
+        if progress:
+            payload["progress"] = progress
+        return payload
     elif backtest_status["error"]:
         return {
             "running": False,
@@ -694,6 +752,17 @@ async def get_equity_curve(run_id: str, request: Request):
             'num_trades': run['num_trades']
         }
     )
+
+
+@router.get("/runs/{run_id}/trades")
+async def get_run_trades(run_id: str, request: Request):
+    """Trade log for a backtest run owned by this session."""
+    session_id = request.state.session_id
+    run = db.get_run_with_session(run_id, session_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found or not yours")
+    trades = db.get_trades(run_id)
+    return {"run_id": run_id, "trades": trades, "count": len(trades)}
 
 
 @router.get("/runs/{run_id}/plot.png", include_in_schema=False)

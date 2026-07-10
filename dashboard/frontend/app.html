@@ -884,6 +884,18 @@
                         <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                     </select>
                 </div>
+
+                <div id="backtestRunProgress" class="backtest-run-progress section-card compact" hidden>
+                    <div class="backtest-run-progress-head">
+                        <h4 class="backtest-run-progress-title">Backtest in progress</h4>
+                        <span id="backtestRunElapsed" class="backtest-run-elapsed">0:00</span>
+                    </div>
+                    <div class="backtest-run-progress-track" aria-hidden="true">
+                        <div id="backtestRunProgressBar" class="backtest-run-progress-bar"></div>
+                    </div>
+                    <p id="backtestRunProgressMessage" class="backtest-run-progress-message">Starting…</p>
+                    <p class="backtest-run-progress-hint">Multi-step agent pipelines can take several minutes (timeout: 10 min).</p>
+                </div>
             </section>
 
             <!-- Advanced Settings Section (Collapsible) -->
@@ -1004,63 +1016,33 @@
                 <div class="section-header">
                     <h2>Trading Log</h2>
                     <div class="log-controls">
-                        <select class="filter-select">
-                            <option>All Trades</option>
-                            <option>Buys Only</option>
-                            <option>Sells Only</option>
+                        <select class="filter-select" id="tradingLogFilter">
+                            <option value="all">All Trades</option>
+                            <option value="buy">Buys Only</option>
+                            <option value="sell">Sells Only</option>
                         </select>
-                        <button class="filter-btn">Filter</button>
                     </div>
                 </div>
 
-                <table class="decision-table">
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>Action</th>
-                            <th>Company / Asset</th>
-                            <th>Quantity</th>
-                            <th>Price</th>
-                            <th>Total Value</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>May 14, 14:35:21</td>
-                            <td><span class="action-buy">BUY</span></td>
-                            <td>AAPL</td>
-                            <td>15 shares</td>
-                            <td>$150.25</td>
-                            <td>$2,253.75</td>
-                        </tr>
-                        <tr>
-                            <td>May 14, 14:42:10</td>
-                            <td><span class="action-sell">SELL</span></td>
-                            <td>MSFT</td>
-                            <td>8 shares</td>
-                            <td>$380.50</td>
-                            <td>$3,044.00</td>
-                        </tr>
-                        <tr>
-                            <td>May 14, 14:55:32</td>
-                            <td><span class="action-buy">BUY</span></td>
-                            <td>NVDA</td>
-                            <td>2 shares</td>
-                            <td>$875.10</td>
-                            <td>$1,750.20</td>
-                        </tr>
-                        <tr>
-                            <td>May 14, 15:03:18</td>
-                            <td><span class="action-sell">SELL</span></td>
-                            <td>GOOGL</td>
-                            <td>12 shares</td>
-                            <td>$162.45</td>
-                            <td>$1,949.40</td>
-                        </tr>
-                    </tbody>
-                </table>
-
-                <button class="view-all-btn">View Full Trading Log →</button>
+                <div class="trading-log-scroll">
+                    <table class="decision-table trading-log-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Action</th>
+                                <th>Company / Asset</th>
+                                <th>Quantity</th>
+                                <th>Price</th>
+                                <th>Total Value</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradingLogBody">
+                            <tr>
+                                <td colspan="6" class="trading-log-empty">Run a backtest to see trades here.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </section>
 

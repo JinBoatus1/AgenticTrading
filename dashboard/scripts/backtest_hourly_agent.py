@@ -180,6 +180,8 @@ def main():
     parser.add_argument("--strategy-prompt-file", default=None, help="Path to a UTF-8 file with a free-form strategy prompt that REPLACES the built-in agent prompt for this run")
     parser.add_argument("--pipeline-file", default=None, help="Path to a UTF-8 JSON file with the sub-agent pipeline steps for this run")
     parser.add_argument("--model", default=None, help="Override the LLM model id (e.g. anthropic/claude-haiku-4-5). Defaults to the gateway-appropriate slug.")
+    parser.add_argument("--run-id", default=None, help="Preset run id (used for live progress + DB row)")
+    parser.add_argument("--progress-file", default=None, help="Path to write incremental equity snapshots for live dashboard charting")
     
     args = parser.parse_args()
     
@@ -250,6 +252,8 @@ def main():
         strategy_prompt=strategy_prompt,
         model=args.model,
         pipeline=pipeline,
+        live_run_id=args.run_id,
+        progress_file=args.progress_file,
     )
     
     if backtester.use_llm:
