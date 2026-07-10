@@ -11,6 +11,7 @@
 const ACTIVE_AGENT_KEY = 'active-agent-id';
 const ACTIVE_AGENT_NAME_KEY = 'active-agent-name';
 const BROWSER_OWNER_KEY = 'browser-owner-id';
+const HIDDEN_DEMO_AGENTS_KEY = 'hidden-demo-agent-ids';
 const SELECTED_BACKTEST_RUN_KEY = 'selected-backtest-run-id';
 const NAV_STATE_KEY = 'nav-state';
 const DISCORD_SERVER_URL = 'https://discord.gg/9HnQ6XDG98';
@@ -241,14 +242,39 @@ function setAgentViewMode(mode) {
   document.getElementById('agentViewList')?.classList.toggle('active', agentViewMode === 'list');
 }
 
-// Demo mode: only then may the page show illustrative MOCK_AGENTS. Real users
-// (production host, no ?demo flag) see the genuine empty/error states instead of
-// fabricated agents.
+function isDemoAgent(agentId) {
+  return typeof agentId === 'string' && agentId.startsWith('mock-');
+}
+
+function getHiddenDemoAgentIds() {
+  try {
+    const raw = localStorage.getItem(HIDDEN_DEMO_AGENTS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function hideDemoAgent(agentId) {
+  const hidden = getHiddenDemoAgentIds();
+  if (!hidden.includes(agentId)) {
+    hidden.push(agentId);
+    localStorage.setItem(HIDDEN_DEMO_AGENTS_KEY, JSON.stringify(hidden));
+  }
+}
+
+function visibleMockAgents() {
+  const hidden = new Set(getHiddenDemoAgentIds());
+  return MOCK_AGENTS.filter((agent) => !hidden.has(agent.agent_id));
+}
+
+// Demo mode is opt-in via ?demo=1 so local development does not show fake agents
+// that cannot be deleted from the database.
 function isDemoMode() {
   try {
     const params = new URLSearchParams(window.location.search);
-    if (params.has('demo')) return params.get('demo') !== '0';
-    return ['localhost', '127.0.0.1', ''].includes(window.location.hostname);
+    return params.get('demo') === '1';
   } catch (e) {
     return false;
   }
@@ -394,6 +420,15 @@ function renderAgentsGrid(agents) {
       const agentId = btn.dataset.agentId;
       if (!agentId || !confirm('Remove this agent? Backtest history stays in the database.')) return;
       try {
+        if (isDemoAgent(agentId)) {
+          hideDemoAgent(agentId);
+          if (localStorage.getItem(ACTIVE_AGENT_KEY) === agentId) {
+            localStorage.removeItem(ACTIVE_AGENT_KEY);
+            localStorage.removeItem(ACTIVE_AGENT_NAME_KEY);
+          }
+          await loadAgents();
+          return;
+        }
         await API.request(`${API_BASE}/api/v1/agents/${agentId}`, { method: 'DELETE' });
         if (localStorage.getItem(ACTIVE_AGENT_KEY) === agentId) {
           localStorage.removeItem(ACTIVE_AGENT_KEY);
@@ -439,6 +474,75 @@ function renderAgentRunList(agent) {
   return `<div class="agent-run-list">${items}</div>`;
 }
 
+function listBacktestableAgents() {
+  return (allAgents || []).filter((agent) => agent?.agent_id && !isDemoAgent(agent.agent_id));
+}
+
+function populateBacktestAgentSelect() {
+  const select = document.getElementById('backtestAgentSelect');
+  if (!select) return;
+
+  const agents = listBacktestableAgents();
+  const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
+
+  if (!agents.length) {
+    select.innerHTML = '<option value="">No agents yet — create one in My Agents</option>';
+    select.disabled = true;
+    return;
+  }
+
+  select.disabled = false;
+  select.innerHTML = agents
+    .map((agent) => {
+      const type = agent.agent_type === 'builtin' ? 'Built-in' : 'External';
+      const model = agent.model_name || 'local-model';
+      const label = `${agent.name} · ${model} · ${type}`;
+      return `<option value="${escapeHtml(agent.agent_id)}">${escapeHtml(label)}</option>`;
+    })
+    .join('');
+
+  const selectedId =
+    activeId && agents.some((agent) => agent.agent_id === activeId)
+      ? activeId
+      : agents[0].agent_id;
+  select.value = selectedId;
+}
+
+function syncModelSelectFromAgent(agent) {
+  const modelSelect = document.getElementById('modelSelect');
+  if (!modelSelect || !agent?.model_name) return;
+  const hasOption = Array.from(modelSelect.options).some(
+    (option) => option.value === agent.model_name,
+  );
+  if (hasOption) {
+    modelSelect.value = agent.model_name;
+  }
+}
+
+function getSelectedBacktestAgent() {
+  const select = document.getElementById('backtestAgentSelect');
+  if (select?.value) {
+    const agent = allAgents.find((item) => item.agent_id === select.value);
+    if (agent) return agent;
+  }
+  return resolveActiveAgentForBacktest();
+}
+
+async function onBacktestAgentSelectChange() {
+  const select = document.getElementById('backtestAgentSelect');
+  if (!select?.value) return;
+  const agent = allAgents.find((item) => item.agent_id === select.value);
+  if (!agent) return;
+
+  await activateAgent(agent);
+  syncModelSelectFromAgent(agent);
+  localStorage.removeItem(SELECTED_BACKTEST_RUN_KEY);
+  if (currentMode === 'backtest') {
+    await loadData();
+    loadPerformanceMetrics();
+  }
+}
+
 async function loadAgents() {
   try {
     let data = await API.get(`${API_BASE}/api/v1/agents`);
@@ -477,20 +581,23 @@ async function loadAgents() {
     // backend. Real users get the genuine empty-state (rendered by
     // renderAgentsGrid) instead of fabricated agents.
     if (!agents.length && isDemoMode()) {
-      agents = MOCK_AGENTS;
+      agents = visibleMockAgents();
     }
 
     allAgents = agents;
     applyAgentFilters();
+    populateBacktestAgentSelect();
   } catch (error) {
     console.warn('Failed to load agents:', error.message);
     if (isDemoMode()) {
-      allAgents = MOCK_AGENTS;
+      allAgents = visibleMockAgents();
       applyAgentFilters();
+      populateBacktestAgentSelect();
     } else {
       // Real backend outage: show a distinct error-state, never fake data.
       allAgents = [];
       renderAgentsError();
+      populateBacktestAgentSelect();
     }
   }
 }
@@ -1193,6 +1300,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 localStorage.removeItem(SELECTED_BACKTEST_RUN_KEY);
             }
             await loadData();
+        });
+    }
+
+    const backtestAgentSelect = document.getElementById('backtestAgentSelect');
+    if (backtestAgentSelect) {
+        backtestAgentSelect.addEventListener('change', () => {
+            onBacktestAgentSelectChange();
         });
     }
 
@@ -2092,11 +2206,17 @@ async function runBacktest() {
         console.warn('⚠️ Please select both start and end dates');
         return;
     }
-    
-    // Get selected assets and model
+
     const assets = getSelectedAssets();
     const modelSelect = document.getElementById('modelSelect');
-    const activeAgent = resolveActiveAgentForBacktest();
+    const activeAgent = getSelectedBacktestAgent();
+    if (!activeAgent) {
+        alert('Please create or select an agent first.');
+        return;
+    }
+
+    await activateAgent(activeAgent);
+    syncModelSelectFromAgent(activeAgent);
     const pipeline = loadAgentPipelineForBacktest(activeAgent);
     const model = activeAgent?.model_name
         || (modelSelect ? modelSelect.value : 'claude-haiku-4.5');
@@ -2327,10 +2447,6 @@ function showPlaygroundPanel(tab) {
     const agents = document.getElementById('playgroundAgentsPanel');
     const backtest = document.querySelector('.main-container');
     const paper = document.getElementById('paperTradingView');
-    const agentHeader = document.getElementById('playgroundAgentHeader');
-
-    // The agent/session header only applies to Backtest and Paper Trading.
-    if (agentHeader) agentHeader.style.display = tab === 'agents' ? 'none' : 'flex';
 
     if (agents) agents.style.display = tab === 'agents' ? 'block' : 'none';
     if (backtest) backtest.style.display = tab === 'backtest' ? 'grid' : 'none';
@@ -2338,6 +2454,7 @@ function showPlaygroundPanel(tab) {
 
     if (tab === 'backtest') {
         currentMode = 'backtest';
+        populateBacktestAgentSelect();
         loadData();
         loadPerformanceMetrics();
     } else if (tab === 'paper') {

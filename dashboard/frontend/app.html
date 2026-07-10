@@ -55,11 +55,8 @@
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="agents"] .playground-subtabs [data-playground-tab="agents"],
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="backtest"] .playground-subtabs [data-playground-tab="backtest"],
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="paper"] .playground-subtabs [data-playground-tab="paper"] { background: var(--info-color); color: white; }
-    html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="agents"] #playgroundAgentHeader { display: none !important; }
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="backtest"] #playgroundAgentsPanel,
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="paper"] #playgroundAgentsPanel { display: none !important; }
-    html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="backtest"] #playgroundAgentHeader,
-    html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="paper"] #playgroundAgentHeader { display: flex !important; }
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="backtest"] .main-container.playground-backtest-panel { display: grid !important; }
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="paper"] #paperTradingView { display: block !important; }
     html[data-nav-boot][data-nav-page="competition"] .competition-subtabs .subtab-btn.active { background: transparent; color: var(--text-secondary); }
@@ -647,14 +644,6 @@
             <button class="subtab-btn" data-playground-tab="backtest">Backtest</button>
             <button class="subtab-btn" data-playground-tab="paper">Paper Trading</button>
         </div>
-        <div id="playgroundAgentHeader" class="playground-agent-header section-card compact">
-            <div class="playground-agent-info">
-                <h2 id="playgroundAgentName" class="playground-agent-name">Momentum Alpha</h2>
-                <span id="playgroundAgentStatus" class="status-badge live">Live</span>
-                <span id="playgroundAgentDiscord" class="agent-discord connected">Discord connected</span>
-            </div>
-            <a class="discord-nav-btn discord-nav-btn-sm" href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
-        </div>
         <div id="playgroundAgentsPanel" class="playground-panel">
             <!-- My Portfolio -->
             <div class="page-header">
@@ -871,6 +860,14 @@
                             <div class="chips-helper">Add companies to create your custom universe.</div>
                         </div>
                     </div>
+                </div>
+
+                <div class="control-group">
+                    <label for="backtestAgentSelect">Agent</label>
+                    <p class="control-helper">Choose which agent's pipeline and session this backtest should use.</p>
+                    <select class="control-select" id="backtestAgentSelect" aria-label="Select agent for backtest">
+                        <option value="">Loading agents…</option>
+                    </select>
                 </div>
 
                 <div class="control-group universe-spacing">
