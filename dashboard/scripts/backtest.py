@@ -47,19 +47,15 @@ from _bootstrap import ensure_repo_root
 ensure_repo_root()
 from dashboard.backend.paths import CREDENTIALS_DIR, DATA_DIR
 from dashboard.backend.database import db
+from dashboard.backend.infrastructure.llm.validator import DJIA_30, TOP_10_STOCKS
 
 # ============================================================================
 # Configuration
 # ============================================================================
 
-DJIA_SYMBOLS = [
-    "AAPL", "MSFT", "JPM", "V", "JNJ",
-    "WMT", "PG", "UNH", "NVDA", "HD",
-    "KO", "IBM", "MCD", "CAT", "AXP",
-    "GS", "BA", "MMM", "AMGN", "INTC",
-    "VZ", "PFE", "MRK", "HON", "CSCO",
-    "NFLX", "TSLA", "CRM", "TRV", "DIS"
-]
+# Canonical Dow-30 (single source: validator.DJIA_30, guarded by
+# tests/test_djia30_universe.py), kept under the historical local name.
+DJIA_SYMBOLS = list(DJIA_30)
 
 SCRIPT_DIR = Path(__file__).parent
 ALPACA_CLI = None  # Not used - we'll use yfinance instead
@@ -300,7 +296,7 @@ def run_backtest(start_date: str, end_date: str) -> Dict:
     
     # Initialize strategies
     clawdy_strategy = ClawdyStrategy(engine)
-    buy_hold_strategy = BuyHoldStrategy(engine, DJIA_SYMBOLS[:10])  # Top 10 for diversity
+    buy_hold_strategy = BuyHoldStrategy(engine, TOP_10_STOCKS)  # canonical top-10 basket
     djia_strategy = DJIAIndexStrategy(engine)
     
     # Fetch price data
