@@ -47,7 +47,7 @@ from dashboard.backend.paths import CREDENTIALS_DIR
 from dashboard.backend.database import db
 import dashboard.backend.infrastructure.llm.token_cost as token_cost
 from dashboard.backend.baseline_generator import generate_baselines
-from dashboard.backend.infrastructure.llm.validator import create_safe_prompt, create_prompt, validate_llm_response, LLMTradingDecision, TOP_10_STOCKS, DJIA_30
+from dashboard.backend.infrastructure.llm.validator import create_safe_prompt, create_prompt, validate_llm_response, LLMTradingDecision, DJIA_30
 
 # Optional: LLM integration. Phase 2C2 moved the Anthropic SDK import, the
 # default model name, and the LLM request/parse workflow into the canonical
@@ -84,8 +84,8 @@ from dashboard.backend.infrastructure.llm.decision_parsing import fix_json_forma
 from dashboard.backend.infrastructure.market_data.alpaca_bars import AlpacaDataLoader
 from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
 
-# DJIA_30 and TOP_10_STOCKS both imported from validator to keep them in sync
-TOP_10 = TOP_10_STOCKS
+# DJIA_30 is imported from validator (the single source of truth, guarded by
+# tests/test_djia30_universe.py) rather than redefined here.
 
 # ============================================================================
 # JSON Parsing Utilities
