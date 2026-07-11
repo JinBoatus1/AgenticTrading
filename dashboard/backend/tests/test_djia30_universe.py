@@ -11,6 +11,7 @@ derives from DJIA_30.
 Index verified 2026-07-10 (S&P DJI, effective 2026-06-29).
 """
 import ast
+import re
 from pathlib import Path
 
 from dashboard.backend.infrastructure.llm.validator import DJIA_30
@@ -95,3 +96,15 @@ def test_paper_baselines_track_canonical():
     from dashboard.backend.domain.backtesting.baselines.paper import DJIA_SYMBOLS
     assert list(DJIA_SYMBOLS) == list(DJIA_30)
     assert _module_dow_literal(_PAPER) is None
+
+
+_APP_JS = _REPO / "dashboard" / "frontend" / "app.js"
+
+
+def test_frontend_djia_preset_matches_canonical():
+    src = _APP_JS.read_text(encoding="utf-8")
+    m = re.search(r"djia:\s*\{[^{}]*?assets:\s*\[([^\]]*)\]", src, re.S)
+    assert m, "djia preset not found in ASSET_UNIVERSES in app.js"
+    assets = re.findall(r"'([A-Z.]+)'", m.group(1))
+    assert len(assets) == len(set(assets)), "duplicate tickers in djia preset"
+    assert set(assets) == EXPECTED
