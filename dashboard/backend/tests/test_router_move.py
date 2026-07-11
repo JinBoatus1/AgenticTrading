@@ -39,6 +39,7 @@ EXPECTED_AGENT_ROUTES = {
     ("GET", "/v1/agents/resolve", "resolve_api_key"),
     ("GET", "/v1/agents/{agent_id}/runs", "list_agent_runs"),
     ("GET", "/v1/agents/{agent_id}", "get_agent"),
+    ("PATCH", "/v1/agents/{agent_id}", "update_agent"),
     ("DELETE", "/v1/agents/{agent_id}", "delete_agent"),
     ("POST", "/v1/agents/{agent_id}/rotate-api-key", "rotate_agent_api_key"),
     ("POST", "/v1/agents/{agent_id}/activate", "activate_agent"),
