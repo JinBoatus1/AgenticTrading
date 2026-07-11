@@ -62,10 +62,10 @@ def calc():
 # Canonical surface
 # ---------------------------------------------------------------------------
 
-def test_djia_symbols_unchanged():
+def test_djia_symbols_track_canonical():
+    from dashboard.backend.infrastructure.llm.validator import DJIA_30
+    assert DJIA_SYMBOLS == list(DJIA_30)
     assert len(DJIA_SYMBOLS) == 30
-    assert DJIA_SYMBOLS[0] == "AAPL"
-    assert DJIA_SYMBOLS[-1] == "DIS"
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ def test_fetch_djia_historical_empty_bars_returns_none(calc, fake_requests):
 # ---------------------------------------------------------------------------
 
 def test_fetch_buy_and_hold_schema(calc, fake_requests):
-    # 10 symbols requested (first 10 of DJIA_SYMBOLS); each returns 2 bars.
+    # 10 symbols requested (the canonical TOP_10_STOCKS basket); each returns 2 bars.
     fake_requests.responses = [
         _FakeResponse(200, {"bars": [
             {"t": "2024-01-01", "c": 10.0},

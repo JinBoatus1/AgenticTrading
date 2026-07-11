@@ -22,6 +22,7 @@ from _bootstrap import ensure_repo_root
 
 ensure_repo_root()
 from dashboard.backend.paths import DATA_DIR, DASHBOARD_DIR
+from dashboard.backend.infrastructure.llm.validator import DJIA_30
 
 LOG_FILE = DATA_DIR / "trading_log.json"
 SENTIMENT_FILE = DASHBOARD_DIR / "sentiment_scores.json"
@@ -29,15 +30,10 @@ SENTIMENT_FILE = DASHBOARD_DIR / "sentiment_scores.json"
 COMMITTEE_SCRIPT = Path(__file__).parent / "trading_committee.py"
 
 # Trading config
-# ⭐ CUSTOMIZE THIS LIST to change which stocks are scanned for trading
-SYMBOLS = [
-    "AAPL", "MSFT", "JPM", "V", "JNJ",
-    "WMT", "PG", "UNH", "NVDA", "HD",
-    "KO", "IBM", "MCD", "CAT", "AXP",
-    "GS", "BA", "MMM", "AMGN", "INTC",
-    "VZ", "PFE", "MRK", "HON", "CSCO",
-    "NFLX", "TSLA", "CRM", "TRV", "DIS"
-]  # DJIA Full 30 Stocks
+# ⭐ CUSTOMIZE THIS LIST to change which stocks are scanned for trading.
+# Defaults to the canonical Dow-30 (validator.DJIA_30) — replace with any
+# ticker list to customize.
+SYMBOLS = list(DJIA_30)
 
 MAX_SHARES_PER_SYMBOL = 5
 MIN_CASH_RESERVE = 5000
