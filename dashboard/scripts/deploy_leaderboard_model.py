@@ -5,8 +5,9 @@ Runs a configured model's hourly backtest over the contest window and caches the
 result (equity curve + metrics + token cost) so the web leaderboard shows it
 without recomputing. This is how you "permanently deploy" a model:
 
-  1. Add an entry to dashboard/config/leaderboard.json with "strategy": "llm_agent"
-     and "auto_compute": false (see claude_haiku_4_5 for the template).
+  1. Add an entry to dashboard/config/leaderboard.json with "strategy": "llm_agent",
+     "integration": "commonstack" | "openrouter" | "anthropic", and
+     "auto_compute": false (see claude_haiku_4_5 / nemotron_3_nano_30b).
   2. Run this script once (it makes real LLM API calls):
 
        # Quick smoke test on a short window (cheap):
@@ -18,7 +19,8 @@ without recomputing. This is how you "permanently deploy" a model:
 
   3. Refresh the leaderboard — the model appears as a provided baseline.
 
-Requires ANTHROPIC_API_KEY in the environment (loaded from dashboard/.env).
+Requires the API key for the entry's integration in dashboard/.env
+(COMMONSTACK_API_KEY, OPENROUTER_API_KEY, and/or ANTHROPIC_API_KEY).
 """
 
 from __future__ import annotations
@@ -68,7 +70,12 @@ def main() -> int:
         print("Configured leaderboard entries:")
         for s in config.get("strategies", []):
             auto = s.get("auto_compute", True)
-            print(f"  - {s['id']:<22} model={s.get('model'):<18} strategy={s.get('strategy'):<18} auto_compute={auto}")
+            integ = s.get("integration") or "-"
+            print(
+                f"  - {s['id']:<22} model={s.get('model'):<22} "
+                f"strategy={s.get('strategy'):<18} integration={integ:<12} "
+                f"auto_compute={auto}"
+            )
         return 0
 
     print(f"Deploying '{args.entry}' to the leaderboard...")

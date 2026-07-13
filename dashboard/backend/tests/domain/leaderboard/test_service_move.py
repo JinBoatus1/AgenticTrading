@@ -21,7 +21,13 @@ _PUBLIC_SERVICE = [
     "deploy_model_run",
     "get_leaderboard",
 ]
-_PUBLIC_BASELINES = ["fetch_hourly_bars", "compute_equity_curve", "calc_metrics", "downsample_daily"]
+_PUBLIC_BASELINES = [
+    "fetch_hourly_bars",
+    "compute_equity_curve",
+    "calc_metrics",
+    "downsample_daily",
+    "chart_equity_curve",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +52,7 @@ def test_service_wires_canonical_baselines():
     assert canon_service.calc_metrics is canon_baselines.calc_metrics
     assert canon_service.fetch_hourly_bars is canon_baselines.fetch_hourly_bars
     assert canon_service.downsample_daily is canon_baselines.downsample_daily
+    assert canon_service.chart_equity_curve is canon_baselines.chart_equity_curve
 
 
 # ---------------------------------------------------------------------------
@@ -207,3 +214,60 @@ def test_get_leaderboard_skips_uncached_strategies(isolated_service):
     result = canon_service.get_leaderboard()
     assert result["total_entries"] == 1
     assert result["entries"][0]["entry_id"] == "djia_index"
+
+
+def test_chart_equity_curve_prepends_open_tick():
+    hourly = [
+        {"timestamp": "2026-04-15T14:00:00+00:00", "equity": 100500.0, "cash": 0, "positions_value": 100500},
+        {"timestamp": "2026-04-15T15:00:00+00:00", "equity": 101000.0, "cash": 0, "positions_value": 101000},
+        {"timestamp": "2026-04-16T14:00:00+00:00", "equity": 102000.0, "cash": 0, "positions_value": 102000},
+    ]
+    curve = canon_baselines.chart_equity_curve(
+        hourly, initial_equity=100000.0, start_date="2026-04-15"
+    )
+    assert len(curve) == 4
+    assert curve[0]["timestamp"] == "2026-04-15T00:00:00+00:00"
+    assert curve[0]["equity"] == 100000.0
+    assert curve[1]["equity"] == 100500.0
+    assert curve[-1]["equity"] == 102000.0
+
+
+def test_align_equity_curves_onto_alpaca_grid():
+    # Open tick + Alpaca :00 hours (agent) vs Yahoo :30 hours (index).
+    agent = [
+        {"timestamp": "2026-04-15T00:00:00+00:00", "equity": 100000, "cash": 100000, "positions_value": 0},
+        {"timestamp": "2026-04-15T14:00:00+00:00", "equity": 101000, "cash": 0, "positions_value": 101000},
+        {"timestamp": "2026-04-15T15:00:00+00:00", "equity": 102000, "cash": 0, "positions_value": 102000},
+    ]
+    yahoo = [
+        {"timestamp": "2026-04-15T00:00:00+00:00", "equity": 100000, "cash": 100000, "positions_value": 0},
+        {"timestamp": "2026-04-15T13:30:00+00:00", "equity": 100500, "cash": 0, "positions_value": 100500},
+        {"timestamp": "2026-04-15T14:30:00+00:00", "equity": 101500, "cash": 0, "positions_value": 101500},
+    ]
+    aligned = canon_baselines.align_equity_curves([agent, yahoo])
+    assert [p["timestamp"] for p in aligned[0]] == [p["timestamp"] for p in aligned[1]]
+    assert [p["timestamp"] for p in aligned[0]] == [p["timestamp"] for p in agent]
+    # Yahoo 13:30 carries into the 14:00 slot; 14:30 into 15:00.
+    assert aligned[1][1]["equity"] == 100500
+    assert aligned[1][2]["equity"] == 101500
+
+
+def test_get_leaderboard_equity_curve_is_hourly_with_open_tick(isolated_service):
+    _seed(isolated_service, "djia_index", 0.05, 1.2)
+    # Extra mid-day point so daily downsample would have collapsed to 2 days;
+    # hourly chart must keep both Apr-15 hours plus the open tick.
+    run_id = "lb_djia_index_20260415_20260515"
+    isolated_service.insert_equity_points(
+        run_id,
+        [
+            {"timestamp": "2026-04-15T15:00:00", "equity": 100200, "cash": 0, "positions_value": 100200},
+        ],
+    )
+    result = canon_service.get_leaderboard()
+    curve = result["entries"][0]["equity_curve"]
+    assert curve[0]["timestamp"] == "2026-04-15T00:00:00+00:00"
+    assert curve[0]["equity"] == 100000
+    # Seeded points + mid-day insert remain (hourly, not daily-collapsed).
+    assert len(curve) >= 3
+    assert any(str(p["timestamp"]).startswith("2026-04-15T14") for p in curve)
+    assert any(str(p["timestamp"]).startswith("2026-04-15T15") for p in curve)

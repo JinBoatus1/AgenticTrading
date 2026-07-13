@@ -23,6 +23,7 @@ This module is domain-level orchestration: it must NOT import dashboard scripts,
 """
 
 import json
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List
 
@@ -304,18 +305,53 @@ class PortfolioManager:
                 # ================================================================
                 # STEP 2: Call Claude with technical indicator analysis
                 # ================================================================
-                response = _request_trading_decision(llm_client, prompt=prompt, model=model)
-
-                llm_response = _extract_response_text(response)
-
-                # Record real token usage reported by the provider
-                try:
-                    input_delta, output_delta = _extract_token_usage(response)
-                    self.input_tokens += input_delta
-                    self.output_tokens += output_delta
-                    self.llm_calls += 1
-                except Exception as usage_err:
-                    print(f"   ⚠️  Could not read token usage: {usage_err}")
+                # Reasoning models (Nemotron) sometimes return only thinking
+                # blocks. Retry, then one last JSON-only rescue call so we do
+                # not tank H6 coverage on intermittent empty responses.
+                llm_response = None
+                no_text_retries = 4
+                for attempt in range(no_text_retries + 1):
+                    if attempt == no_text_retries:
+                        # Final rescue: force reasoning off for this one call.
+                        print(
+                            "   ⚠️  Final rescue call with reasoning disabled "
+                            "to obtain JSON text"
+                        )
+                        prev_effort = os.environ.get("OPENROUTER_REASONING_EFFORT")
+                        os.environ["OPENROUTER_REASONING_EFFORT"] = "none"
+                        try:
+                            response = _request_trading_decision(
+                                llm_client, prompt=prompt, model=model
+                            )
+                        finally:
+                            if prev_effort is None:
+                                os.environ.pop("OPENROUTER_REASONING_EFFORT", None)
+                            else:
+                                os.environ["OPENROUTER_REASONING_EFFORT"] = prev_effort
+                    else:
+                        response = _request_trading_decision(
+                            llm_client, prompt=prompt, model=model
+                        )
+                    try:
+                        input_delta, output_delta = _extract_token_usage(response)
+                        self.input_tokens += input_delta
+                        self.output_tokens += output_delta
+                        self.llm_calls += 1
+                    except Exception as usage_err:
+                        print(f"   ⚠️  Could not read token usage: {usage_err}")
+                    try:
+                        llm_response = _extract_response_text(response)
+                        break
+                    except AttributeError as extract_err:
+                        if "No text content" not in str(extract_err):
+                            raise
+                        if attempt < no_text_retries:
+                            print(
+                                f"   ⚠️  {extract_err}; "
+                                f"retry {attempt + 1}/{no_text_retries}"
+                            )
+                            continue
+                        raise
 
                 # ================================================================
                 # STEP 3: Parse and validate LLM response

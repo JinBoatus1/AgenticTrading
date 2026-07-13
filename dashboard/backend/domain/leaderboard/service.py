@@ -18,7 +18,9 @@ import dashboard.backend.infrastructure.llm.token_cost as token_cost
 from dashboard.backend.database import db
 from dashboard.backend.domain.leaderboard.baselines import (
     INITIAL_CAPITAL,
+    align_equity_curves,
     calc_metrics,
+    chart_equity_curve,
     downsample_daily,
     fetch_hourly_bars,
 )
@@ -450,7 +452,12 @@ def get_leaderboard(force_refresh: bool = False) -> Dict[str, Any]:
             continue
 
         equity_hourly = db.get_equity_curve(run["run_id"]) or []
-        equity_daily = downsample_daily(equity_hourly)
+        initial_equity = run.get("initial_equity") or config.get("initial_capital", INITIAL_CAPITAL)
+        equity_curve = chart_equity_curve(
+            equity_hourly,
+            initial_equity=float(initial_equity),
+            start_date=start_date,
+        )
         strat = strategy_by_id.get(strategy["id"], strategy)
         is_model = strat.get("strategy") == "llm_agent" or strat.get("label") == "Model"
 
@@ -462,7 +469,7 @@ def get_leaderboard(force_refresh: bool = False) -> Dict[str, Any]:
                 "model": strat.get("model", "Baseline"),
                 "entry_type": "baseline",
                 "is_model": is_model,
-                "initial_equity": run.get("initial_equity") or config.get("initial_capital", INITIAL_CAPITAL),
+                "initial_equity": initial_equity,
                 "portfolio_value": run.get("final_equity") or config.get("initial_capital", INITIAL_CAPITAL),
                 "cumulative_return": run.get("total_return") or 0,
                 "sharpe_ratio": run.get("sharpe_ratio") or 0,
@@ -473,9 +480,15 @@ def get_leaderboard(force_refresh: bool = False) -> Dict[str, Any]:
                 "input_tokens": run.get("input_tokens") or 0,
                 "output_tokens": run.get("output_tokens") or 0,
                 "est_cost_usd": run.get("est_cost_usd") or 0,
-                "equity_curve": equity_daily,
+                "equity_curve": equity_curve,
             }
         )
+
+    # Yahoo index hours (:30 UTC) vs Alpaca stock hours (:00) — align every
+    # chart series onto one shared axis so the frontend does not sparse-null.
+    aligned = align_equity_curves([e["equity_curve"] for e in entries])
+    for entry, curve in zip(entries, aligned):
+        entry["equity_curve"] = curve
 
     entries = _rank_entries(entries)
     leader = entries[0]["team_name"] if entries else "—"

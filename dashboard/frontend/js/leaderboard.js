@@ -108,46 +108,73 @@ function formatLeaderboardNumber(num) {
 
 function formatShortDate(isoDay) {
   if (!isoDay) return '';
-  const d = new Date(`${isoDay}T00:00:00`);
+  const d = new Date(String(isoDay).includes('T') ? isoDay : `${isoDay}T00:00:00`);
   if (Number.isNaN(d.getTime())) return isoDay;
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function formatChartTooltipLabel(ts) {
+  if (!ts) return '';
+  const raw = String(ts);
+  const d = new Date(raw.includes('T') ? raw : `${raw}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return raw;
+  // Hourly series: show date + hour so the open tick and intraday points differ.
+  if (raw.includes('T')) {
+    return d.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/** Normalize equity timestamps to hour precision for shared-axis alignment. */
+function chartTimeKey(ts) {
+  const s = String(ts || '');
+  if (!s) return '';
+  // 2026-04-15T14:00:00+00:00 → 2026-04-15T14:00
+  if (s.length >= 16 && s[10] === 'T') return s.slice(0, 16);
+  if (s.length >= 10) return s.slice(0, 10);
+  return s;
+}
+
 function buildEquityCurvesFromEntries(entries) {
-  // Align every series on a shared, sorted date axis (by calendar day) rather
-  // than by positional index, so curves with different lengths/end dates render
-  // at their true x-positions instead of being shifted.
-  const dateSet = new Set();
+  // Align every series on a shared, sorted hourly axis rather than by
+  // positional index or calendar-day bucket, so the open tick and each market
+  // hour render at their true x-positions.
+  const timeSet = new Set();
   const perEntry = [];
 
   entries.forEach((entry) => {
     const points = entry.equity_curve || [];
     if (!points.length) return;
-    const byDay = {};
+    const byTime = {};
     points.forEach((pt) => {
-      const ts = String(pt.timestamp || '');
-      const day = ts.length >= 10 ? ts.slice(0, 10) : ts;
-      if (!day) return;
-      byDay[day] = Number(pt.equity) || 0;
-      dateSet.add(day);
+      const key = chartTimeKey(pt.timestamp);
+      if (!key) return;
+      byTime[key] = Number(pt.equity) || 0;
+      timeSet.add(key);
     });
-    perEntry.push({ entry, seriesLabel: entry.model || entry.team_name, byDay });
+    perEntry.push({ entry, seriesLabel: entry.model || entry.team_name, byTime });
   });
 
-  const days = Array.from(dateSet).sort();
+  const times = Array.from(timeSet).sort();
   const curves = {};
   const trajectories = {};
   const initials = {};
 
-  perEntry.forEach(({ entry, seriesLabel, byDay }) => {
-    const values = days.map((d) => (d in byDay ? byDay[d] : null));
+  perEntry.forEach(({ entry, seriesLabel, byTime }) => {
+    const values = times.map((t) => (t in byTime ? byTime[t] : null));
     const firstReal = values.find((v) => v != null);
     curves[seriesLabel] = values;
     initials[seriesLabel] = Number(entry.initial_equity) || firstReal || 100000;
     trajectories[seriesLabel] = getSeriesStyle(seriesLabel, entry);
   });
 
-  return { days, curves, trajectories, initials };
+  // Keep `days` alias so any older callers still unpack a familiar key.
+  return { times, days: times, curves, trajectories, initials };
 }
 
 // Default chart visibility: top 5 teams + benchmarks. Strategy baselines are
@@ -551,7 +578,8 @@ async function renderEquityCurvesChart() {
   if (!canvas) return;
 
   const ctx = canvas.getContext('2d');
-  const { days, curves, initials } = equityCurvesData;
+  const { times, days, curves, initials } = equityCurvesData;
+  const axisLabels = times || days;
   const orderedEntries = (leaderboardPayload?.entries || []);
   const emphasisLabel = getEmphasisLabel(orderedEntries);
 
@@ -578,7 +606,9 @@ async function renderEquityCurvesChart() {
       pointHoverRadius: 4,
       tension: 0.1,
       fill: false,
-      spanGaps: false,
+      // Series use different hour grids (e.g. SPY :30 vs LLM :00). On a shared
+      // axis that leaves many nulls; span across them so each curve still draws.
+      spanGaps: true,
       hidden: hiddenSeries.has(label),
     });
   });
@@ -592,7 +622,7 @@ async function renderEquityCurvesChart() {
 
   equityCurvesChartInstance = new Chart(ctx, {
     type: 'line',
-    data: { labels: days, datasets },
+    data: { labels: axisLabels, datasets },
     plugins: [selectedGlowPlugin, endpointLabelPlugin],
     options: {
       responsive: true,
@@ -627,7 +657,7 @@ async function renderEquityCurvesChart() {
           callbacks: {
             title(items) {
               if (!items.length) return '';
-              return formatShortDate(items[0].label);
+              return formatChartTooltipLabel(items[0].label);
             },
             label(context) {
               const ds = context.dataset;

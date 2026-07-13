@@ -256,7 +256,7 @@ def test_ensure_leaderboard_runs_names_model_id_in_fallback(tmp_path, monkeypatc
 
 def test_default_model_name_is_gateway_aware(monkeypatch):
     """The gateway-aware default llm_agent.py now uses: native id without a
-    CommonStack key, the CommonStack slug with one."""
+    CommonStack key, the CommonStack slug with one; OpenRouter only when asked."""
     from dashboard.backend.infrastructure.llm import backtest_harness as bh
 
     monkeypatch.delenv("COMMONSTACK_API_KEY", raising=False)
@@ -264,3 +264,4 @@ def test_default_model_name_is_gateway_aware(monkeypatch):
 
     monkeypatch.setenv("COMMONSTACK_API_KEY", "x")
     assert bh.default_model_name() == bh.COMMONSTACK_MODEL_NAME
+    assert bh.default_model_name("openrouter") == bh.OPENROUTER_MODEL_NAME
