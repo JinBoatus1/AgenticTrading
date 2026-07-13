@@ -35,6 +35,8 @@ Optional dates: `start:YYYY-MM-DD` `end:YYYY-MM-DD`.
 3. `/strategy` — save a reusable prompt (+ optional **Run backtest** button)
 4. `/backtest` — run on real Alpaca data (`prompt:` or `code:`)
 
+When a backtest finishes for a selected agent, the bot includes a **Dashboard** link that opens Playground → Backtest for that agent and run (`/app?view=backtest&agent_id=…&run_id=…`).
+
 ---
 
 ## Commands

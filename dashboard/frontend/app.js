@@ -1418,6 +1418,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await loadData();
     });
     await restoreActiveAgentSession();
+    await applyAgentRunDeepLink();
     const config = loadConfigFromURL();
     window.CURRENT_CONFIG = config;
     console.log('⚙️ Experiment config:', config);
@@ -2908,6 +2909,11 @@ function resolveInitialNavigation() {
         'my-algo': { page: 'playground', playgroundTab: 'agents' },
     };
 
+    // Discord / share deep links land on the backtest playground.
+    if (params.get('agent_id') || params.get('run_id')) {
+        return { page: 'playground', playgroundTab: 'backtest' };
+    }
+
     // An explicit URL view/hash always wins.
     if (legacy && legacyMap[legacy]) {
         return legacyMap[legacy];
@@ -2925,6 +2931,59 @@ function resolveInitialNavigation() {
     }
 
     return { page: 'home' };
+}
+
+/**
+ * Open a specific agent + backtest run from ?agent_id=&run_id= (Discord links).
+ */
+async function applyAgentRunDeepLink() {
+    const params = new URLSearchParams(window.location.search);
+    const agentId = (params.get('agent_id') || '').trim();
+    const runId = (params.get('run_id') || '').trim();
+    if (!agentId && !runId) return;
+
+    try {
+        await loadAgents();
+    } catch (error) {
+        console.warn('Deep link: loadAgents failed:', error.message);
+    }
+
+    let agent = agentId
+        ? (allAgents || []).find((a) => a.agent_id === agentId)
+        : null;
+    if (!agent && agentId) {
+        try {
+            const data = await API.get(`${API_BASE}/api/v1/agents/${encodeURIComponent(agentId)}`);
+            agent = data?.agent || null;
+        } catch (error) {
+            console.warn('Deep link: agent not accessible:', error.message);
+        }
+    }
+
+    if (agent) {
+        try {
+            await activateAgent(agent);
+        } catch (error) {
+            console.warn('Deep link: activateAgent failed:', error.message);
+        }
+    }
+
+    if (runId) {
+        localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, runId);
+    }
+
+    navigateToPage('playground', { playgroundTab: 'backtest' });
+    currentMode = 'backtest';
+    await loadData();
+
+    params.delete('agent_id');
+    params.delete('run_id');
+    if (!params.get('view') && !params.get('mode')) {
+        params.set('view', 'backtest');
+    }
+    const clean = params.toString();
+    const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', next);
 }
 
 function updatePlaygroundSubtabs() {

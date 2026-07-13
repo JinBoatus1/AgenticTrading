@@ -6,6 +6,7 @@ import os
 import uuid
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 import discord
 import requests
@@ -64,6 +65,32 @@ _SESSION_NAMESPACE = uuid.UUID("8f1b2c3d-0000-4000-8000-a9b8c7d6e5f4")
 def api_base() -> str:
     """Base URL of the running Agentic Trading Lab backend."""
     return os.getenv("ATL_API_BASE", "http://localhost:8000").rstrip("/")
+
+
+def public_app_base() -> str:
+    """Origin (or /app URL) used for dashboard deep links in Discord messages."""
+    raw = (os.getenv("PUBLIC_APP_URL") or api_base()).rstrip("/")
+    if raw.endswith("/app"):
+        return raw
+    return f"{raw}/app"
+
+
+def dashboard_backtest_url(
+    *,
+    agent_id: Optional[str],
+    run_id: Optional[str],
+) -> Optional[str]:
+    """Build /app?view=backtest&agent_id=…&run_id=… for Discord result messages."""
+    if not agent_id or not run_id:
+        return None
+    query = urlencode(
+        {
+            "view": "backtest",
+            "agent_id": str(agent_id),
+            "run_id": str(run_id),
+        }
+    )
+    return f"{public_app_base()}?{query}"
 
 
 def _parse_id_list(raw: Optional[str]) -> list[int]:
@@ -521,16 +548,21 @@ async def execute_backtest(
         f"Max DD: {pct(m.get('max_drawdown'))}  ·  Trades: {m.get('num_trades', 0)}\n"
         f"Final equity: ${float(m.get('final_equity') or 0):,.0f}"
     )
-    if share_url:
+    run_id = m.get("run_id")
+    agent_id = selected.get("agent_id") if selected else None
+    dash_url = dashboard_backtest_url(agent_id=agent_id, run_id=run_id)
+    if dash_url:
+        summary += f"\nDashboard: {dash_url}"
+    elif share_url:
         summary += f"\nView: {share_url}"
     if selected and selected.get("name"):
         summary += (
-            f"\nSaved to **{selected['name']}**'s card — open *My Agents* on the "
-            "website to track the details."
+            f"\nSaved to **{selected['name']}**'s card"
+            + (" — open the Dashboard link above." if dash_url else
+               " — open *My Agents* on the website to track the details.")
         )
     await interaction.edit_original_response(content=summary)
 
-    run_id = m.get("run_id")
     if run_id:
         try:
             png = await api_get_bytes(f"/runs/{run_id}/plot.png", headers=headers)

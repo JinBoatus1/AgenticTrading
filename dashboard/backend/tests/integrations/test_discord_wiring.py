@@ -78,6 +78,14 @@ def test_bot_agent_uses_owned_discord_agents_endpoint():
     assert 'api_get("/api/v1/agents/builtin")' not in src
 
 
+def test_bot_builds_dashboard_backtest_deep_link():
+    src = _source()
+    assert "def dashboard_backtest_url(" in src
+    assert '"view": "backtest"' in src
+    assert "agent_id" in src and "run_id" in src
+    assert "Dashboard:" in src
+
+
 def test_bot_sends_per_user_id_on_strategy_post():
     """MEDIUM #4 — the bot must send a per-Discord-user X-Browser-Id when creating
     a strategy, else all Discord users share the bot process's single (IP) bucket

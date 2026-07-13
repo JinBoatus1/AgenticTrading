@@ -27,6 +27,10 @@
                 contest: { page: 'competition', competitionTab: 'leaderboard' },
                 'my-algo': { page: 'playground', playgroundTab: 'agents' },
             };
+            // Discord / share deep links: open Playground backtest immediately.
+            if (params.get('agent_id') || params.get('run_id')) {
+                return { page: 'playground', playgroundTab: 'backtest' };
+            }
             if (legacy && legacyMap[legacy]) return legacyMap[legacy];
             try {
                 var saved = JSON.parse(localStorage.getItem(NAV_STATE_KEY) || 'null');
