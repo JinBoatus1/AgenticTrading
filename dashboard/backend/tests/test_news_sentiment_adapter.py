@@ -127,3 +127,24 @@ def test_todays_404_not_hard_memoized(monkeypatch):
     second = ns.get_news_sentiment(["MSFT"], now)
     assert first["news_sentiment"] == {}
     assert second["news_overview"] is not None
+
+
+def test_panel_payload_shapes_feed_and_signals(monkeypatch):
+    body = load_signals_fixture()
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["status"] in ("ok", "degraded")
+    assert payload["news_overview"] == body["news_overview"]
+    assert set(payload["signals"]) <= set(body["signals"])
+    pubs = [item["published"] for item in payload["feed"]]
+    assert pubs == sorted(pubs, reverse=True)
+    for item in payload["feed"]:
+        assert item["url"] and item["headline"] and item["source"]
+
+
+def test_panel_payload_unavailable_on_failure(monkeypatch):
+    def _boom(**kw):
+        raise OSError("down")
+    monkeypatch.setattr(ns, "_http_get", _boom)
+    payload = ns.get_latest_panel_payload(["MSFT"])
+    assert payload == ns.UNAVAILABLE_PAYLOAD  # single-sourced shape (router reuses it)
