@@ -34,6 +34,7 @@ No ATL-side contract change is needed — the `/api/v2` refactor shipped the who
   | `url` | str | |
   | `age_hours` | float | ≥ 0.0 |
   | `n_articles` | int | ≥ 0 |
+  | `rationale` | str \| None | optional — see design note |
 - **Universe:** the loader is called with `list(DJIA_30)` (the canonical current Dow-30 constant, `infrastructure/llm/validator.py`, reconciled in #91/#94 — the old `AMEX` typo is gone). Pass that straight through as the `?tickers=` filter.
 
 ---
@@ -109,7 +110,7 @@ The producer artifact and the consumer type were designed independently and **do
 | `n_articles` | `n_articles` | passthrough |
 | `age_hours` | `published` (epoch) | **`max(0.0, (reference_ts − published) / 3600.0)`** |
 | `rationale` | `rationale` | passthrough — optional; the producer's one-line directional reasoning (see design note) |
-| — | `guid` | **dropped** — no slot in `NewsSentimentEntry` |
+| — | `guid` | **dropped** — no slot in `NewsSentimentEntry` (see design note) |
 
 And `news_overview` ← the top-level `news_overview` string (passthrough).
 
