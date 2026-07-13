@@ -156,7 +156,8 @@ Not prescriptive — the projection above is the contract; degraded-handling is 
 
 ```python
 # dashboard/backend/integrations/news_sentiment.py
-import os, time, requests
+import os, requests
+from datetime import datetime, timezone
 
 _BASE = "https://agenticfinsearch.org/api/signals/news/"
 
@@ -164,7 +165,17 @@ def _headers():
     key = os.environ.get("FINGPT_API_KEY", "")
     return {"Authorization": f"Bearer {key}"} if key else {}
 
+def _coerce_timestamp(timestamp):
+    # The real call site (external_run_service.py:429-431) serializes the step
+    # timestamp to an ISO STRING, not a datetime — coerce, don't assume.
+    if isinstance(timestamp, str):
+        timestamp = datetime.fromisoformat(timestamp)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp
+
 def get_news_sentiment(universe, timestamp):
+    timestamp = _coerce_timestamp(timestamp)
     as_of = timestamp.date().isoformat()
     reference_ts = timestamp.timestamp()
     resp = requests.get(
@@ -185,6 +196,7 @@ def get_news_sentiment(universe, timestamp):
             "url": s["url"],
             "n_articles": s["n_articles"],
             "age_hours": max(0.0, (reference_ts - s["published"]) / 3600.0),
+            "rationale": s.get("rationale"),
         }
     return {"news_sentiment": out, "news_overview": body.get("news_overview")}
 

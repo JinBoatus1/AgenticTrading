@@ -26,9 +26,14 @@ from dashboard.backend.api.v2.models import ContextEnvelope, SubmitAck
 
 
 def test_news_sentiment_fail_closed_when_plan1_absent(monkeypatch):
-    # No integrations.news_sentiment module → slot present, empty, overview None.
+    """Module absent -> loader degrades to ({}, None). Simulated absence:
+    a None entry in sys.modules makes the in-function import raise ImportError."""
+    import sys
+    monkeypatch.setitem(sys.modules,
+                        "dashboard.backend.integrations.news_sentiment", None)
     sentiment, overview = load_news_sentiment(["AAPL"], "2026-04-15T10:30:00+00:00")
-    assert sentiment == {} and overview is None
+    assert sentiment == {}
+    assert overview is None
 
 
 def _synthetic_bars(symbols, periods=40):
