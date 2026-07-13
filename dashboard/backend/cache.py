@@ -92,3 +92,17 @@ TTL_POSITIONS = 30        # Positions update on trades
 TTL_TRADES = 60           # Trade history changes infrequently
 TTL_PORTFOLIO_HISTORY = 120  # Portfolio history very stable
 TTL_BASELINES = 3600      # Baselines update daily (1 hour cache)
+
+# Alias: the class is a generic TTL cache; paper trading was merely its first
+# consumer — new non-paper consumers use this name.
+shared_ttl_cache = paper_trading_cache
+
+CACHE_KEY_NEWS_SIGNALS = "news:signals"  # namespaced like the `paper:` keys
+
+# Deliberately above the frontend's 300s poll so a client's own re-poll lands
+# inside the cached window instead of always missing at the boundary.
+TTL_NEWS = 420
+# Short negative-cache TTL: an outage must not serialize every request through
+# _fetch_lock at ~10s/attempt, but the panel must also recover within ~30s of
+# the producer returning, not stay "unavailable" for the full 420s.
+TTL_NEWS_UNAVAILABLE = 30

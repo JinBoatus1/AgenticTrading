@@ -71,6 +71,7 @@ EXPECTED_FULL_CONTRACT = {
     ("GET", "/api/backtest/{run_id}"),
     ("GET", "/api/backtest/{run_id}/chart-data"),
     ("GET", "/api/health"),
+    ("GET", "/api/news/signals"),
     ("GET", "/api/v1/agent-versions/{agent_version_id}"),
     ("GET", "/api/v1/agents"),
     ("POST", "/api/v1/agents"),
