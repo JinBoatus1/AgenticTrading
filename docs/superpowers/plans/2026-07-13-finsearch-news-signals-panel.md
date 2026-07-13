@@ -4,7 +4,7 @@
 
 **Goal:** Build the FinSearch news-sentiment adapter (`integrations/news_sentiment.py`), a cached `/api/news/signals` proxy, and a Home-view panel showing the latest news feed (left) and identified signals (right).
 
-**Architecture:** One adapter module with a shared HTTP core serves two consumers: the fail-closed backtest loader (`execution/backtest_backend.py`, `?as_of` stepping) and a new panel proxy router (latest artifact, 300s TTL cache). The browser never talks to FinSearch — the bearer key stays server-side. Phase A powers the feed from the signals artifact's representative stories; Phase B (cross-repo) adds a FinSearch raw-items endpoint and upgrades the feed.
+**Architecture:** One adapter module with a shared HTTP core serves two consumers: the fail-closed backtest loader (`execution/backtest_backend.py`, `?as_of` stepping) and a new panel proxy router (latest artifact, 420s TTL cache). The browser never talks to FinSearch — the bearer key stays server-side. Phase A powers the feed from the signals artifact's representative stories; Phase B (cross-repo) adds a FinSearch raw-items endpoint and upgrades the feed.
 
 **Tech Stack:** FastAPI router + Pydantic (ATL), `requests==2.33.1` (already pinned), vanilla JS + existing Home lifecycle hooks (no build step), Django view (FinSearch, Phase B).
 
