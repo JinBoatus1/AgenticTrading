@@ -36,8 +36,10 @@ Context envelope
 ``get_context`` returns a typed envelope: ``portfolio``, ``current_holdings``,
 ``recent_trades``, ``top_signals``, plus an explicit ``universe`` (DJIA-30), a
 ``loop`` field (``lockstep`` for backtest), and a guaranteed ``news_sentiment``
-slot (one aggregated entry per ticker; empty ``{}`` until the sentiment signal is
-wired). ``GET /api/v2/schema`` publishes the full schemas, error codes, and version.
+slot (one aggregated entry per ticker), populated by the Agentic FinSearch
+news-sentiment adapter when ``FINGPT_API_KEY`` is set, and left ``{}`` when the
+key is unset or the producer is unavailable. ``GET /api/v2/schema`` publishes
+the full schemas, error codes, and version.
 
 Decisions & idempotency
 ------------------------
