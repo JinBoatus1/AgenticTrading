@@ -110,7 +110,7 @@ AgenticTrading/
 ## Future Roadmap
 
 - Leaderboard backed by real multi-agent runs (replace mock data)
-- Sentiment analysis (Reddit, news APIs)
+- News sentiment is live via Agentic FinSearch (Home panel + v2 agent context); Reddit/social sentiment still planned
 - Monte Carlo simulation baselines
 - Production-ready Docker image (frontend + data included)
 

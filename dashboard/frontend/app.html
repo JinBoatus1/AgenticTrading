@@ -475,6 +475,23 @@
                     </div>
                 </section>
 
+                <section class="home-news-signals" id="homeNewsSignals" aria-label="News and signals">
+                    <div class="home-section-title-row">
+                        <h2 class="home-section-title">News &amp; Signals <span class="nns-source-tag">via Agentic FinSearch</span></h2>
+                        <span class="nns-updated" id="nnsUpdated"></span>
+                        <span class="nns-badge" id="nnsStatusBadge" hidden></span>
+                    </div>
+                    <p class="nns-overview" id="nnsOverview"></p>
+                    <div class="nns-split">
+                        <!-- Phase A honesty: the left column is the stories BEHIND today's signals
+                             (one representative story per signalled ticker), not the full fetched
+                             feed — Phase B renames this heading to "Latest news" when the
+                             raw-items endpoint powers it. -->
+                        <div class="nns-col" id="nnsFeed"><h3>Today's signal stories</h3><ul class="nns-list" id="nnsFeedList"></ul></div>
+                        <div class="nns-col" id="nnsSignals"><h3>Signals</h3><ul class="nns-list" id="nnsSignalsList"></ul></div>
+                    </div>
+                </section>
+
                 <section class="home-insights">
                     <h3 class="home-section-title home-insights-heading">Insights from the Lab</h3>
                     <div class="home-insights-grid">
@@ -1517,5 +1534,10 @@
     <script src="app.js?v=12"></script>
     <script src="js/leaderboard.js?v=11"></script>
     <script src="home-page.js"></script>
+    <!-- Load order: must come after app.js (API/API_BASE/escapeHtml) and
+         market-events/marketEventRelativeTime.js (formatMarketEventRelativeTime),
+         both loaded above — not beside the market-events/* block, which loads
+         before app.js. -->
+    <script src="home-news-signals.js"></script>
 </body>
 </html>

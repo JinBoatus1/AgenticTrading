@@ -24,6 +24,7 @@ class NewsSentimentEntry(BaseModel):
     url: str
     age_hours: float = Field(ge=0.0)
     n_articles: int = Field(ge=0)
+    rationale: Optional[str] = None  # producer's one-line directional reasoning (additive, 2026-07-13)
 
 
 class PortfolioState(BaseModel):

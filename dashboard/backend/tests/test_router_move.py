@@ -22,6 +22,7 @@ from dashboard.backend.api.routers import algo as algo_canon
 from dashboard.backend.api.routers import environments as environments_canon
 from dashboard.backend.api.routers import external_backtest as external_backtest_canon
 from dashboard.backend.api.routers import leaderboard as leaderboard_canon
+from dashboard.backend.api.routers import news as news_canon
 from dashboard.backend.api.routers import paper_trading as paper_trading_canon
 from dashboard.backend.api.routers import runs as runs_canon
 from dashboard.backend.app import app
@@ -93,6 +94,10 @@ EXPECTED_ALGO_ROUTES = {
 
 EXPECTED_LEADERBOARD_ROUTES = {
     ("GET", "/v1/leaderboard", "api_get_leaderboard"),
+}
+
+EXPECTED_NEWS_ROUTES = {
+    ("GET", "/news/signals", "latest_news_signals"),
 }
 
 # Paper Trading routes are registered directly on the app (no /api prefix);
@@ -255,6 +260,14 @@ def test_leaderboard_router_route_contract_unchanged():
 def test_canonical_leaderboard_router_uses_canonical_service():
     modules = _all_imported_modules(leaderboard_canon.__file__)
     assert "dashboard.backend.domain.leaderboard.service" in modules
+
+
+# ---------------------------------------------------------------------------
+# News panel proxy router (Task 5)
+# ---------------------------------------------------------------------------
+
+def test_news_router_route_contract_unchanged():
+    assert _route_triples(news_canon.router) == EXPECTED_NEWS_ROUTES
 
 
 # ---------------------------------------------------------------------------

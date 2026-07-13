@@ -34,6 +34,7 @@ No ATL-side contract change is needed — the `/api/v2` refactor shipped the who
   | `url` | str | |
   | `age_hours` | float | ≥ 0.0 |
   | `n_articles` | int | ≥ 0 |
+  | `rationale` | str \| None | optional — see design note |
 - **Universe:** the loader is called with `list(DJIA_30)` (the canonical current Dow-30 constant, `infrastructure/llm/validator.py`, reconciled in #91/#94 — the old `AMEX` typo is gone). Pass that straight through as the `?tickers=` filter.
 
 ---
@@ -108,7 +109,8 @@ The producer artifact and the consumer type were designed independently and **do
 | `url` | `url` | passthrough |
 | `n_articles` | `n_articles` | passthrough |
 | `age_hours` | `published` (epoch) | **`max(0.0, (reference_ts − published) / 3600.0)`** |
-| — | `rationale`, `guid` | **dropped** — no slot in `NewsSentimentEntry` (see design note) |
+| `rationale` | `rationale` | passthrough — optional; the producer's one-line directional reasoning (see design note) |
+| — | `guid` | **dropped** — no slot in `NewsSentimentEntry` (see design note) |
 
 And `news_overview` ← the top-level `news_overview` string (passthrough).
 
@@ -140,21 +142,22 @@ The consumer slot already defaults to empty, so every failure mode collapses saf
 
 ---
 
-## Design note — `rationale` / provenance (flag for the team)
+## Design note — `rationale` / provenance
 
-The producer emits a one-line **`rationale`** per ticker (why the read is bullish/bearish) plus the story `guid`. `NewsSentimentEntry` has **no slot for either**, so the adapter must currently drop them. That narrows the "auditable, sourced signal" thesis: `headline` + `source` + `url` still give provenance, but the *directional reasoning* is discarded before the agent ever sees it.
+The producer emits a one-line **`rationale`** per ticker (why the read is bullish/bearish) plus the story `guid`. `NewsSentimentEntry` now carries an **optional** `rationale: str | None = None` field (additive, 2026-07-13), so the agent can fold the sourced reasoning into the decision `reasoning` field that already persists. It is a forward-compatible, additive change (existing consumers ignore it) and it restores the "auditable, sourced signal" thesis: `headline` + `source` + `url` + `rationale` together give provenance and directional reasoning, instead of the reasoning being discarded before the agent ever sees it. The projecting adapter (see the Traceability section) is responsible for passing the producer's `rationale` through into this slot.
 
-Recommendation: add an **optional** `rationale: str | None = None` field to `NewsSentimentEntry`, so the agent can fold the sourced reasoning into the decision `reasoning` field that already persists. It is a forward-compatible, additive change (existing consumers ignore it) and it restores the audit trail the design intended. Raised here rather than silently decided — it is a contract change and belongs to whoever owns `api/v2/models.py`.
+`guid` has **no slot** and stays dropped — `headline`/`source`/`url` already give sufficient provenance without it, and there is no plan to add one.
 
 ---
 
 ## Reference sketch
 
-Not prescriptive — the projection above is the contract; degraded-handling and the `rationale` question are yours to decide.
+Not prescriptive — the projection above is the contract; degraded-handling is yours to decide (the `rationale` question is settled — see the design note above).
 
 ```python
 # dashboard/backend/integrations/news_sentiment.py
-import os, time, requests
+import os, requests
+from datetime import datetime, timezone
 
 _BASE = "https://agenticfinsearch.org/api/signals/news/"
 
@@ -162,7 +165,17 @@ def _headers():
     key = os.environ.get("FINGPT_API_KEY", "")
     return {"Authorization": f"Bearer {key}"} if key else {}
 
+def _coerce_timestamp(timestamp):
+    # The real call site (external_run_service.py:429-431) serializes the step
+    # timestamp to an ISO STRING, not a datetime — coerce, don't assume.
+    if isinstance(timestamp, str):
+        timestamp = datetime.fromisoformat(timestamp)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp
+
 def get_news_sentiment(universe, timestamp):
+    timestamp = _coerce_timestamp(timestamp)
     as_of = timestamp.date().isoformat()
     reference_ts = timestamp.timestamp()
     resp = requests.get(
@@ -183,6 +196,7 @@ def get_news_sentiment(universe, timestamp):
             "url": s["url"],
             "n_articles": s["n_articles"],
             "age_hours": max(0.0, (reference_ts - s["published"]) / 3600.0),
+            "rationale": s.get("rationale"),
         }
     return {"news_sentiment": out, "news_overview": body.get("news_overview")}
 
@@ -203,4 +217,4 @@ def get_news_sentiment(universe, timestamp):
 | Auth requirement | FinSearch `Docs/superpowers/plans/2026-07-12-endpoint-auth.md` (PRs #354/#355/#356); endpoint verified live 2026-07-13 |
 | `as_of`, Dow-30 reconcile | FinSearch PR #340 / #341; ATL #91 / #94 |
 
-**Deliberate deviation from the plan:** the plan's frozen sketch listed `rationale`/`published` on the injected entry; the shipped `NewsSentimentEntry` carries `age_hours`/`n_articles` instead and omits `rationale`. This doc documents the shipped contract and flags the `rationale` gap above rather than assuming the older sketch.
+**Deliberate deviation from the plan:** the plan's frozen sketch listed `rationale`/`published` on the injected entry; the shipped `NewsSentimentEntry` carries `age_hours`/`n_articles` instead of `published`, plus (as of 2026-07-13) an optional `rationale`. This doc documents the shipped contract rather than assuming the older sketch.

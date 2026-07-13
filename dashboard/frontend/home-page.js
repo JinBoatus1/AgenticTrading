@@ -648,11 +648,13 @@ function initHomePage() {
 function onHomePageShow() {
     if (!homeMockLive) homeMockLive = useMockLiveEvents();
     homeMockLive.start();
+    window.newsSignalsPanel && window.newsSignalsPanel.onShow();
 }
 
 function onHomePageHide() {
     homeMockLive?.stop();
     hideLiveToast();
+    window.newsSignalsPanel && window.newsSignalsPanel.onHide();
 }
 
 window.initHomePage = initHomePage;

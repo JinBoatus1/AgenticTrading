@@ -1,0 +1,293 @@
+"""FinSearch news-sentiment adapter (Plan 1).
+
+Consumers:
+- execution/backtest_backend.py::load_news_sentiment  (fail-closed, per-step as_of)
+- api/routers/news.py                                  (latest artifact, panel payload)
+
+Contract: docs/integrations/finsearch-news-sentiment.md
+"""
+from __future__ import annotations
+
+import logging
+import os
+import threading
+import time
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional, Set, Tuple, Union
+
+import requests
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_BASE_URL = "https://agenticfinsearch.org/api/signals/news/"
+_TIMEOUT_SECONDS = 10
+_MAX_CACHE_ENTRIES = 64  # bounded — a long-lived server must not grow monotonically
+# Short throttle window for today/latest *failures* (outage/config errors), so a
+# producer outage can't re-hit the bearer-gated endpoint on every step or poll.
+# Mirrors cache.TTL_NEWS_UNAVAILABLE; kept local so the adapter stays usable
+# independently of the router's cache module.
+_NEGATIVE_TTL_SECONDS = 30
+
+UNAVAILABLE_PAYLOAD = {
+    "status": "unavailable", "status_reason": None, "generated_at": None,
+    "staleness_hours": None, "news_overview": None, "signals": {}, "feed": [],
+}
+
+_lock = threading.Lock()
+# key: (as_of or "", tickers_key) -> {"etag": str|None, "body": dict|None,
+#                                     "expires_at": float|None}
+# expires_at is a time.monotonic() deadline set ONLY on today/latest negative
+# entries (the outage throttle). None means "no throttle": positive bodies,
+# immutable past gaps, and today's 404-waiting-for-heartbeat gaps.
+_CACHE: Dict[Tuple[str, str], Dict[str, Any]] = {}
+# Keys with a leader currently hitting the producer (single-flight). Concurrent
+# callers read the freshest cached body instead of stampeding the producer or
+# blocking a threadpool worker behind the leader's ~10s call.
+_inflight: Set[Tuple[str, str]] = set()
+_MISS = object()  # sentinel: a cached None body (a served gap) is a real hit
+
+
+def clear_cache() -> None:
+    with _lock:
+        _CACHE.clear()
+        _inflight.clear()
+
+
+def _base_url() -> str:
+    return os.environ.get("FINSEARCH_SIGNALS_URL", DEFAULT_BASE_URL)
+
+
+def _headers() -> Dict[str, str]:
+    key = os.environ.get("FINGPT_API_KEY", "")
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
+def _http_get(*, params: Dict[str, str], headers: Dict[str, str]):
+    return requests.get(_base_url(), params=params, headers=headers,
+                        timeout=_TIMEOUT_SECONDS)
+
+
+def _coerce_timestamp(timestamp: Union[str, datetime, None]) -> Optional[datetime]:
+    """The v2 step envelope serializes timestamps to ISO strings
+    (external_run_service.py:429-431), so the REAL backtest call site passes
+    str; direct callers may pass datetime. Returns tz-aware datetime or None."""
+    if timestamp is None:
+        return None
+    if isinstance(timestamp, str):
+        try:
+            # Mirror equity_plot.parse_equity_timestamp: bare fromisoformat can't
+            # parse a trailing "Z", so normalize it to an explicit UTC offset.
+            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            logger.error("news_sentiment: unparseable timestamp %r", timestamp)
+            return None
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp
+
+
+def _write(key, *, etag, body, expires_at) -> None:
+    """Store a cache entry (caller holds _lock). Bounded, oldest-inserted evicted."""
+    _CACHE[key] = {"etag": etag, "body": body, "expires_at": expires_at}
+    while len(_CACHE) > _MAX_CACHE_ENTRIES:
+        _CACHE.pop(next(iter(_CACHE)))  # evict oldest-inserted
+
+
+def _serve_from_memo(cached, is_past):
+    """Whether a cached entry can be served without an HTTP call (caller holds
+    _lock). Returns _MISS when a (re)fetch is required."""
+    if cached is None:
+        return _MISS
+    if is_past:
+        return cached["body"]  # immutable past: positive body OR honest gap
+    # today/latest: positive bodies always revalidate (ETag), 404 gaps keep
+    # re-checking for the heartbeat; only a *throttled* negative entry serves.
+    exp = cached.get("expires_at")
+    if cached["body"] is None and exp is not None and time.monotonic() < exp:
+        return None
+    return _MISS
+
+
+def _store_response(key, is_past, *, etag, body, is_404) -> None:
+    """Cache an HTTP result (caller holds _lock), applying the negative-cache
+    policy: throttle only today/latest OUTAGE gaps; never throttle a 404
+    (waiting for the heartbeat) or an immutable past gap."""
+    if body is not None or is_past or is_404:
+        expires_at = None
+    else:
+        expires_at = time.monotonic() + _NEGATIVE_TTL_SECONDS
+    _write(key, etag=etag, body=body, expires_at=expires_at)
+
+
+def _parse_response(resp, as_of) -> Optional[dict]:
+    """Extract the usable body from a producer response (None on any non-200 or
+    unusable body), logging each failure class."""
+    if resp.status_code == 200:
+        try:
+            body = resp.json()
+        except ValueError:
+            logger.error("news_sentiment: unparseable producer body")
+            return None
+        if body.get("status") == "degraded":
+            logger.warning("news_sentiment: degraded artifact: %s",
+                           body.get("status_reason"))
+        return body
+    if resp.status_code == 401:
+        logger.error("news_sentiment: 401 from producer — missing/wrong FINGPT_API_KEY")
+    elif resp.status_code == 503:
+        logger.error("news_sentiment: 503 — producer auth misconfigured server-side")
+    elif resp.status_code == 400:
+        logger.error("news_sentiment: 400 bad_as_of — adapter bug (as_of=%r)", as_of)
+    elif resp.status_code == 404:
+        pass  # no artifact at/before as_of: normal for early steps
+    else:
+        logger.warning("news_sentiment: unexpected status %s", resp.status_code)
+    return None
+
+
+def fetch_signals(*, as_of: Optional[str], tickers: Tuple[str, ...]) -> Optional[dict]:
+    """Fetch one signals artifact; None on any failure (fail closed, log loud).
+
+    Memo policy: keys dated STRICTLY BEFORE today (UTC) are served from the
+    memo without HTTP once any result — including a config-error None — is
+    cached (past days are immutable, and a 401/timeout must not turn a 161-step
+    backtest into 161 live calls). Keys for today, and the `as_of=None` "latest"
+    read, always revalidate (ETag/If-None-Match), EXCEPT an outage/config
+    failure is negative-cached for _NEGATIVE_TTL_SECONDS so a sustained outage
+    is throttled there too; a 404 is never throttled (it must pick up the daily
+    heartbeat promptly). A transport failure NEVER serves a previously cached
+    body — stale data presented as fresh is worse than an honest gap.
+
+    Single-flight: exactly one leader per key hits the producer; concurrent
+    callers return the freshest cached body without blocking, so a burst can't
+    stampede the producer or pile up threadpool workers behind one ~10s call.
+    """
+    key = (as_of or "", ",".join(tickers))
+    today = datetime.now(timezone.utc).date().isoformat()
+    is_past = bool(as_of) and as_of < today  # ISO dates sort lexically
+
+    with _lock:
+        cached = _CACHE.get(key)
+        served = _serve_from_memo(cached, is_past)
+        if served is not _MISS:
+            return served
+        if key in _inflight:
+            # Follower: a leader is already fetching this key. Do not hit the
+            # producer and do not block on it — return the freshest body we have.
+            return cached["body"] if cached else None
+        _inflight.add(key)
+
+    try:
+        params: Dict[str, str] = {}
+        if as_of:
+            params["as_of"] = as_of
+        if tickers:
+            params["tickers"] = ",".join(tickers)
+        headers = _headers()
+        if cached and cached.get("etag"):
+            headers["If-None-Match"] = cached["etag"]
+        try:
+            resp = _http_get(params=params, headers=headers)
+        except Exception as exc:  # network/timeout: fail closed, never stale
+            logger.warning("news_sentiment: fetch failed: %s", exc)
+            with _lock:
+                # Memoize the gap so an outage can't re-hit every step: permanent
+                # for immutable past dates; a short throttle for today/latest, but
+                # never clobber an existing good body (keep it to revalidate later).
+                if is_past:
+                    _write(key, etag=None, body=None, expires_at=None)
+                elif cached is None or cached["body"] is None:
+                    _write(key, etag=None, body=None,
+                           expires_at=time.monotonic() + _NEGATIVE_TTL_SECONDS)
+            return None
+        if resp.status_code == 304 and cached:
+            return cached["body"]
+        body = _parse_response(resp, as_of)
+        with _lock:
+            _store_response(key, is_past, etag=resp.headers.get("ETag"),
+                            body=body, is_404=(resp.status_code == 404))
+        return body
+    finally:
+        with _lock:
+            _inflight.discard(key)
+
+
+def _story_fields(sig: dict) -> dict:
+    """Shared story projection (headline/source/url) used by BOTH the per-step
+    backtest entry and the panel feed, so the field list lives in one place."""
+    return {"headline": sig["headline"], "source": sig["source"], "url": sig["url"]}
+
+
+def _project_entry(sig: dict, reference_ts: float) -> dict:
+    return {
+        "sentiment": sig["sentiment"],
+        "score": sig["score"],
+        **_story_fields(sig),
+        "n_articles": sig["n_articles"],
+        "age_hours": max(0.0, (reference_ts - float(sig["published"])) / 3600.0),
+        "rationale": sig.get("rationale"),
+    }
+
+
+def get_news_sentiment(universe, timestamp) -> dict:
+    """Contract interface for execution/backtest_backend.load_news_sentiment."""
+    empty = {"news_sentiment": {}, "news_overview": None}
+    ts = _coerce_timestamp(timestamp)
+    if ts is None:
+        return empty
+    as_of = ts.date().isoformat()
+    reference_ts = ts.timestamp()
+    tickers = tuple(sorted(universe or ()))
+    body = fetch_signals(as_of=as_of, tickers=tickers)
+    if not body:
+        return empty
+    wanted = set(tickers)
+    out = {
+        sym: _project_entry(sig, reference_ts)
+        for sym, sig in (body.get("signals") or {}).items()
+        if not wanted or sym in wanted
+    }
+    return {"news_sentiment": out, "news_overview": body.get("news_overview")}
+
+
+def _feed_sort_key(item: dict) -> float:
+    """Sort by published epoch; a malformed/missing timestamp sinks to the
+    bottom instead of throwing and collapsing the whole feed."""
+    try:
+        return float(item["published"])
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def get_latest_panel_payload(tickers) -> dict:
+    """Latest-artifact read for the Home panel (no as_of).
+
+    `feed` is served backend-side even though Phase A derives it from
+    `signals`, so the wire format (and the frontend) do not change when
+    Phase B swaps the feed source to the raw-items endpoint.
+
+    One malformed signal is dropped (logged) rather than collapsing the whole
+    panel: the producer is the trust boundary, but a single off-spec entry must
+    still degrade to partial rendering, not an outage."""
+    body = fetch_signals(as_of=None, tickers=tuple(sorted(tickers or ())))
+    if not body:
+        return dict(UNAVAILABLE_PAYLOAD)
+    signals = body.get("signals") or {}
+    feed = []
+    for sym, s in signals.items():
+        try:
+            story = _story_fields(s)  # requires headline/source/url
+        except (KeyError, TypeError):
+            logger.warning("news_sentiment: dropping malformed panel signal %r", sym)
+            continue
+        feed.append({**story, "published": s.get("published"), "ticker": sym})
+    feed.sort(key=_feed_sort_key, reverse=True)
+    return {
+        "status": body.get("status", "ok"),
+        "status_reason": body.get("status_reason"),
+        "generated_at": body.get("generated_at"),
+        "staleness_hours": body.get("staleness_hours"),
+        "news_overview": body.get("news_overview"),
+        "signals": signals,
+        "feed": feed,
+    }
