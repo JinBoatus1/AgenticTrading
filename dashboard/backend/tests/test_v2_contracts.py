@@ -76,3 +76,20 @@ def test_error_envelope_shape():
     err = ErrorEnvelope.model_validate({"error": {
         "code": "validation_failed", "message": "bad", "retryable": False}})
     assert err.error.code == "validation_failed"
+
+
+def test_news_sentiment_entry_accepts_rationale():
+    entry = NewsSentimentEntry(
+        sentiment="bullish", score=0.5, headline="h", source="s",
+        url="https://example.com", age_hours=1.0, n_articles=2,
+        rationale="Two outlets report upbeat guidance.",
+    )
+    assert entry.rationale == "Two outlets report upbeat guidance."
+
+
+def test_news_sentiment_entry_rationale_is_optional():
+    entry = NewsSentimentEntry(
+        sentiment="neutral", score=0.0, headline="h", source="s",
+        url="https://example.com", age_hours=0.0, n_articles=1,
+    )
+    assert entry.rationale is None
