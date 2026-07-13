@@ -21,18 +21,18 @@ from pydantic import BaseModel, field_validator, ValidationError, ConfigDict
 
 logger = logging.getLogger(__name__)
 
-# DJIA 30 stocks (must match backtest_hourly_agent.py)
+# DJIA 30 constituents. Source: S&P Dow Jones Indices, effective 2026-06-29
+# (GOOGL replaced VZ). Canonical for ATL — the backtest script and the v2 API
+# contract import this (guarded by tests/test_djia30_universe.py). Reconcile
+# against the official index on change.
 DJIA_30 = [
-    "AAPL", "MSFT", "JPM", "V", "JNJ",
-    "WMT", "PG", "MA", "HD", "DIS",
-    "MCD", "PFE", "CSCO", "IBM", "INTC",
-    "XOM", "AXP", "KO", "CAT", "GS",
-    "MRK", "NVDA", "BA", "UNH", "MMM",
-    "CVX", "NKE", "AMEX", "TRV", "WBA"
+    "AAPL", "AMGN", "AMZN", "AXP", "BA", "CAT", "CRM", "CSCO", "CVX", "DIS",
+    "GOOGL", "GS", "HD", "HON", "IBM", "JNJ", "JPM", "KO", "MCD", "MMM",
+    "MRK", "MSFT", "NKE", "NVDA", "PG", "SHW", "TRV", "UNH", "V", "WMT",
 ]
 
 # Top 10 DJIA stocks (for 10-stock buy-and-hold mode)
-TOP_10_STOCKS = ["AAPL", "MSFT", "JPM", "V", "JNJ", "WMT", "PG", "MA", "HD", "DIS"]
+TOP_10_STOCKS = ["AAPL", "MSFT", "JPM", "V", "JNJ", "WMT", "PG", "AXP", "HD", "DIS"]
 
 
 class TradingAction(str, Enum):
@@ -414,7 +414,7 @@ Rules:
 6. Do not change the JSON format.
 
 Stocks to buy on first hour:
-Top 10 DJIA stocks: AAPL, MSFT, JPM, V, JNJ, WMT, PG, MA, HD, DIS
+Top 10 DJIA stocks: AAPL, MSFT, JPM, V, JNJ, WMT, PG, AXP, HD, DIS
 
 First-hour buy logic:
 - allocation_per_stock = 10000 (which is 100000 / 10)

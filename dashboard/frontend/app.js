@@ -1958,7 +1958,11 @@ function handleScenario(btn) {
 const ASSET_UNIVERSES = {
     djia: {
         name: 'DJIA',
-        assets: ['AAPL', 'MSFT', 'JPM', 'JNJ', 'V', 'PG', 'MRK', 'DIS', 'BA', 'HD', 'KO', 'AXP', 'GE', 'IBM', 'INTC']
+        // Canonical Dow-30 — must mirror backend validator.DJIA_30
+        // (pinned by dashboard/backend/tests/test_djia30_universe.py).
+        assets: ['AAPL', 'AMGN', 'AMZN', 'AXP', 'BA', 'CAT', 'CRM', 'CSCO', 'CVX', 'DIS',
+                 'GOOGL', 'GS', 'HD', 'HON', 'IBM', 'JNJ', 'JPM', 'KO', 'MCD', 'MMM',
+                 'MRK', 'MSFT', 'NKE', 'NVDA', 'PG', 'SHW', 'TRV', 'UNH', 'V', 'WMT']
     },
     mag7: {
         name: 'Magnificent 7',

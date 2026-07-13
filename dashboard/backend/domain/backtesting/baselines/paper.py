@@ -23,16 +23,11 @@ from dashboard.backend.paths import CREDENTIALS_DIR
 
 from dashboard.backend.database import db
 from dashboard.backend.infrastructure.brokers.alpaca_paper import AlpacaPaperTradingClient
+from dashboard.backend.infrastructure.llm.validator import DJIA_30, TOP_10_STOCKS
 
-
-DJIA_SYMBOLS = [
-    "AAPL", "MSFT", "JPM", "V", "JNJ",
-    "WMT", "PG", "UNH", "NVDA", "HD",
-    "KO", "IBM", "MCD", "CAT", "AXP",
-    "GS", "BA", "MMM", "AMGN", "INTC",
-    "VZ", "PFE", "MRK", "HON", "CSCO",
-    "NFLX", "TSLA", "CRM", "TRV", "DIS"
-]
+# Canonical Dow-30 (single source: validator.DJIA_30, guarded by
+# tests/test_djia30_universe.py), kept under the historical local name.
+DJIA_SYMBOLS = list(DJIA_30)
 
 
 class PaperTradingBaselineCalculator:
@@ -166,8 +161,8 @@ class PaperTradingBaselineCalculator:
         Calculate equal-weighted DJIA buy-and-hold for date range.
         """
         try:
-            # Use first 10 DJIA symbols (faster)
-            sample_symbols = DJIA_SYMBOLS[:10]
+            # Use the canonical 10-stock basket (faster than all 30)
+            sample_symbols = TOP_10_STOCKS
             all_bars = {}
             
             for symbol in sample_symbols:

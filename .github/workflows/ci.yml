@@ -1,6 +1,10 @@
 name: CI
 
 # Runs the backend and packaging test suites on every push and PR to main.
+# On pushes to main (and manual dispatch), additionally triggers a Render
+# prod deploy via the service's Deploy Hook once backend tests pass — the
+# service's native autoDeploy never fires for this repo (Render's GitHub App
+# isn't authorized on the org), so this workflow IS the deploy path.
 
 on:
   push:
@@ -9,6 +13,9 @@ on:
   pull_request:
     branches:
       - main
+  # Manual escape hatch: re-fire the deploy without a new commit
+  # (e.g. right after the RENDER_DEPLOY_HOOK_URL secret is first added).
+  workflow_dispatch:
 
 jobs:
   backend-tests:
@@ -53,3 +60,41 @@ jobs:
       - name: Run packaging tests
         working-directory: packaging/agentictrading
         run: pytest tests/ -p no:cacheprovider
+
+  deploy-prod:
+    name: Trigger Render prod deploy
+    # Deploy only from main pushes (or a manual dispatch on main), and only
+    # after the backend suite is green. packaging-tests is deliberately NOT a
+    # gate: it covers the PyPI SDK, which isn't part of the Render service —
+    # an SDK-only failure shouldn't block shipping a backend fix.
+    needs: backend-tests
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    # Serialize deploy triggers so rapid merges don't race; never cancel an
+    # in-flight trigger (the hook call is near-instant anyway).
+    concurrency:
+      group: render-prod-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Fire Render deploy hook
+        env:
+          # Repo secret holding the full Deploy Hook URL
+          # (https://api.render.com/deploy/srv-...?key=...). The URL itself is
+          # the credential — scoped to "trigger a deploy of this one service",
+          # unlike an account-wide API key.
+          DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          # Fail loudly (red main) when the secret is missing: a silent
+          # non-deploy is exactly the failure mode this job exists to fix.
+          if [ -z "$DEPLOY_HOOK_URL" ]; then
+            echo "::error::RENDER_DEPLOY_HOOK_URL secret is not set — prod deploy NOT triggered." \
+                 "Add the service's Deploy Hook URL as an Actions secret (repo Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+          # --fail: any non-2xx response fails the job; --retry: rides out
+          # transient network/5xx hiccups (Render dedupes rapid re-triggers).
+          curl --fail --silent --show-error --retry 3 -X POST "$DEPLOY_HOOK_URL"
+          echo
+          echo "Render deploy triggered."
