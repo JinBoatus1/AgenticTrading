@@ -17,6 +17,7 @@
 - Every new route requires updating `tests/test_app_composition.py::EXPECTED_FULL_CONTRACT` AND a golden set following `tests/test_router_move.py` conventions, in the same commit — otherwise CI goes red on every open PR.
 - All adapter tests are offline (fixture-driven); no test may hit the network or require `FINGPT_API_KEY`.
 - `age_hours` is always computed against the passed `timestamp`, never `datetime.now()`.
+- **The v2 step envelope carries `timestamp` as an ISO-8601 STRING** (`external_run_service.py:429-431` serializes it; the existing tests at `test_execution_backends.py:30,90` pass string literals). The adapter must accept `str | datetime`; assuming datetime makes the feature silently no-op behind the fail-closed loader.
 - Frontend: no framework, no build step; follow `API.get`/`AbortController`/destroy-recreate conventions in `app.js`.
 
 ---
@@ -25,6 +26,7 @@
 
 **Files:**
 - Modify: `dashboard/backend/api/v2/models.py:19-26` (the `NewsSentimentEntry` class)
+- Modify: `docs/integrations/finsearch-news-sentiment.md` (the projection table row "`rationale`, `guid` | dropped" and the "Design note — rationale" section become stale the moment this merges — update both to record that `rationale` now has a slot; `guid` remains dropped)
 - Test: `dashboard/backend/tests/test_v2_contracts.py`
 
 **Interfaces:**
@@ -207,24 +209,73 @@ def test_401_is_empty_and_logs_error(monkeypatch, caplog):
     assert any("FINGPT_API_KEY" in r.message for r in caplog.records)
 
 
-def test_network_error_fails_closed(monkeypatch):
+def test_network_error_fails_closed_never_stale(monkeypatch):
+    """A transport failure returns unavailable — it must NOT serve the
+    previously cached body for the same key (stale data presented as fresh
+    during an outage)."""
+    body = load_signals_fixture()
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    warm = ns.get_latest_panel_payload(["MSFT"])  # warms the ("", tickers) key
+    assert warm["status"] != "unavailable"
+
     def _boom(**kw):
         raise OSError("connection refused")
     monkeypatch.setattr(ns, "_http_get", _boom)
-    out = ns.get_news_sentiment(["MSFT"], datetime.now(timezone.utc))
+    out = ns.get_latest_panel_payload(["MSFT"])  # same key, latest path revalidates
+    assert out["status"] == "unavailable"
+
+
+def test_real_call_site_passes_iso_string(monkeypatch):
+    """The v2 step envelope serializes timestamp to an ISO STRING
+    (external_run_service.py:429-431) — the adapter must parse it, not crash
+    into the fail-closed loader."""
+    body = load_signals_fixture()
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    out = ns.get_news_sentiment(["MSFT"], "2026-07-10T15:00:00+00:00")
+    assert out["news_overview"] == body["news_overview"]  # parsed, not swallowed
+
+
+def test_garbage_timestamp_fails_closed(monkeypatch):
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response())
+    out = ns.get_news_sentiment(["MSFT"], "not-a-date")
     assert out == {"news_sentiment": {}, "news_overview": None}
 
 
-def test_same_as_of_and_tickers_memoized(monkeypatch):
+def test_past_as_of_memoized_one_call(monkeypatch):
     calls = []
     def _counting(**kw):
         calls.append(kw)
         return _fake_response()
     monkeypatch.setattr(ns, "_http_get", _counting)
-    ts = datetime(2026, 7, 10, 15, 0, tzinfo=timezone.utc)
+    ts = datetime(2026, 7, 10, 15, 0, tzinfo=timezone.utc)  # strictly past date
     ns.get_news_sentiment(["MSFT"], ts)
     ns.get_news_sentiment(["MSFT"], ts.replace(hour=16))  # same date -> same as_of
     assert len(calls) == 1
+
+
+def test_config_error_negative_cached_for_past_dates(monkeypatch):
+    """A 401 must not turn a 161-step backtest into 161 live calls."""
+    calls = []
+    def _unauth(**kw):
+        calls.append(1)
+        return _fake_response(status=401, body={})
+    monkeypatch.setattr(ns, "_http_get", _unauth)
+    ts = datetime(2026, 7, 1, 15, 0, tzinfo=timezone.utc)
+    ns.get_news_sentiment(["MSFT"], ts)
+    ns.get_news_sentiment(["MSFT"], ts)
+    assert len(calls) == 1
+
+
+def test_todays_404_not_hard_memoized(monkeypatch):
+    """A 404 seen before the daily heartbeat lands must not stick for the
+    process lifetime — today's key always revalidates."""
+    responses = [_fake_response(status=404, body={}), _fake_response()]
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: responses.pop(0))
+    now = datetime.now(timezone.utc)
+    first = ns.get_news_sentiment(["MSFT"], now)
+    second = ns.get_news_sentiment(["MSFT"], now)
+    assert first["news_sentiment"] == {}
+    assert second["news_overview"] is not None
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -249,8 +300,8 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from datetime import timezone
-from typing import Any, Dict, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional, Tuple, Union
 
 import requests
 
@@ -258,6 +309,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "https://agenticfinsearch.org/api/signals/news/"
 _TIMEOUT_SECONDS = 10
+_MAX_CACHE_ENTRIES = 64  # bounded — a long-lived server must not grow monotonically
+
+UNAVAILABLE_PAYLOAD = {
+    "status": "unavailable", "status_reason": None, "generated_at": None,
+    "staleness_hours": None, "news_overview": None, "signals": {}, "feed": [],
+}
 
 _lock = threading.Lock()
 # key: (as_of or "", tickers_key) -> {"etag": str|None, "body": dict|None}
@@ -283,18 +340,41 @@ def _http_get(*, params: Dict[str, str], headers: Dict[str, str]):
                         timeout=_TIMEOUT_SECONDS)
 
 
+def _coerce_timestamp(timestamp: Union[str, datetime, None]) -> Optional[datetime]:
+    """The v2 step envelope serializes timestamps to ISO strings
+    (external_run_service.py:429-431), so the REAL backtest call site passes
+    str; direct callers may pass datetime. Returns tz-aware datetime or None."""
+    if timestamp is None:
+        return None
+    if isinstance(timestamp, str):
+        try:
+            timestamp = datetime.fromisoformat(timestamp)
+        except ValueError:
+            logger.error("news_sentiment: unparseable timestamp %r", timestamp)
+            return None
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp
+
+
 def fetch_signals(*, as_of: Optional[str], tickers: Tuple[str, ...]) -> Optional[dict]:
     """Fetch one signals artifact; None on any failure (fail closed, log loud).
 
-    Memo policy: an `as_of`-keyed artifact is treated as immutable for the
-    process lifetime (a backtest touching the same date twice must not
-    re-fetch); the `as_of=None` "latest" read always revalidates via ETag.
+    Memo policy: keys dated STRICTLY BEFORE today (UTC) are served from the
+    memo without HTTP once any result — including a config-error None — is
+    cached (past days are immutable for our purposes, and a 401 must not turn
+    a 161-step backtest into 161 live calls). Keys for today, and the
+    `as_of=None` "latest" read, always revalidate (ETag/If-None-Match), so a
+    404 seen before the daily heartbeat lands never sticks. A transport
+    failure NEVER serves a cached body — stale data presented as fresh is
+    worse than an honest gap.
     """
     key = (as_of or "", ",".join(tickers))
+    today = datetime.now(timezone.utc).date().isoformat()
     with _lock:
         cached = _CACHE.get(key)
-    if cached is not None and as_of:
-        return cached["body"]  # historical artifact: hard memo, no HTTP
+    if cached is not None and as_of and as_of < today:  # ISO dates sort lexically
+        return cached["body"]
     params: Dict[str, str] = {}
     if as_of:
         params["as_of"] = as_of
@@ -305,36 +385,35 @@ def fetch_signals(*, as_of: Optional[str], tickers: Tuple[str, ...]) -> Optional
         headers["If-None-Match"] = cached["etag"]
     try:
         resp = _http_get(params=params, headers=headers)
-    except Exception as exc:  # network/timeout: quiet-ish, fail closed
+    except Exception as exc:  # network/timeout: fail closed, never stale
         logger.warning("news_sentiment: fetch failed: %s", exc)
-        return cached["body"] if cached else None
+        return None
     if resp.status_code == 304 and cached:
         return cached["body"]
-    if resp.status_code == 401:
-        logger.error("news_sentiment: 401 from producer — missing/wrong FINGPT_API_KEY")
-        return None
-    if resp.status_code == 503:
-        logger.error("news_sentiment: 503 — producer auth misconfigured server-side")
-        return None
-    if resp.status_code == 400:
-        logger.error("news_sentiment: 400 bad_as_of — adapter bug (as_of=%r)", as_of)
-        return None
-    if resp.status_code == 404:
-        body = None  # no artifact at/before as_of: normal for early steps
-    elif resp.status_code == 200:
+    body: Optional[dict] = None
+    if resp.status_code == 200:
         try:
             body = resp.json()
         except ValueError:
             logger.error("news_sentiment: unparseable producer body")
-            return None
-        if body.get("status") == "degraded":
-            logger.warning("news_sentiment: degraded artifact: %s",
-                           body.get("status_reason"))
+        else:
+            if body.get("status") == "degraded":
+                logger.warning("news_sentiment: degraded artifact: %s",
+                               body.get("status_reason"))
+    elif resp.status_code == 401:
+        logger.error("news_sentiment: 401 from producer — missing/wrong FINGPT_API_KEY")
+    elif resp.status_code == 503:
+        logger.error("news_sentiment: 503 — producer auth misconfigured server-side")
+    elif resp.status_code == 400:
+        logger.error("news_sentiment: 400 bad_as_of — adapter bug (as_of=%r)", as_of)
+    elif resp.status_code == 404:
+        pass  # no artifact at/before as_of: normal for early steps
     else:
         logger.warning("news_sentiment: unexpected status %s", resp.status_code)
-        return None
     with _lock:
         _CACHE[key] = {"etag": resp.headers.get("ETag"), "body": body}
+        while len(_CACHE) > _MAX_CACHE_ENTRIES:
+            _CACHE.pop(next(iter(_CACHE)))  # evict oldest-inserted
     return body
 
 
@@ -354,12 +433,11 @@ def _project_entry(sig: dict, reference_ts: float) -> dict:
 def get_news_sentiment(universe, timestamp) -> dict:
     """Contract interface for execution/backtest_backend.load_news_sentiment."""
     empty = {"news_sentiment": {}, "news_overview": None}
-    if timestamp is None:
+    ts = _coerce_timestamp(timestamp)
+    if ts is None:
         return empty
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=timezone.utc)
-    as_of = timestamp.date().isoformat()
-    reference_ts = timestamp.timestamp()
+    as_of = ts.date().isoformat()
+    reference_ts = ts.timestamp()
     tickers = tuple(sorted(universe or ()))
     body = fetch_signals(as_of=as_of, tickers=tickers)
     if not body:
@@ -376,7 +454,21 @@ def get_news_sentiment(universe, timestamp) -> dict:
 - [ ] **Step 4: Run the adapter tests**
 
 Run: `pytest dashboard/backend/tests/test_news_sentiment_adapter.py dashboard/backend/tests/test_execution_backends.py -v`
-Expected: PASS. **Note:** `test_execution_backends.py::test_news_sentiment_fail_closed_when_plan1_absent` asserts behavior when the module is ABSENT — read it before running; if it monkeypatches import failure it still passes, but if it asserts `ImportError` from the real module path it must be updated in this task to instead assert the fail-closed behavior with the module present-but-erroring (that variant already exists at `test_execution_backends.py:78-90`).
+Expected: PASS — but `test_execution_backends.py::test_news_sentiment_fail_closed_when_plan1_absent` (:28-40) **must be updated in this task**. It currently passes because the module doesn't exist; once it exists, the test's premise is false and — worse — it calls `load_news_sentiment` with the REAL module, which would issue a live HTTP request from CI. Update it to simulate absence explicitly so the absent-module path stays genuinely covered and no network is touched:
+
+```python
+def test_news_sentiment_fail_closed_when_plan1_absent(monkeypatch):
+    """Module absent -> loader degrades to ({}, None). Simulated absence:
+    a None entry in sys.modules makes the in-function import raise ImportError."""
+    import sys
+    monkeypatch.setitem(sys.modules,
+                        "dashboard.backend.integrations.news_sentiment", None)
+    sentiment, overview = load_news_sentiment(["AAPL"], "2026-04-15T10:30:00+00:00")
+    assert sentiment == {}
+    assert overview is None
+```
+
+The raising-loader variant (`:78-90`) stays as is.
 
 - [ ] **Step 5: Commit**
 
@@ -420,10 +512,7 @@ def test_panel_payload_unavailable_on_failure(monkeypatch):
         raise OSError("down")
     monkeypatch.setattr(ns, "_http_get", _boom)
     payload = ns.get_latest_panel_payload(["MSFT"])
-    assert payload == {
-        "status": "unavailable", "status_reason": None, "generated_at": None,
-        "staleness_hours": None, "news_overview": None, "signals": {}, "feed": [],
-    }
+    assert payload == ns.UNAVAILABLE_PAYLOAD  # single-sourced shape (router reuses it)
 ```
 
 - [ ] **Step 2: Run to verify failure** — `pytest ... -k panel_payload -v` → FAIL (`AttributeError`).
@@ -432,14 +521,14 @@ def test_panel_payload_unavailable_on_failure(monkeypatch):
 
 ```python
 def get_latest_panel_payload(tickers) -> dict:
-    """Latest-artifact read for the Home panel (no as_of)."""
-    unavailable = {
-        "status": "unavailable", "status_reason": None, "generated_at": None,
-        "staleness_hours": None, "news_overview": None, "signals": {}, "feed": [],
-    }
+    """Latest-artifact read for the Home panel (no as_of).
+
+    `feed` is served backend-side even though Phase A derives it from
+    `signals`, so the wire format (and the frontend) do not change when
+    Phase B swaps the feed source to the raw-items endpoint."""
     body = fetch_signals(as_of=None, tickers=tuple(sorted(tickers or ())))
     if not body:
-        return unavailable
+        return dict(UNAVAILABLE_PAYLOAD)
     signals = body.get("signals") or {}
     feed = sorted(
         (
@@ -473,7 +562,7 @@ def get_latest_panel_payload(tickers) -> dict:
 **Files:**
 - Create: `dashboard/backend/api/routers/news.py`
 - Modify: `dashboard/backend/api/router.py` (mount after `strategies_router`, `router.py:25`)
-- Modify: `dashboard/backend/cache.py` (add `CACHE_KEY_NEWS_SIGNALS = "news_signals"`, `TTL_NEWS = 300` beside the existing constants at `cache.py:83-94`)
+- Modify: `dashboard/backend/cache.py` — beside the existing constants at `cache.py:83-94` add: `shared_ttl_cache = paper_trading_cache` (alias with a comment: the class is a generic TTL cache; paper trading was merely its first consumer — new non-paper consumers use this name), `CACHE_KEY_NEWS_SIGNALS = "news:signals"` (namespaced like the `paper:` keys), `TTL_NEWS = 420` (**deliberately above** the frontend's 300s poll so a client's own re-poll lands inside the cached window instead of always missing at the boundary)
 - Modify: `dashboard/backend/tests/test_app_composition.py` (`EXPECTED_FULL_CONTRACT`: add `("GET", "/api/news/signals")`)
 - Modify: `dashboard/backend/tests/test_router_move.py` (add `EXPECTED_NEWS_ROUTES` golden set + `test_news_router_route_contract_unchanged`, following the existing pattern at `test_router_move.py:33-107,153-154`)
 - Test: `dashboard/backend/tests/test_news_router.py`
@@ -494,7 +583,7 @@ from dashboard.backend.integrations import news_sentiment as ns
 
 
 def test_news_signals_route_returns_payload(monkeypatch):
-    cache_mod.paper_trading_cache.invalidate(cache_mod.CACHE_KEY_NEWS_SIGNALS)
+    cache_mod.shared_ttl_cache.invalidate(cache_mod.CACHE_KEY_NEWS_SIGNALS)
     fake = {"status": "ok", "status_reason": None, "generated_at": "2026-07-13T11:20:00+00:00",
             "staleness_hours": 1.2, "news_overview": "calm", "signals": {}, "feed": []}
     monkeypatch.setattr(ns, "get_latest_panel_payload", lambda tickers: fake)
@@ -505,7 +594,7 @@ def test_news_signals_route_returns_payload(monkeypatch):
 
 
 def test_news_signals_route_fail_closed(monkeypatch):
-    cache_mod.paper_trading_cache.invalidate(cache_mod.CACHE_KEY_NEWS_SIGNALS)
+    cache_mod.shared_ttl_cache.invalidate(cache_mod.CACHE_KEY_NEWS_SIGNALS)
     def _boom(tickers):
         raise RuntimeError("adapter exploded")
     monkeypatch.setattr(ns, "get_latest_panel_payload", _boom)
@@ -516,7 +605,7 @@ def test_news_signals_route_fail_closed(monkeypatch):
 
 
 def test_news_signals_route_caches(monkeypatch):
-    cache_mod.paper_trading_cache.invalidate(cache_mod.CACHE_KEY_NEWS_SIGNALS)
+    cache_mod.shared_ttl_cache.invalidate(cache_mod.CACHE_KEY_NEWS_SIGNALS)
     calls = []
     def _once(tickers):
         calls.append(1)
@@ -536,31 +625,39 @@ def test_news_signals_route_caches(monkeypatch):
 ```python
 # dashboard/backend/api/routers/news.py
 """Panel proxy for FinSearch news signals — keeps FINGPT_API_KEY server-side."""
+import threading
+
 from fastapi import APIRouter
 
 from dashboard.backend.cache import (CACHE_KEY_NEWS_SIGNALS, TTL_NEWS,
-                                     paper_trading_cache)
+                                     shared_ttl_cache)
 from dashboard.backend.infrastructure.llm.validator import DJIA_30
 from dashboard.backend.integrations import news_sentiment
 
 router = APIRouter(prefix="/news", tags=["news"])
 
-_UNAVAILABLE = {
-    "status": "unavailable", "status_reason": None, "generated_at": None,
-    "staleness_hours": None, "news_overview": None, "signals": {}, "feed": [],
-}
+# Single-flight: concurrent cold-cache requests share one upstream fetch
+# instead of stampeding the bearer-gated producer at every TTL boundary.
+_fetch_lock = threading.Lock()
 
 
+# Deliberately sync `def`: FastAPI runs it in the threadpool, so the blocking
+# requests.get inside the adapter cannot stall the event loop. Do NOT convert
+# to `async def` without moving the HTTP call off the loop.
 @router.get("/signals")
 def latest_news_signals():
-    cached = paper_trading_cache.get(CACHE_KEY_NEWS_SIGNALS)
+    cached = shared_ttl_cache.get(CACHE_KEY_NEWS_SIGNALS)
     if cached is not None:
         return cached
-    try:
-        payload = news_sentiment.get_latest_panel_payload(list(DJIA_30))
-    except Exception:
-        return dict(_UNAVAILABLE)
-    paper_trading_cache.set(CACHE_KEY_NEWS_SIGNALS, payload, ttl_seconds=TTL_NEWS)
+    with _fetch_lock:
+        cached = shared_ttl_cache.get(CACHE_KEY_NEWS_SIGNALS)  # re-check after the wait
+        if cached is not None:
+            return cached
+        try:
+            payload = news_sentiment.get_latest_panel_payload(list(DJIA_30))
+        except Exception:
+            return dict(news_sentiment.UNAVAILABLE_PAYLOAD)
+        shared_ttl_cache.set(CACHE_KEY_NEWS_SIGNALS, payload, ttl_seconds=TTL_NEWS)
     return payload
 ```
 
@@ -605,7 +702,11 @@ git commit -m "feat(api): /api/news/signals panel proxy with TTL cache + contrac
   </div>
   <p class="nns-overview" id="nnsOverview"></p>
   <div class="nns-split">
-    <div class="nns-col" id="nnsFeed"><h3>Latest news</h3><ul class="nns-list" id="nnsFeedList"></ul></div>
+    <!-- Phase A honesty: the left column is the stories BEHIND today's signals
+         (one representative story per signalled ticker), not the full fetched
+         feed — Phase B renames this heading to "Latest news" when the
+         raw-items endpoint powers it. -->
+    <div class="nns-col" id="nnsFeed"><h3>Today's signal stories</h3><ul class="nns-list" id="nnsFeedList"></ul></div>
     <div class="nns-col" id="nnsSignals"><h3>Signals</h3><ul class="nns-list" id="nnsSignalsList"></ul></div>
   </div>
 </section>
@@ -614,23 +715,21 @@ git commit -m "feat(api): /api/news/signals panel proxy with TTL cache + contrac
 - [ ] **Step 2: Implement `home-news-signals.js`**
 
 ```javascript
-// Home panel: latest FinSearch news feed (left) + identified signals (right).
-// Data: GET /api/news/signals (server-side proxy; 300s TTL). Poll only while visible.
+// Home panel: FinSearch signal stories (left) + identified signals (right).
+// Data: GET /api/news/signals (server-side proxy; 420s TTL — above this 300s
+// poll, so a re-poll lands in-cache). Poll only while the Home view is visible.
+// Reuses app.js globals: escapeHtml (attribute-safe), API (fetch wrapper),
+// API_BASE; and market-events/marketEventRelativeTime.js for relative times.
+// Load order: this script tag must come after app.js and market-events/*.
 (function () {
   const POLL_MS = 5 * 60 * 1000;
   let timer = null;
-  let aborter = null;
 
-  function esc(s) {
-    const d = document.createElement('div');
-    d.textContent = s == null ? '' : String(s);
-    return d.innerHTML;
-  }
-
-  function relTime(epoch) {
-    if (!epoch) return '';
-    const h = Math.max(0, (Date.now() / 1000 - epoch) / 3600);
-    return h < 1 ? `${Math.round(h * 60)}m ago` : `${h.toFixed(1)}h ago`;
+  function relTime(publishedEpochSeconds) {
+    // Shared helper takes ms/Date-parseable input; producer sends epoch seconds.
+    return window.formatMarketEventRelativeTime
+      ? window.formatMarketEventRelativeTime(publishedEpochSeconds * 1000, new Date())
+      : '';
   }
 
   function render(payload) {
@@ -656,37 +755,30 @@ git commit -m "feat(api): /api/news/signals panel proxy with TTL cache + contrac
 
     feedList.innerHTML = (payload.feed || []).map(item => `
       <li class="nns-item">
-        <a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.headline)}</a>
-        <span class="nns-meta">${esc(item.source)} · ${esc(item.ticker)} · ${relTime(item.published)}</span>
+        <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.headline)}</a>
+        <span class="nns-meta">${escapeHtml(item.source)} · ${escapeHtml(item.ticker)} · ${relTime(item.published)}</span>
       </li>`).join('') || '<li class="nns-empty">No qualifying news today.</li>';
 
     sigList.innerHTML = Object.entries(payload.signals || {}).map(([sym, s]) => `
-      <li class="nns-item nns-signal nns-${esc(s.sentiment)}">
-        <span class="nns-chip">${esc(s.sentiment)}</span>
-        <strong>${esc(sym)}</strong> <span class="nns-score">${Number(s.score).toFixed(2)}</span>
-        <span class="nns-rationale">${esc(s.rationale || '')}</span>
-        <a class="nns-src" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.source)}</a>
+      <li class="nns-item nns-signal nns-${escapeHtml(s.sentiment)}">
+        <span class="nns-chip">${escapeHtml(s.sentiment)}</span>
+        <strong>${escapeHtml(sym)}</strong> <span class="nns-score">${Number(s.score).toFixed(2)}</span>
+        <span class="nns-rationale">${escapeHtml(s.rationale || '')}</span>
+        <a class="nns-src" href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.source)}</a>
       </li>`).join('') || '<li class="nns-empty">No directional reads.</li>';
   }
 
   async function load() {
-    if (aborter) aborter.abort();
-    aborter = new AbortController();
-    const t = setTimeout(() => aborter.abort(), 20000);
     try {
-      const resp = await fetch(`${API_BASE}/api/news/signals?t=${Date.now()}`,
-                               { signal: aborter.signal });
-      render(await resp.json());
+      render(await API.get(`${API_BASE}/api/news/signals`));
     } catch (e) {
       render({ status: 'unavailable' });
-    } finally {
-      clearTimeout(t);
     }
   }
 
   window.newsSignalsPanel = {
     onShow() { load(); if (!timer) timer = setInterval(load, POLL_MS); },
-    onHide() { if (timer) { clearInterval(timer); timer = null; } if (aborter) aborter.abort(); },
+    onHide() { if (timer) { clearInterval(timer); timer = null; } },
   };
 })();
 ```
