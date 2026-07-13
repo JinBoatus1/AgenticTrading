@@ -29,7 +29,10 @@ AF's default `/v1` modes (`thinking`, `normal` — currently identical) attach t
 
 **The no-tools property is enforced structurally, not by operator discipline** — two independent guards:
 
-1. **AF-side dispatch guard:** `direct: True` models are routed to the direct path at the dispatch level for **every** mode and transport (`normal`/`thinking`/`research`, streaming and non-streaming). Today `provider == "buffet"` is checked at four separate sites (`create_agent_response` `datascraper.py:1015`, `create_response` `:531`, `create_agent_response_stream` `:1259`, `_prepare_messages` `:284`) and `create_advanced_response` (research) has **no** such check at all — a `mode: "research"` request against a direct model would silently reach the 46-tool pipeline. The generalization closes all of these: one config flag, honored everywhere, with a routing-matrix test (§4.3).
+1. **AF-side dispatch guard:** `direct: True` models bypass the agent/tool machinery at **every** dispatch site — but the four existing `provider == "buffet"` literals are two different mechanisms and only one generalizes:
+   - **Tools-bypass gates** — `create_agent_response` (`datascraper.py:1015`) gains `model_config.get("direct")` routing to the non-agent path; `create_agent_response_stream` (`:1259`) gains the same direct-model branch (routing to the generic non-agent path, **not** the buffet branch); `create_advanced_response` (research — today has **no** check at all, so a `mode: "research"` request would silently reach the 46-tool pipeline) gains an entry guard. Persona selection in `_prepare_messages` (`:284`) generalizes via the `persona` config key.
+   - **Buffet's HF-endpoint transport gates** — the `provider == "buffet"` checks inside `create_response` (`:531`) and its streaming twin select Buffet's *dedicated HuggingFace Inference Endpoint* (`_call_buffet_agent`, own API key/URL — nothing to do with tools-off). They **stay keyed on the provider literal**: generalizing them to `direct` would misroute every direct model into Buffet's fine-tuned endpoint instead of its own configured provider client (`clients["google"]`/`clients["openai"]`).
+   The routing-matrix test (§4.3) asserts at the provider-client seam — FinSearch-Trader must reach the generic provider dispatch, never `_call_buffet_agent`, never the agent runner — for every mode and transport.
 2. **ATL-side tripwire:** AF's tool-using paths populate the response's `sources` array; the direct path returns it empty. The finsearch shim **raises** if `sources` is non-empty — the step falls to rule-based fallback, coverage collapses, and H6 refuses to publish the run. A silent look-ahead curve cannot reach the board even if AF-side routing regresses.
 
 Guardrail (advisor memo, carried through the programme): **measurement, not alpha-seeking** — we are benchmarking an agent's trading behavior on the shared apparatus, not shipping a money-maker.
@@ -54,8 +57,8 @@ Guardrail (advisor memo, carried through the programme): **measurement, not alph
 },
 ```
 
-- **All four** `provider == "buffet"` literal checks become config-driven `model_config.get("direct")` / `model_config.get("persona")` (buffet's entry gains `direct: True, persona: "buffett"`; the literal checks are removed, not kept as a dead `or` — a dead disjunct would mask regressions in the config mechanism).
-- **Dispatch guard:** `create_advanced_response` (research mode) short-circuits `direct` models to the direct path before any tool/agent machinery, so no mode/transport combination can attach tools to a direct model.
+- The **tools-bypass** gates (`create_agent_response:1015`, its streaming twin `:1259`) and **persona** selection (`_prepare_messages:284`) become config-driven `direct`/`persona` (buffet's entry gains `direct: True, persona: "buffett"`; the replaced literals are removed, not kept as dead `or` disjuncts). The **Buffet HF-endpoint** gates inside `create_response:531`/its streaming twin stay `provider == "buffet"` — they select a transport, not a tools policy (§3).
+- **Dispatch guard:** `create_advanced_response` (research mode) short-circuits `direct` models to the non-agent path before any tool/agent machinery, so no mode/transport combination can attach tools to a direct model.
 
 ### 4.2 The persona text — a prompt file, not a Python constant
 
@@ -83,7 +86,7 @@ Design notes: the persona is **format-agnostic** (the last sentence defers to th
 
 ### 4.3 What the AF PR contains
 
-1. Persona files (`prompts/personas/{trader,buffett}.md`) + loader + config-driven `direct`/`persona` replacing all four buffet literals + the research-mode dispatch guard.
+1. Persona files (`prompts/personas/{trader,buffett}.md`) + loader + config-driven `direct`/`persona` on the tools-bypass and persona gates (Buffet's HF-endpoint gates stay literal — §4.1) + the research-mode dispatch guard.
 2. `MODELS_CONFIG["FinSearch-Trader"]` entry (§4.1).
 3. Tests: **routing matrix** — `FinSearch-Trader` × `{normal, thinking, research}` × `{stream, non-stream}` all take the direct path (no agent/tool machinery; assert via the same seam the buffet tests use); persona file loads and lands in the instruction payload; buffet behavior unchanged; `/v1/models` lists the new key (update the model-count assertion).
 4. Docs: `Docs/source/api_reference.rst` model table gains the entry.

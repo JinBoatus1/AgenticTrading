@@ -4,7 +4,7 @@
 
 **Goal:** Put Agentic FinSearch on the leaderboard exactly like the other model entries — AF-side professional-trader persona (direct, tools-off path, structurally guarded), ATL-side `finsearch` provider shim, config entry, pricing, then the contest run + seed refresh.
 
-**Architecture:** Task 1 lands in the **Agentic-FinSearch repo** (persona prompt files + config-driven direct path closing all four buffet-literal gates plus the research-mode dispatch gap). Tasks 2–5 land in **ATL** (provider module over the already-pinned `openai` SDK following the PR #96 pattern, leaderboard.json entry, pricing row, env docs). Task 6 is the run itself (smoke → budget gate → full window → seed-DB commit → budget revert).
+**Architecture:** Task 1 lands in the **Agentic-FinSearch repo** (persona prompt files + config-driven direct path: the tools-bypass and persona gates generalize, Buffet's HF-endpoint gates stay literal, and the unguarded research dispatch gains a direct-model guard). Tasks 2–5 land in **ATL** (provider module over the already-pinned `openai` SDK following the PR #96 pattern, leaderboard.json entry, pricing row, env docs). Task 6 is the run itself (smoke → budget gate → full window → seed-DB commit → budget revert).
 
 **Tech Stack:** Django + OpenAI-compatible view (AF), `openai==1.101.0` SDK shim returning Anthropic-shaped objects (ATL), `deploy_leaderboard_model.py` (run), SQLite seed DB commit.
 
@@ -30,7 +30,7 @@
 **Files:**
 - Create: `Main/backend/prompts/personas/trader.md` (persona text: spec §4.2 — the authoritative copy)
 - Create: `Main/backend/prompts/personas/buffett.md` (migrate `BUFFETT_INSTRUCTION` text verbatim)
-- Modify: `Main/backend/datascraper/datascraper.py` — persona loader (same idiom as `_load_security_fragment`, `datascraper.py:66-75`); replace **all four** `provider == "buffet"` literals (`:284` `_prepare_messages`, `:531` `create_response`, `:1015` `create_agent_response`, `:1259` `create_agent_response_stream`) with config-driven `direct`/`persona`; add the research-mode dispatch guard in `create_advanced_response` (direct models short-circuit to the direct path before any tool machinery)
+- Modify: `Main/backend/datascraper/datascraper.py` — persona loader (same idiom as `_load_security_fragment`, `datascraper.py:66-75`); generalize the **tools-bypass** gates (`:1015` `create_agent_response`, `:1259` `create_agent_response_stream` — direct models route to the generic non-agent path) and **persona** selection (`:284` `_prepare_messages`) to config-driven `direct`/`persona`; add the research-mode dispatch guard in `create_advanced_response`. **Do NOT touch the `provider == "buffet"` checks inside `create_response` (`:531`) or its streaming twin** — those select Buffet's dedicated HF Inference Endpoint transport (`_call_buffet_agent`), and generalizing them would misroute every direct model into Buffet's fine-tuned endpoint instead of its own provider client (spec §3)
 - Modify: `Main/backend/datascraper/models_config.py` — add the `FinSearch-Trader` entry **exactly as spec §4.1** (`model_name`/`streaming` keys); add `"direct": True, "persona": "buffett"` to `Buffet-Agent`
 - Modify: `Docs/source/api_reference.rst` (model table row)
 - Test: `Main/backend/tests/test_trader_persona.py` (new)
@@ -78,18 +78,20 @@ def test_buffet_still_uses_buffett_instruction():
     assert "Warren Buffett" in joined
 
 
-def test_direct_models_never_reach_tool_paths():
+def test_direct_models_never_reach_tool_paths_or_buffet_endpoint():
     """Routing matrix: FinSearch-Trader x {normal, thinking, research} must
-    take the direct path (no agent/tool machinery). Assert via the same seam
-    the existing buffet tests use (patch create_response / the agent runner
-    and check which one is invoked)."""
+    reach the GENERIC provider dispatch — assert at the provider-client seam,
+    NOT by patching create_response (which would hide misrouting inside it)."""
     # for each mode in ("normal", "thinking", "research"):
-    #     patch ds.create_response and the agent-path entrypoint;
+    #     patch (a) the agent-path entrypoint, (b) ds._call_buffet_agent,
+    #     and (c) the provider client seam (the `clients` dict / the
+    #     google/openai client's chat-completions call);
     #     call the mode's dispatch with model="FinSearch-Trader";
-    #     assert create_response called, agent path NOT called.
+    #     assert: provider client seam WAS hit; agent path NOT hit;
+    #             _call_buffet_agent NOT hit.
 ```
 
-(The routing-matrix test body follows whatever seam `tests/test_openai_api.py` already patches for the buffet skip-agent case — reuse that fixture pattern; the invariant is the assertion, and it must cover the **research** dispatch too, which today has no direct check at all.)
+(Reuse the fixture pattern of `tests/test_openai_api.py`'s buffet cases, but the assertion seam must be the provider client / `_call_buffet_agent` level — a re-review of this plan caught that patching `create_response` itself would mask the exact misrouting bug the test exists to prevent. It must cover the **research** dispatch too, which today has no direct check at all.)
 
 - [ ] **Step 2: Run to verify failure** — `cd Main/backend && uv run pytest tests/test_trader_persona.py -v` → FAIL (`KeyError: 'FinSearch-Trader'`).
 
@@ -119,7 +121,7 @@ In `_prepare_messages` (`:281-291`) replace the buffet literal with:
             logging.info("[PERSONA] Using %s system prompt", persona)
 ```
 
-In `create_agent_response` (`:1015`), `create_response` (`:531`), `create_agent_response_stream` (`:1259`): replace `provider == "buffet"` with `model_config.get("direct")` (config now carries it for buffet — no dead `or` disjunct). In `create_advanced_response`: add the guard at entry — `if model_config.get("direct"): return await/call the direct path` — before any research/tool machinery. `models_config.py` per spec §4.1.
+In `create_agent_response` (`:1015`) and `create_agent_response_stream` (`:1259`): replace `provider == "buffet"` with `model_config.get("direct")`, routing to the **generic non-agent path** (`create_response`/its streaming twin) — config now carries `direct: True` for buffet, no dead `or` disjunct. **Leave `create_response`'s internal `provider == "buffet"` branch (`:531`) and its streaming twin untouched** — inside `create_response`, that literal selects Buffet's HF endpoint transport; direct models with provider `google`/`openai` must fall through to the generic `clients.get(provider)` dispatch. In `create_advanced_response`: add the guard at entry — direct models return via the non-agent path before any research/tool machinery. `models_config.py` per spec §4.1.
 
 - [ ] **Step 4: Run the new tests + the existing OpenAI-API suite**
 
@@ -348,7 +350,7 @@ def test_finsearch_trader_priced():
 **Files:**
 - Modify: `dashboard/config/leaderboard.json` — append the entry **exactly as spec §5** (the authoritative copy; note the `model` display string must name the underlying model + "tools off")
 - Modify: `.env.example` — add `FINSEARCH_BASE_URL=` beside the OpenRouter block (`FINGPT_API_KEY` is added by Plan 1's Task 7; if that hasn't merged yet, add it here). **No `FINSEARCH_MODE`/`FINSEARCH_MODEL` vars** — deliberately not knobs.
-- Modify: `dashboard/scripts/deploy_leaderboard_model.py` docstring (`:12-21`) — the required-secrets list gains `FINGPT_API_KEY` for `finsearch`
+- Modify: `dashboard/scripts/deploy_leaderboard_model.py` docstring (the required-secrets parenthetical at `:22-23` — lines 12-21 are the usage examples) — gains `FINGPT_API_KEY` for `finsearch`
 
 - [ ] **Step 1: Apply the three edits.**
 - [ ] **Step 2: Sanity test** — `python3 dashboard/scripts/deploy_leaderboard_model.py --entry agentic_finsearch --list` (**`--entry` is `required=True`** at `deploy_leaderboard_model.py:55` — bare `--list` exits 2 before listing) shows the entry with integration `finsearch`; `pytest dashboard/backend/tests/domain/leaderboard/ -v` → PASS.
