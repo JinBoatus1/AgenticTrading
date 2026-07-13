@@ -33,6 +33,8 @@ _PRICING_TABLE: list[Tuple[str, float, float]] = [
     ("deepseek/deepseek-v4-pro", 0.435, 0.87),
     ("qwen/qwen3.7-plus", 0.40, 1.60),
     ("x-ai/grok-4.20-reasoning", 1.25, 2.50),  # listed but unavailable on our account (no channel)
+    # OpenRouter-listed (provider/model). Rates from openrouter.ai model pages.
+    ("nvidia/nemotron-3-nano-30b-a3b", 0.05, 0.20),
     ("claude-opus-4", 15.0, 75.0),
     ("claude-sonnet-4", 3.0, 15.0),
     ("claude-haiku-4", 1.0, 5.0),

@@ -25,6 +25,7 @@ from dashboard.backend.infrastructure.llm.backtest_harness import (
     default_model_name,
     make_llm_client,
 )
+from dashboard.backend.infrastructure.llm.providers import KNOWN_INTEGRATIONS
 
 from .base import BaselineStrategy
 from ._common import build_price_cache, market_timestamps, subset_bars
@@ -37,6 +38,9 @@ class LLMAgentStrategy(BaselineStrategy):
         super().__init__(config)
         self.mode = self.config.get("mode", "safe_trading")
         self.model_id = self.config.get("model_id")
+        # Gateway selection: "commonstack" | "openrouter" | "anthropic".
+        # Omitted → env auto-detect (CommonStack key prefers CommonStack).
+        self.integration = self.config.get("integration")
         # Populated during run() for reporting / cost tracking.
         self.llm_calls = 0
         self.llm_decisions = 0  # steps the model actually drove (H6 guard numerator)
@@ -54,11 +58,14 @@ class LLMAgentStrategy(BaselineStrategy):
         if not HAS_ANTHROPIC:
             print("⚠️  Anthropic SDK unavailable — llm_agent falls back to rule-based.")
             return None
-        client = make_llm_client()
+        client = make_llm_client(self.integration)
         if client is None:
+            chosen = self.integration or "auto"
             print(
-                "⚠️  No LLM key (COMMONSTACK_API_KEY / ANTHROPIC_API_KEY) — "
-                "llm_agent falls back to rule-based."
+                "⚠️  No LLM key for integration "
+                f"{chosen!r} (need OPENROUTER_API_KEY / COMMONSTACK_API_KEY / "
+                "ANTHROPIC_API_KEY as appropriate) — llm_agent falls back to rule-based. "
+                f"Known integrations: {', '.join(KNOWN_INTEGRATIONS)}"
             )
         return client
 
@@ -88,14 +95,17 @@ class LLMAgentStrategy(BaselineStrategy):
         client = self._make_client()
         self.used_llm = client is not None
         # When no explicit model id is configured, use the default that matches
-        # the gateway make_llm_client actually built (CommonStack slug vs native
-        # Anthropic id) rather than a hardcoded native id that a gateway rejects.
-        model_id = self.model_id or default_model_name()
+        # the gateway make_llm_client actually built (CommonStack / OpenRouter
+        # slug vs native Anthropic id) rather than a hardcoded id the gateway
+        # rejects.
+        model_id = self.model_id or default_model_name(self.integration)
 
         manager = PortfolioManager(initial_capital=initial_capital)
         total = len(timestamps)
+        integration_label = self.integration or "auto"
         print(
-            f"\n   🤖 LLM agent baseline: model={model_id} mode={self.mode} "
+            f"\n   🤖 LLM agent baseline: model={model_id} "
+            f"integration={integration_label} mode={self.mode} "
             f"steps={total} llm={'on' if self.used_llm else 'off (rule-based)'}"
         )
 

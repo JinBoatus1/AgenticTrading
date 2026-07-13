@@ -117,6 +117,48 @@ def test_extract_response_text():
     assert extract_response_text(resp) == "hello world"
 
 
+def test_extract_response_text_skips_thinking_block():
+    """Reasoning models (Nemotron via OpenRouter) put ThinkingBlock first."""
+    class _Thinking:
+        type = "thinking"
+        thinking = "internal chain of thought"
+
+    class _Text:
+        type = "text"
+        text = '{"actions": []}'
+
+    class _Resp:
+        content = [_Thinking(), _Text()]
+
+    assert extract_response_text(_Resp()) == '{"actions": []}'
+
+
+def test_extract_response_text_joins_multiple_text_blocks():
+    class _Text:
+        def __init__(self, text):
+            self.type = "text"
+            self.text = text
+
+    class _Resp:
+        content = [_Text('{"actions":'), _Text(" []}")]
+
+    assert extract_response_text(_Resp()) == '{"actions":\n []}'
+
+
+def test_extract_response_text_raises_when_only_thinking():
+    class _Thinking:
+        type = "thinking"
+
+    class _Resp:
+        content = [_Thinking()]
+
+    try:
+        extract_response_text(_Resp())
+        assert False, "expected AttributeError"
+    except AttributeError as exc:
+        assert "No text content block" in str(exc)
+
+
 def test_extract_token_usage_present():
     resp = _FakeResponse("{}", usage=_FakeUsage(123, 45))
     assert extract_token_usage(resp) == (123, 45)

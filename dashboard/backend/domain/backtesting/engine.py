@@ -82,8 +82,8 @@ class HourlyBacktester:
             self.llm_client = make_llm_client()
             if self.llm_client is None:
                 print(
-                    "⚠️  No LLM key (COMMONSTACK_API_KEY / ANTHROPIC_API_KEY) set. "
-                    "Running without LLM."
+                    "⚠️  No LLM key (COMMONSTACK_API_KEY / OPENROUTER_API_KEY / "
+                    "ANTHROPIC_API_KEY) set. Running without LLM."
                 )
                 self.use_llm = False
             else:

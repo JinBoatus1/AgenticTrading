@@ -87,3 +87,120 @@ def downsample_daily(equity_curve: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         if day:
             by_day[day] = point
     return [by_day[day] for day in sorted(by_day.keys())]
+
+
+def chart_equity_curve(
+    equity_hourly: List[Dict[str, Any]],
+    *,
+    initial_equity: float,
+    start_date: str,
+) -> List[Dict[str, Any]]:
+    """Build the Competition-chart series: open tick + full hourly path.
+
+    Prepends a synthetic point at ``{start_date}T00:00:00+00:00`` with
+    ``initial_equity`` so every series shares the same leftmost x and opens at
+    starting capital. The stored hourly points follow unchanged (no daily
+    downsample).
+    """
+    open_ts = f"{start_date}T00:00:00+00:00"
+    open_point: Dict[str, Any] = {
+        "timestamp": open_ts,
+        "equity": float(initial_equity),
+        "cash": float(initial_equity),
+        "positions_value": 0.0,
+    }
+    if not equity_hourly:
+        return [open_point]
+
+    # Drop a stored point that already sits on the open timestamp so we don't
+    # double-plot the same x with a different equity.
+    rest = [
+        dict(pt)
+        for pt in equity_hourly
+        if str(pt.get("timestamp", "")) != open_ts
+    ]
+    return [open_point, *rest]
+
+
+def _timestamp_key(ts: Any) -> str:
+    """Comparable timestamp key (drop timezone suffix so Alpaca/Yahoo mix sorts)."""
+    s = str(ts or "")
+    if len(s) >= 19 and s[10] == "T":
+        return s[:19]
+    return s
+
+
+def _timestamp_minute(ts: Any) -> int:
+    key = _timestamp_key(ts)
+    if len(key) >= 16 and key[13] == ":":
+        try:
+            return int(key[14:16])
+        except ValueError:
+            return -1
+    return -1
+
+
+def pick_reference_timestamps(curves: List[List[Dict[str, Any]]]) -> List[str]:
+    """Choose the shared chart axis: prefer Alpaca-style :00 hours (longest).
+
+    Yahoo index hours are typically :30 (US cash open 9:30 ET). Agent / stock
+    baselines from Alpaca are usually :00. The Competition chart aligns everyone
+    onto the Alpaca grid when available.
+    """
+    best_ts: List[str] = []
+    best_score = (-1, -1)  # (count of :00 minutes, length)
+    for curve in curves:
+        if not curve:
+            continue
+        timestamps = [str(p.get("timestamp", "")) for p in curve if p.get("timestamp")]
+        if not timestamps:
+            continue
+        on_the_hour = sum(1 for t in timestamps if _timestamp_minute(t) == 0)
+        score = (on_the_hour, len(timestamps))
+        if score > best_score:
+            best_score = score
+            best_ts = timestamps
+    return best_ts
+
+
+def align_equity_curve_asof(
+    curve: List[Dict[str, Any]],
+    reference_timestamps: List[str],
+) -> List[Dict[str, Any]]:
+    """Reindex ``curve`` onto ``reference_timestamps`` via as-of (forward) fill."""
+    if not reference_timestamps:
+        return [dict(pt) for pt in curve]
+    if not curve:
+        return []
+
+    sources = sorted(curve, key=lambda p: _timestamp_key(p.get("timestamp")))
+    out: List[Dict[str, Any]] = []
+    i = 0
+    last: Dict[str, Any] | None = None
+    for ref in reference_timestamps:
+        ref_key = _timestamp_key(ref)
+        while i < len(sources) and _timestamp_key(sources[i].get("timestamp")) <= ref_key:
+            last = sources[i]
+            i += 1
+        if last is None:
+            continue
+        out.append(
+            {
+                "timestamp": ref,
+                "equity": last.get("equity"),
+                "cash": last.get("cash"),
+                "positions_value": last.get("positions_value"),
+                "daily_return": last.get("daily_return", 0),
+            }
+        )
+    return out
+
+
+def align_equity_curves(
+    curves: List[List[Dict[str, Any]]],
+) -> List[List[Dict[str, Any]]]:
+    """Align every curve onto one shared timestamp axis (as-of fill)."""
+    ref = pick_reference_timestamps(curves)
+    if not ref:
+        return [[dict(pt) for pt in c] for c in curves]
+    return [align_equity_curve_asof(c, ref) for c in curves]

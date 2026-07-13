@@ -30,6 +30,17 @@ import os
 from typing import Dict, Optional
 
 from dashboard.backend.infrastructure.llm.decision_parsing import fix_json_formatting
+from dashboard.backend.infrastructure.llm.providers import (
+    anthropic_native,
+    commonstack,
+    openrouter,
+)
+from dashboard.backend.infrastructure.llm.providers import (
+    default_model_name as _providers_default_model_name,
+)
+from dashboard.backend.infrastructure.llm.providers import (
+    make_llm_client as _providers_make_llm_client,
+)
 
 # Optional: LLM integration. Mirrors the original optional-dependency behavior
 # (no API key required at import time; only the SDK presence is detected).
@@ -46,60 +57,41 @@ except ImportError:
     print("   To enable LLM: pip install anthropic")
 
 # Default model name (model selection). Re-exported by the legacy script.
-LLM_MODEL_NAME = "claude-haiku-4-5-20251001"  # Change this to switch models
+LLM_MODEL_NAME = anthropic_native.DEFAULT_MODEL
 
 # Same default model, but as the CommonStack gateway slug. CommonStack expects
 # ``provider/model`` ids, so when routing through CommonStack we must send the
 # gateway slug rather than the native Anthropic id (see the integration report's
 # "slug/gateway coupling" note). Pricing in token_cost.py matches "claude-haiku-4".
-COMMONSTACK_MODEL_NAME = "anthropic/claude-haiku-4-5"
+COMMONSTACK_MODEL_NAME = commonstack.DEFAULT_MODEL
 
-# CommonStack is a unified gateway exposing OpenAI/Google/xAI/DeepSeek/Qwen/
-# Anthropic models behind one key. Its Anthropic-compatible endpoint returns
-# Anthropic-shaped responses (``content[0].text`` + ``usage.{input,output}_tokens``),
-# so the existing request/parse/usage code works unchanged — we only swap the
-# client's base_url and pass a ``provider/model`` slug as the model id.
-COMMONSTACK_BASE_URL = os.getenv("COMMONSTACK_BASE_URL", "https://api.commonstack.ai")
+# CommonStack / OpenRouter base URLs (env-overridable). Re-exported for
+# callers that still read these constants (e.g. chat service).
+COMMONSTACK_BASE_URL = commonstack.base_url()
+OPENROUTER_MODEL_NAME = openrouter.DEFAULT_MODEL
+OPENROUTER_BASE_URL = openrouter.base_url()
 
 
-def make_llm_client():
+def make_llm_client(integration: Optional[str] = None):
     """Create an Anthropic-compatible client for trading decisions.
 
-    Prefers CommonStack when ``COMMONSTACK_API_KEY`` is set (one key reaches all
-    leaderboard models); otherwise falls back to native Anthropic via
-    ``ANTHROPIC_API_KEY``. Returns ``None`` when the SDK or a key is unavailable,
-    so callers fall back to rule-based trading exactly as before.
+    ``integration`` selects a gateway (``commonstack``, ``openrouter``, or
+    ``anthropic``). When omitted, prefers CommonStack if ``COMMONSTACK_API_KEY``
+    is set, otherwise native Anthropic — OpenRouter is opt-in only. Returns
+    ``None`` when the SDK or the chosen integration's key is unavailable, so
+    callers fall back to rule-based trading.
     """
-    if not HAS_ANTHROPIC or Anthropic is None:
-        return None
-    commonstack_key = os.getenv("COMMONSTACK_API_KEY")
-    if commonstack_key:
-        try:
-            return Anthropic(api_key=commonstack_key, base_url=COMMONSTACK_BASE_URL)
-        except Exception as exc:  # pragma: no cover - defensive
-            print(f"⚠️  Failed to init CommonStack client: {exc}")
-            return None
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    if anthropic_key:
-        try:
-            return Anthropic(api_key=anthropic_key)
-        except Exception as exc:  # pragma: no cover - defensive
-            print(f"⚠️  Failed to init Anthropic client: {exc}")
-            return None
-    return None
+    return _providers_make_llm_client(integration)
 
 
-def default_model_name() -> str:
+def default_model_name(integration: Optional[str] = None) -> str:
     """Return the default model id matching the client ``make_llm_client`` builds.
 
-    When ``COMMONSTACK_API_KEY`` is set we route through CommonStack and must use
-    its gateway slug (``anthropic/claude-haiku-4-5``); otherwise we use the native
-    Anthropic id (``claude-haiku-4-5-20251001``). Callers can still override this
-    with an explicit model id.
+    Pass the same ``integration`` used for the client so the slug matches the
+    gateway (CommonStack / OpenRouter ``provider/model`` vs native Anthropic id).
+    Callers can still override with an explicit model id.
     """
-    if os.getenv("COMMONSTACK_API_KEY"):
-        return COMMONSTACK_MODEL_NAME
-    return LLM_MODEL_NAME
+    return _providers_default_model_name(integration)
 
 # System prompt sent on every request. Preserved exactly from the original
 # inline string (do not "improve" it).
@@ -169,9 +161,33 @@ def request_trading_decision(client, *, prompt: str, model: Optional[str] = None
 
 
 def extract_response_text(response) -> str:
-    """Extract the response text exactly as the original (``content[0].text``)."""
-    return response.content[0].text
+    """Extract assistant text from an Anthropic-shaped messages response.
 
+    Historically this was ``response.content[0].text``. Reasoning / "thinking"
+    models (e.g. NVIDIA Nemotron via OpenRouter) often put a ``ThinkingBlock``
+    first — that object has no ``.text``, so indexing ``[0]`` crashes and the
+    portfolio manager falls back to rule-based trading. Prefer every block that
+    exposes usable text (``type == "text"`` or a ``text`` attribute); join them
+    if the model split the answer across multiple text blocks.
+    """
+    blocks = getattr(response, "content", None) or []
+    texts: list[str] = []
+    for block in blocks:
+        block_type = getattr(block, "type", None)
+        if block_type is not None and block_type != "text":
+            # Skip thinking / tool_use / redacted_thinking / etc.
+            continue
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and text:
+            texts.append(text)
+    if texts:
+        return "\n".join(texts)
+    # Last resort: some SDKs expose a top-level string; preserve a clear error
+    # if nothing usable is present (caller falls back to rule-based).
+    raise AttributeError(
+        "No text content block in LLM response "
+        f"(content types: {[getattr(b, 'type', type(b).__name__) for b in blocks]})"
+    )
 
 def extract_token_usage(response):
     """Return ``(input_tokens, output_tokens)`` deltas from a provider response.
