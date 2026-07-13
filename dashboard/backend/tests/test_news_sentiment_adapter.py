@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -118,6 +119,100 @@ def test_config_error_negative_cached_for_past_dates(monkeypatch):
     ns.get_news_sentiment(["MSFT"], ts)
     ns.get_news_sentiment(["MSFT"], ts)
     assert len(calls) == 1
+
+
+def test_past_transport_failure_negative_cached_one_call(monkeypatch):
+    """A network outage on an immutable PAST date is memoized as an honest gap —
+    otherwise a 161-step backtest pays 161 live timeouts (the fix's whole point).
+    Distinct from test_config_error_negative_cached_for_past_dates, which covers
+    an HTTP 401; this covers a transport-layer failure (no response at all)."""
+    calls = []
+    def _boom(**kw):
+        calls.append(1)
+        raise OSError("connection refused")
+    monkeypatch.setattr(ns, "_http_get", _boom)
+    ts = datetime(2026, 7, 1, 15, 0, tzinfo=timezone.utc)  # strictly past
+    first = ns.get_news_sentiment(["MSFT"], ts)
+    second = ns.get_news_sentiment(["MSFT"], ts)
+    assert first == {"news_sentiment": {}, "news_overview": None}
+    assert second == {"news_sentiment": {}, "news_overview": None}
+    assert len(calls) == 1  # gap memoized; no second live timeout
+
+
+def test_today_outage_throttled_then_reattempts(monkeypatch):
+    """A today/latest OUTAGE is negative-cached briefly so it doesn't re-hit the
+    producer on every poll, then re-attempts once the window elapses."""
+    calls = []
+    def _boom(**kw):
+        calls.append(1)
+        raise OSError("down")
+    monkeypatch.setattr(ns, "_http_get", _boom)
+    now = datetime.now(timezone.utc)
+    ns.get_news_sentiment(["MSFT"], now)
+    ns.get_news_sentiment(["MSFT"], now)
+    assert len(calls) == 1  # second served from the short negative cache
+    # Expire the throttle entry (white-box, avoids a sleep) -> next call re-hits.
+    with ns._lock:
+        for entry in ns._CACHE.values():
+            if entry["expires_at"] is not None:
+                entry["expires_at"] = time.monotonic() - 1
+    ns.get_news_sentiment(["MSFT"], now)
+    assert len(calls) == 2
+
+
+def test_malformed_panel_signal_dropped_not_whole_panel(monkeypatch):
+    """One signal missing a required story field is dropped from the feed
+    (logged), not allowed to collapse the entire panel to unavailable."""
+    body = load_signals_fixture()
+    body["signals"]["BADD"] = {"sentiment": "bullish", "score": 0.1}  # no headline/url
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    payload = ns.get_latest_panel_payload(["MSFT", "NVDA", "BADD"])
+    assert payload["status"] != "unavailable"                 # panel survived
+    feed_tickers = {item["ticker"] for item in payload["feed"]}
+    assert "MSFT" in feed_tickers and "BADD" not in feed_tickers  # good kept, bad dropped
+
+
+def test_panel_signal_with_null_published_sinks_not_crashes(monkeypatch):
+    """An off-spec `published: null` must not throw inside the feed sort and
+    collapse the panel — the item sinks to the bottom instead."""
+    body = load_signals_fixture()
+    body["signals"]["MSFT"]["published"] = None
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    payload = ns.get_latest_panel_payload(["MSFT", "NVDA"])
+    assert payload["status"] != "unavailable"
+    assert any(item["ticker"] == "MSFT" for item in payload["feed"])  # sunk, not dropped
+
+
+def test_single_flight_follower_neither_hits_producer_nor_blocks(monkeypatch):
+    """Two concurrent callers on the same cold key: exactly one leader hits the
+    producer; the follower returns WITHOUT a second call and WITHOUT blocking
+    behind the leader's ~10s upstream call (the threadpool-starvation fix)."""
+    import threading as _threading
+    body = load_signals_fixture()
+    started, release, calls = _threading.Event(), _threading.Event(), []
+
+    def _slow(**kw):
+        calls.append(1)
+        started.set()          # leader is now inside the producer call
+        release.wait(2.0)      # hold until the follower has raced in
+        return _fake_response(body=body)
+
+    monkeypatch.setattr(ns, "_http_get", _slow)
+    results = {}
+    leader = _threading.Thread(
+        target=lambda: results.__setitem__("leader", ns.get_latest_panel_payload(["MSFT"])))
+    leader.start()
+    assert started.wait(2.0)   # leader is mid-fetch, holding _inflight
+    follower = _threading.Thread(
+        target=lambda: results.__setitem__("follower", ns.get_latest_panel_payload(["MSFT"])))
+    follower.start()
+    follower.join(2.0)
+    assert not follower.is_alive()                          # did not block behind the leader
+    assert results["follower"]["status"] == "unavailable"   # cold start: no body yet
+    release.set()
+    leader.join(2.0)
+    assert results["leader"]["status"] != "unavailable"     # leader got real data
+    assert len(calls) == 1                                  # follower never hit the producer
 
 
 def test_todays_404_not_hard_memoized(monkeypatch):

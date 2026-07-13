@@ -39,3 +39,17 @@ def test_wire_fixture_reflects_public_projection():
     for stripped in ("generator", "model", "prompt_version"):
         assert stripped not in wire                        # dropped by _PUBLIC_STRIP
     assert isinstance(wire["signals"], dict) and wire["signals"]
+
+
+def test_wire_fixture_is_base_minus_strip_plus_staleness():
+    """Content-parity guard: the wire fixture must equal the on-disk fixture
+    modulo the documented transform (drop the three _PUBLIC_STRIP fields, append
+    `staleness_hours`). The `signals` blocks are byte-identical today; without
+    this assertion the two could silently diverge and quietly hollow out the
+    wire-shape coverage that depends on them matching."""
+    base = load_signals_fixture()
+    wire = load_signals_wire_fixture()
+    expected = {k: v for k, v in base.items()
+                if k not in ("generator", "model", "prompt_version")}
+    expected["staleness_hours"] = wire["staleness_hours"]
+    assert wire == expected

@@ -39,8 +39,12 @@
       badge.hidden = true;
       return;
     }
-    updated.textContent = payload.staleness_hours != null
-      ? `Updated ${payload.staleness_hours.toFixed(1)}h ago` : '';
+    // Coerce like the score below (line 57): the value is passed through from
+    // the producer unvalidated, so a string/non-number must not throw and mask
+    // an otherwise-valid payload as "unavailable". null stays "" as before.
+    const staleness = Number(payload.staleness_hours);
+    updated.textContent = (payload.staleness_hours != null && Number.isFinite(staleness))
+      ? `Updated ${staleness.toFixed(1)}h ago` : '';
     badge.hidden = payload.status !== 'degraded';
     if (!badge.hidden) badge.textContent = `degraded: ${payload.status_reason || 'partial data'}`;
     overview.textContent = payload.news_overview || '';
