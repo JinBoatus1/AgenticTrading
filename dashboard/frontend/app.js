@@ -1041,6 +1041,10 @@ const AuthAPI = {
   logout() {
     return this.request('/api/auth/logout', { method: 'POST' });
   },
+
+  discordStart() {
+    return this.request('/api/auth/discord/start', { method: 'POST' });
+  },
 };
 
 let authMode = 'login';
@@ -1181,6 +1185,95 @@ function closeAuthModal() {
   setAuthMode('login');
 }
 
+/**
+ * Open Discord with the current website account.
+ * Not logged in → login modal.
+ * Logged in, not linked → Discord OAuth.
+ * Already linked → open the guild/channel URL.
+ */
+async function openDiscordWithAccount(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  if (!token || !getStoredAuthUser()) {
+    openAuthModal('login');
+    return;
+  }
+
+  try {
+    const data = await AuthAPI.discordStart();
+    const discordUrl = data.discord_url || DISCORD_SERVER_URL;
+    if (data.already_linked) {
+      window.open(discordUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (data.authorize_url) {
+      window.location.href = data.authorize_url;
+      return;
+    }
+    window.open(discordUrl, '_blank', 'noopener,noreferrer');
+  } catch (error) {
+    console.warn('Discord link start failed:', error.message);
+    alert(error.message || 'Could not start Discord linking. Are you signed in?');
+  }
+}
+
+/** Handle /app?discord=linked|error after OAuth callback. */
+async function handleDiscordOAuthReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const discord = (params.get('discord') || '').toLowerCase();
+  if (!discord) return;
+
+  const reason = params.get('reason') || '';
+  params.delete('discord');
+  params.delete('reason');
+  const clean = params.toString();
+  const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+  window.history.replaceState({}, '', next);
+
+  if (discord === 'linked') {
+    try {
+      await refreshAuthUser();
+    } catch (error) {
+      console.warn('Auth refresh after Discord link failed:', error.message);
+    }
+    try {
+      const data = await AuthAPI.discordStart();
+      window.open(data.discord_url || DISCORD_SERVER_URL, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      window.open(DISCORD_SERVER_URL, '_blank', 'noopener,noreferrer');
+    }
+    return;
+  }
+
+  if (discord === 'error') {
+    const messages = {
+      missing_params: 'Discord linking failed (missing OAuth params).',
+      invalid_state: 'Discord linking expired. Please try Open Discord again.',
+      discord_already_linked: 'That Discord account is already linked to another user.',
+      oauth_failed: 'Discord authorization failed. Please try again.',
+      link_failed: 'Could not link Discord to your account.',
+    };
+    alert(messages[reason] || `Discord linking failed${reason ? ` (${reason})` : ''}.`);
+  }
+}
+
+function wireDiscordAccountButtons() {
+  const ids = ['openDiscordBtn', 'agentsSectionDiscordBtn', 'homeConnectDiscordBtn'];
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', openDiscordWithAccount);
+  });
+  document.querySelectorAll('a.discord-nav-btn').forEach((el) => {
+    if (ids.includes(el.id)) return;
+    el.addEventListener('click', openDiscordWithAccount);
+  });
+}
+
 async function refreshAuthUser() {
   const token = localStorage.getItem(AUTH_TOKEN_KEY);
   if (!token) {
@@ -1270,6 +1363,8 @@ function initAuthUI() {
   window.AUTH_USER = getStoredAuthUser();
   updateAuthUI();
   openAuthFromUrl();
+  handleDiscordOAuthReturn();
+  wireDiscordAccountButtons();
   refreshAuthUser();
 }
 
@@ -3029,10 +3124,7 @@ function initNavigation() {
             } else if (target === 'playground') {
                 navigateToPage('playground', { playgroundTab: 'agents' });
             } else if (target === 'discord') {
-                const discordUrl = document.getElementById('homeConnectDiscordBtn')?.href
-                    || document.getElementById('openDiscordBtn')?.href
-                    || 'https://discord.gg/9HnQ6XDG98';
-                window.open(discordUrl, '_blank', 'noopener,noreferrer');
+                openDiscordWithAccount();
             }
         });
     });

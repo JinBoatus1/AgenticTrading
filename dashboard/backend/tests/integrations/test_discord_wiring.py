@@ -63,6 +63,19 @@ def test_discord_dependency_is_declared():
 def test_bot_backtest_sends_agent_id_for_builtin_card():
     src = _source()
     assert 'payload["agent_id"] = selected["agent_id"]' in src
+    assert 'selected.get("agent_type") or "builtin") == "builtin"' in src
+
+
+def test_bot_agent_uses_owned_discord_agents_endpoint():
+    """Discord /agent must list the linked website user's agents, not the
+    public /agents/builtin catalog."""
+    src = _source()
+    assert "/api/v1/discord/agents" in src
+    assert "fetch_owned_agents" in src
+    assert "discord_not_linked" in src
+    # Public catalog must not be the /agent source of truth anymore.
+    assert "fetch_builtin_agents" not in src
+    assert 'api_get("/api/v1/agents/builtin")' not in src
 
 
 def test_bot_sends_per_user_id_on_strategy_post():
@@ -71,3 +84,5 @@ def test_bot_sends_per_user_id_on_strategy_post():
     on the server's write rate limiter."""
     src = _source()
     assert '"X-Browser-Id": f"discord:{discord_user_id}"' in src
+    assert "X-Discord-Bot-Secret" in src
+    assert "DISCORD_BOT_API_SECRET" in src

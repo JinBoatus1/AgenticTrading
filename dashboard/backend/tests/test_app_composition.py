@@ -43,6 +43,7 @@ EXPECTED_BACKTESTS_ROUTES = {
     ("GET", "/runs/{run_id}/equity", "get_equity_curve"),
     ("GET", "/runs/{run_id}/trades", "get_run_trades"),
     ("GET", "/runs/{run_id}/plot.png", "get_run_plot"),
+    ("GET", "/runs/{run_id}/trades", "get_run_trades"),
     ("GET", "/compare", "compare_runs"),
 }
 
@@ -66,6 +67,8 @@ EXPECTED_FULL_CONTRACT = {
     ("POST", "/api/auth/logout"),
     ("GET", "/api/auth/me"),
     ("POST", "/api/auth/signup"),
+    ("GET", "/api/auth/discord/callback"),
+    ("POST", "/api/auth/discord/start"),
     ("GET", "/api/backtest/compare/latest"),
     ("GET", "/api/backtest/runs"),
     ("GET", "/api/backtest/{run_id}"),
@@ -78,6 +81,7 @@ EXPECTED_FULL_CONTRACT = {
     ("POST", "/api/v1/agents/claim-account"),
     ("POST", "/api/v1/agents/import-session"),
     ("GET", "/api/v1/agents/resolve"),
+    ("GET", "/api/v1/discord/agents"),
     ("DELETE", "/api/v1/agents/{agent_id}"),
     ("GET", "/api/v1/agents/{agent_id}"),
     ("PATCH", "/api/v1/agents/{agent_id}"),
