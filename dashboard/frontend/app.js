@@ -1041,6 +1041,10 @@ const AuthAPI = {
   logout() {
     return this.request('/api/auth/logout', { method: 'POST' });
   },
+
+  discordStart() {
+    return this.request('/api/auth/discord/start', { method: 'POST' });
+  },
 };
 
 let authMode = 'login';
@@ -1181,6 +1185,91 @@ function closeAuthModal() {
   setAuthMode('login');
 }
 
+/**
+ * Open Discord with the current website account.
+ * Not logged in → login modal.
+ * Logged in, not linked → Discord OAuth.
+ * Already linked → open the guild/channel URL.
+ */
+async function openDiscordWithAccount(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  if (!token || !getStoredAuthUser()) {
+    openAuthModal('login');
+    return;
+  }
+
+  try {
+    const data = await AuthAPI.discordStart();
+    const discordUrl = data.discord_url || DISCORD_SERVER_URL;
+    if (data.already_linked) {
+      window.open(discordUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (data.authorize_url) {
+      window.location.href = data.authorize_url;
+      return;
+    }
+    window.open(discordUrl, '_blank', 'noopener,noreferrer');
+  } catch (error) {
+    console.warn('Discord link start failed:', error.message);
+    alert(error.message || 'Could not start Discord linking. Are you signed in?');
+  }
+}
+
+/** Handle /app?discord=linked|error after OAuth callback. */
+async function handleDiscordOAuthReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const discord = (params.get('discord') || '').toLowerCase();
+  if (!discord) return;
+
+  const reason = params.get('reason') || '';
+  params.delete('discord');
+  params.delete('reason');
+  const clean = params.toString();
+  const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+  window.history.replaceState({}, '', next);
+
+  if (discord === 'linked') {
+    try {
+      await refreshAuthUser();
+    } catch (error) {
+      console.warn('Auth refresh after Discord link failed:', error.message);
+    }
+    try {
+      const data = await AuthAPI.discordStart();
+      window.open(data.discord_url || DISCORD_SERVER_URL, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      window.open(DISCORD_SERVER_URL, '_blank', 'noopener,noreferrer');
+    }
+    return;
+  }
+
+  if (discord === 'error') {
+    const messages = {
+      missing_params: 'Discord linking failed (missing OAuth params).',
+      invalid_state: 'Discord linking expired. Please try Open Discord again.',
+      discord_already_linked: 'That Discord account is already linked to another user.',
+      oauth_failed: 'Discord authorization failed. Please try again.',
+      link_failed: 'Could not link Discord to your account.',
+    };
+    alert(messages[reason] || `Discord linking failed${reason ? ` (${reason})` : ''}.`);
+  }
+}
+
+function wireDiscordAccountButtons() {
+  // Opt-in only: account-linking buttons carry data-discord-link. A plain
+  // "Join Discord" community invite (no marker) stays an ordinary link so
+  // logged-out visitors reach the server instead of a login modal.
+  document.querySelectorAll('[data-discord-link]').forEach((el) => {
+    el.addEventListener('click', openDiscordWithAccount);
+  });
+}
+
 async function refreshAuthUser() {
   const token = localStorage.getItem(AUTH_TOKEN_KEY);
   if (!token) {
@@ -1257,6 +1346,12 @@ function initAuthUI() {
       setAuthState(data.user, data.token);
       await claimAgentsForUser();
       closeAuthModal();
+      // If we arrived here from a Discord deep link that needed this account
+      // (params were kept), retry it now that the owner is signed in.
+      const deepLinkParams = new URLSearchParams(window.location.search);
+      if (deepLinkParams.get('agent_id') || deepLinkParams.get('run_id')) {
+        applyAgentRunDeepLink();
+      }
     } catch (error) {
       if (errorEl) {
         errorEl.textContent = error.message;
@@ -1270,6 +1365,8 @@ function initAuthUI() {
   window.AUTH_USER = getStoredAuthUser();
   updateAuthUI();
   openAuthFromUrl();
+  handleDiscordOAuthReturn();
+  wireDiscordAccountButtons();
   refreshAuthUser();
 }
 
@@ -1323,6 +1420,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await loadData();
     });
     await restoreActiveAgentSession();
+    await applyAgentRunDeepLink();
     const config = loadConfigFromURL();
     window.CURRENT_CONFIG = config;
     console.log('⚙️ Experiment config:', config);
@@ -2813,6 +2911,11 @@ function resolveInitialNavigation() {
         'my-algo': { page: 'playground', playgroundTab: 'agents' },
     };
 
+    // Discord / share deep links land on the backtest playground.
+    if (params.get('agent_id') || params.get('run_id')) {
+        return { page: 'playground', playgroundTab: 'backtest' };
+    }
+
     // An explicit URL view/hash always wins.
     if (legacy && legacyMap[legacy]) {
         return legacyMap[legacy];
@@ -2830,6 +2933,75 @@ function resolveInitialNavigation() {
     }
 
     return { page: 'home' };
+}
+
+/**
+ * Open a specific agent + backtest run from ?agent_id=&run_id= (Discord links).
+ */
+async function applyAgentRunDeepLink() {
+    const params = new URLSearchParams(window.location.search);
+    const agentId = (params.get('agent_id') || '').trim();
+    const runId = (params.get('run_id') || '').trim();
+    if (!agentId && !runId) return;
+
+    try {
+        await loadAgents();
+    } catch (error) {
+        console.warn('Deep link: loadAgents failed:', error.message);
+    }
+
+    let agent = agentId
+        ? (allAgents || []).find((a) => a.agent_id === agentId)
+        : null;
+    let agentAuthError = false;
+    if (!agent && agentId) {
+        try {
+            const data = await API.get(`${API_BASE}/api/v1/agents/${encodeURIComponent(agentId)}`);
+            agent = data?.agent || null;
+        } catch (error) {
+            // The agent card is owner-gated (403). A Discord deep link is often
+            // opened on a different device/browser than the one that owns the
+            // agent, so surface it instead of silently landing on an empty session.
+            agentAuthError = error.status === 401 || error.status === 403;
+            console.warn('Deep link: agent not accessible:', error.message);
+        }
+    }
+
+    if (agentId && !agent && agentAuthError) {
+        const signedIn = !!(localStorage.getItem(AUTH_TOKEN_KEY) && getStoredAuthUser());
+        if (!signedIn) {
+            // Leave agent_id/run_id in the URL so a successful sign-in retries.
+            alert('Sign in with the account that owns this agent to open its backtest from Discord.');
+            openAuthModal('login');
+            return;
+        }
+        alert('This agent belongs to a different account. Sign in with the account that owns it to open its backtest.');
+    }
+
+    if (agent) {
+        try {
+            await activateAgent(agent);
+        } catch (error) {
+            console.warn('Deep link: activateAgent failed:', error.message);
+        }
+    }
+
+    if (runId) {
+        localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, runId);
+    }
+
+    navigateToPage('playground', { playgroundTab: 'backtest' });
+    currentMode = 'backtest';
+    await loadData();
+
+    params.delete('agent_id');
+    params.delete('run_id');
+    if (!params.get('view') && !params.get('mode')) {
+        params.set('view', 'backtest');
+    }
+    const clean = params.toString();
+    const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', next);
 }
 
 function updatePlaygroundSubtabs() {
@@ -3029,10 +3201,7 @@ function initNavigation() {
             } else if (target === 'playground') {
                 navigateToPage('playground', { playgroundTab: 'agents' });
             } else if (target === 'discord') {
-                const discordUrl = document.getElementById('homeConnectDiscordBtn')?.href
-                    || document.getElementById('openDiscordBtn')?.href
-                    || 'https://discord.gg/9HnQ6XDG98';
-                window.open(discordUrl, '_blank', 'noopener,noreferrer');
+                openDiscordWithAccount();
             }
         });
     });

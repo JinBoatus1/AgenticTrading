@@ -64,12 +64,15 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def public_user(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
     data = dict(row)
+    discord_user_id = data.get("discord_user_id")
     return {
         "id": data["id"],
         "email": data["email"],
         "display_name": data["display_name"],
         "role": data["role"],
         "created_at": data["created_at"],
+        "discord_linked": bool(discord_user_id),
+        "discord_user_id": str(discord_user_id) if discord_user_id else None,
     }
 
 
@@ -116,6 +119,20 @@ class UserStore:
             """
             CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id
             ON auth_sessions(user_id)
+            """
+        )
+        # Lazy migration: Discord OAuth link column (nullable unique).
+        cursor.execute("PRAGMA table_info(users)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "discord_user_id" not in columns:
+            cursor.execute(
+                "ALTER TABLE users ADD COLUMN discord_user_id TEXT"
+            )
+        cursor.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_discord_user_id
+            ON users(discord_user_id)
+            WHERE discord_user_id IS NOT NULL
             """
         )
         conn.commit()
@@ -229,6 +246,67 @@ class UserStore:
         cursor.execute("DELETE FROM auth_sessions WHERE token = ?", (token,))
         conn.commit()
         conn.close()
+
+    def get_user_by_discord_id(self, discord_user_id: str) -> Optional[Dict[str, Any]]:
+        discord_id = str(discord_user_id).strip()
+        if not discord_id:
+            return None
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM users WHERE discord_user_id = ?",
+            (discord_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def link_discord_user(self, user_id: int, discord_user_id: str) -> Dict[str, Any]:
+        """Attach a Discord snowflake to a website user.
+
+        Raises ValueError('discord_already_linked') if another account owns it.
+        """
+        discord_id = str(discord_user_id).strip()
+        if not discord_id:
+            raise ValueError("invalid_discord_user_id")
+
+        existing = self.get_user_by_discord_id(discord_id)
+        if existing and int(existing["id"]) != int(user_id):
+            raise ValueError("discord_already_linked")
+
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "UPDATE users SET discord_user_id = ? WHERE id = ?",
+                (discord_id, user_id),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError as exc:
+            conn.close()
+            raise ValueError("discord_already_linked") from exc
+
+        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            raise ValueError("user_not_found")
+        return public_user(row)
+
+    def unlink_discord_user(self, user_id: int) -> Dict[str, Any]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET discord_user_id = NULL WHERE id = ?",
+            (user_id,),
+        )
+        conn.commit()
+        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            raise ValueError("user_not_found")
+        return public_user(row)
 
 
 def _build_user_store():

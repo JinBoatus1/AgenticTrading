@@ -41,8 +41,23 @@ class PostgresUserStore:
                         display_name TEXT NOT NULL,
                         password_hash TEXT NOT NULL,
                         role TEXT NOT NULL DEFAULT 'user',
-                        created_at TEXT NOT NULL
+                        created_at TEXT NOT NULL,
+                        discord_user_id TEXT
                     )
+                    """
+                )
+                # Lazy migration for existing deployments created before Discord linking.
+                cur.execute(
+                    """
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS discord_user_id TEXT
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_discord_user_id
+                    ON users(discord_user_id)
+                    WHERE discord_user_id IS NOT NULL
                     """
                 )
                 cur.execute(
@@ -159,3 +174,56 @@ class PostgresUserStore:
         with self._get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM auth_sessions WHERE token = %s", (token,))
+
+    def get_user_by_discord_id(self, discord_user_id: str) -> Optional[Dict[str, Any]]:
+        discord_id = str(discord_user_id).strip()
+        if not discord_id:
+            return None
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM users WHERE discord_user_id = %s",
+                    (discord_id,),
+                )
+                row = cur.fetchone()
+        return dict(row) if row else None
+
+    def link_discord_user(self, user_id: int, discord_user_id: str) -> Dict[str, Any]:
+        """Attach a Discord snowflake to a website user.
+
+        Raises ValueError('discord_already_linked') if another account owns it.
+        """
+        discord_id = str(discord_user_id).strip()
+        if not discord_id:
+            raise ValueError("invalid_discord_user_id")
+
+        existing = self.get_user_by_discord_id(discord_id)
+        if existing and int(existing["id"]) != int(user_id):
+            raise ValueError("discord_already_linked")
+
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE users SET discord_user_id = %s WHERE id = %s RETURNING *",
+                        (discord_id, user_id),
+                    )
+                    row = cur.fetchone()
+        except psycopg.errors.UniqueViolation as exc:
+            raise ValueError("discord_already_linked") from exc
+
+        if not row:
+            raise ValueError("user_not_found")
+        return public_user(row)
+
+    def unlink_discord_user(self, user_id: int) -> Dict[str, Any]:
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET discord_user_id = NULL WHERE id = %s RETURNING *",
+                    (user_id,),
+                )
+                row = cur.fetchone()
+        if not row:
+            raise ValueError("user_not_found")
+        return public_user(row)

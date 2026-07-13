@@ -55,4 +55,7 @@ LLM integration example code lives in ``dashboard/backend/llm_integration_exampl
 Related documentation
 ---------------------
 
-Multi-agent orchestration, agent pools, and DAG workflows are documented under :doc:`../orchestration/index`.
+* Discord → backtest → dashboard workflow (and future paper trading from Discord):
+  ``docs/architecture/discord-to-backtest.md``
+* Multi-agent orchestration, agent pools, and DAG workflows:
+  :doc:`../orchestration/index`.

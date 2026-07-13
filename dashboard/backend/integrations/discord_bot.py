@@ -6,6 +6,7 @@ import os
 import uuid
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 import discord
 import requests
@@ -64,6 +65,32 @@ _SESSION_NAMESPACE = uuid.UUID("8f1b2c3d-0000-4000-8000-a9b8c7d6e5f4")
 def api_base() -> str:
     """Base URL of the running Agentic Trading Lab backend."""
     return os.getenv("ATL_API_BASE", "http://localhost:8000").rstrip("/")
+
+
+def public_app_base() -> str:
+    """Origin (or /app URL) used for dashboard deep links in Discord messages."""
+    raw = (os.getenv("PUBLIC_APP_URL") or api_base()).rstrip("/")
+    if raw.endswith("/app"):
+        return raw
+    return f"{raw}/app"
+
+
+def dashboard_backtest_url(
+    *,
+    agent_id: Optional[str],
+    run_id: Optional[str],
+) -> Optional[str]:
+    """Build /app?view=backtest&agent_id=…&run_id=… for Discord result messages."""
+    if not agent_id or not run_id:
+        return None
+    query = urlencode(
+        {
+            "view": "backtest",
+            "agent_id": str(agent_id),
+            "run_id": str(run_id),
+        }
+    )
+    return f"{public_app_base()}?{query}"
 
 
 def _parse_id_list(raw: Optional[str]) -> list[int]:
@@ -204,6 +231,31 @@ def _http_get_bytes(path: str, *, headers: Optional[dict] = None, timeout: int =
     return resp.content
 
 
+def _http_get_status(
+    path: str,
+    *,
+    headers: Optional[dict] = None,
+    timeout: int = 30,
+) -> tuple[int, dict]:
+    """GET that returns (status_code, json_body) without raising on 4xx."""
+    resp = requests.get(f"{api_base()}{path}", headers=headers or {}, timeout=timeout)
+    try:
+        body = resp.json() if resp.content else {}
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    return resp.status_code, body
+
+
+def bot_api_headers(discord_user_id: str) -> dict[str, str]:
+    """Service headers for Discord → backend identity calls."""
+    return {
+        "X-Discord-Bot-Secret": (os.getenv("DISCORD_BOT_API_SECRET") or "").strip(),
+        "X-Discord-User-Id": str(discord_user_id),
+    }
+
+
 async def api_post(path: str, *, json: dict[str, Any], headers: Optional[dict] = None, timeout: int = 30) -> dict:
     return await asyncio.to_thread(_http_post, path, json=json, headers=headers, timeout=timeout)
 
@@ -216,10 +268,33 @@ async def api_get_bytes(path: str, *, headers: Optional[dict] = None, timeout: i
     return await asyncio.to_thread(_http_get_bytes, path, headers=headers, timeout=timeout)
 
 
-async def fetch_builtin_agents() -> list[dict[str, Any]]:
-    """Fetch the platform's built-in agents from the backend (public endpoint)."""
-    data = await api_get("/api/v1/agents/builtin")
-    return data.get("agents", []) if isinstance(data, dict) else []
+async def fetch_owned_agents(
+    discord_user_id: str,
+) -> tuple[list[dict[str, Any]], Optional[str]]:
+    """Fetch agents owned by the website account linked to this Discord user.
+
+    Returns ``(agents, error_code)``. ``error_code`` is ``discord_not_linked``,
+    ``fetch_failed``, or ``None`` on success.
+    """
+    status, data = await asyncio.to_thread(
+        _http_get_status,
+        "/api/v1/discord/agents",
+        headers=bot_api_headers(discord_user_id),
+    )
+    if status == 404:
+        detail = data.get("detail")
+        code = detail.get("code") if isinstance(detail, dict) else None
+        if code == "discord_not_linked":
+            return [], "discord_not_linked"
+        # Any other 404 (misconfigured ATL_API_BASE, a route rename) is a real
+        # outage — don't tell the user their account "isn't linked".
+        print(f"Discord owned-agents fetch failed: HTTP 404 {data!r}")
+        return [], "fetch_failed"
+    if status >= 400:
+        print(f"Discord owned-agents fetch failed: HTTP {status} {data!r}")
+        return [], "fetch_failed"
+    agents = data.get("agents", []) if isinstance(data, dict) else []
+    return (agents if isinstance(agents, list) else []), None
 
 
 async def deliver_agent_chat(
@@ -249,22 +324,23 @@ async def deliver_agent_chat(
 
 
 class AgentSelect(discord.ui.Select):
-    """Dropdown letting a user pick which built-in agent to talk to."""
+    """Dropdown letting a user pick one of their owned built-in agents."""
 
     def __init__(self, agents: list[dict[str, Any]]):
         options: list[discord.SelectOption] = []
         for agent in agents[:25]:  # Discord caps selects at 25 options.
             model = agent.get("model_name") or "local-model"
             run_count = agent.get("run_count") or 0
+            agent_type = agent.get("agent_type") or "builtin"
             options.append(
                 discord.SelectOption(
                     label=(agent.get("name") or "agent")[:100],
                     value=agent["agent_id"],
-                    description=f"{model} · {run_count} backtest(s)"[:100],
+                    description=f"{agent_type} · {model} · {run_count} run(s)"[:100],
                 )
             )
         super().__init__(
-            placeholder="Choose a built-in agent to talk to…",
+            placeholder="Choose one of your agents…",
             min_values=1,
             max_values=1,
             options=options,
@@ -285,6 +361,7 @@ class AgentSelect(discord.ui.Select):
             "name": agent.get("name") or "agent",
             "model_name": agent.get("model_name") or "local-model",
             "session_id": agent.get("session_id"),
+            "agent_type": agent.get("agent_type") or "builtin",
         }
 
         await interaction.response.edit_message(
@@ -384,7 +461,7 @@ async def execute_backtest(
         return
 
     payload: dict[str, Any] = {"strategy_prompt": strategy_prompt}
-    if selected:
+    if selected and (selected.get("agent_type") or "builtin") == "builtin":
         payload["agent_id"] = selected["agent_id"]
     model_override = _model_override(selected.get("model_name")) if selected else None
     if model_override:
@@ -473,16 +550,24 @@ async def execute_backtest(
         f"Max DD: {pct(m.get('max_drawdown'))}  ·  Trades: {m.get('num_trades', 0)}\n"
         f"Final equity: ${float(m.get('final_equity') or 0):,.0f}"
     )
-    if share_url:
+    run_id = m.get("run_id")
+    # Only a builtin agent gets agent_id attached to the run (see payload above).
+    # Key the deep link + "saved to card" line off what was actually sent so we
+    # never claim a run landed on an agent's card when it didn't.
+    attached_agent_id = payload.get("agent_id")
+    dash_url = dashboard_backtest_url(agent_id=attached_agent_id, run_id=run_id)
+    if dash_url:
+        summary += f"\nDashboard: {dash_url}"
+    elif share_url:
         summary += f"\nView: {share_url}"
-    if selected and selected.get("name"):
+    if attached_agent_id and selected and selected.get("name"):
         summary += (
-            f"\nSaved to **{selected['name']}**'s card — open *My Agents* on the "
-            "website to track the details."
+            f"\nSaved to **{selected['name']}**'s card"
+            + (" — open the Dashboard link above." if dash_url else
+               " — open *My Agents* on the website to track the details.")
         )
     await interaction.edit_original_response(content=summary)
 
-    run_id = m.get("run_id")
     if run_id:
         try:
             png = await api_get_bytes(f"/runs/{run_id}/plot.png", headers=headers)
@@ -826,38 +911,79 @@ async def reset(
 
 @bot.tree.command(
     name="agent",
-    description="List built-in agents and choose which one to talk to.",
+    description="List your linked website agents and choose which one to talk to.",
 )
 async def agent(
     interaction: discord.Interaction,
 ) -> None:
     await interaction.response.defer(thinking=True, ephemeral=True)
 
+    discord_user_id = str(interaction.user.id)
     try:
-        agents = await fetch_builtin_agents()
+        agents, err = await fetch_owned_agents(discord_user_id)
     except Exception as exc:
         print("Discord /agent fetch failed:", repr(exc))
         await interaction.edit_original_response(
             content=(
-                "Could not load built-in agents. Is the backend running at "
+                "Could not load your agents. Is the backend running at "
                 f"`{api_base()}`? (set ATL_API_BASE if not)"
             )
         )
         return
 
-    if not agents:
+    if err == "discord_not_linked":
         await interaction.edit_original_response(
             content=(
-                "No built-in agents yet. Create one on the website:\n"
-                "**My Agents → Add Agent → Create a Built-in Agent** — it will "
-                "then appear here for everyone to chat with."
+                "Your Discord account is not linked to the website yet.\n"
+                "On the lab site: **sign in → Open Discord** (authorize once). "
+                "Then run `/agent` again to see *your* agents."
             )
         )
         return
 
-    current = selected_agent_for(interaction.user.id)
-    lines = ["**Built-in agents**"]
-    for a in agents[:25]:
+    if err == "fetch_failed":
+        await interaction.edit_original_response(
+            content=(
+                "Could not load your agents (auth/config error). "
+                "Ask an admin to check `DISCORD_BOT_API_SECRET` on the API and bot."
+            )
+        )
+        return
+
+    # Backtest agent_id path requires builtin; keep externals visible but not selectable.
+    selectable = [
+        a for a in agents
+        if (a.get("agent_type") or "external") == "builtin" and a.get("agent_id")
+    ]
+
+    # Drop stale in-memory selection if the agent is no longer owned.
+    current = selected_agent_for(discord_user_id)
+    owned_ids = {a["agent_id"] for a in agents if a.get("agent_id")}
+    if current and current.get("agent_id") not in owned_ids:
+        _selected_agents.pop(discord_user_id, None)
+        current = None
+
+    if not selectable:
+        if agents:
+            await interaction.edit_original_response(
+                content=(
+                    "Your linked account has agents, but none are **built-in** "
+                    "(needed for Discord backtests).\n"
+                    "On the website: **My Agents → Add Agent → Create a Built-in Agent**."
+                )
+            )
+        else:
+            await interaction.edit_original_response(
+                content=(
+                    "No agents on your linked website account yet.\n"
+                    "Create one on the site: **My Agents → Add Agent → "
+                    "Create a Built-in Agent**, then run `/agent` again."
+                )
+            )
+        return
+
+    lines = ["**Your agents** (linked website account)"]
+    for a in selectable[:25]:
         marker = "✅ " if current and current["agent_id"] == a["agent_id"] else "• "
         lines.append(
             f"{marker}**{a.get('name')}** — `{a.get('model_name') or 'local-model'}` "
@@ -869,7 +995,7 @@ async def agent(
 
     await interaction.edit_original_response(
         content="\n".join(lines),
-        view=AgentSelectView(agents),
+        view=AgentSelectView(selectable),
     )
 
 

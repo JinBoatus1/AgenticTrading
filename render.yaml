@@ -22,6 +22,18 @@ services:
         value: 3.13.5
       - key: DATABASE_PATH
         value: /data/backtest.db
+      - key: DISCORD_BOT_API_SECRET
+        sync: false
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: DISCORD_REDIRECT_URI
+        sync: false
+      - key: DISCORD_GUILD_CHANNEL_URL
+        sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
     
     # Health check
     healthCheckPath: /health

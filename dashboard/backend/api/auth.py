@@ -1,11 +1,27 @@
+import asyncio
+import os
 from typing import Optional
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
+from dashboard.backend.api import discord_oauth
 from dashboard.backend.users import public_user, user_store
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _app_redirect(query: dict[str, str]) -> RedirectResponse:
+    """Send the browser back to the dashboard after Discord OAuth."""
+    base = (os.getenv("PUBLIC_APP_URL") or "").rstrip("/")
+    if base:
+        if not base.endswith("/app"):
+            base = f"{base}/app"
+    else:
+        base = "/app"
+    return RedirectResponse(url=f"{base}?{urlencode(query)}", status_code=302)
 
 
 def _normalize_email(value: str) -> str:
@@ -98,3 +114,60 @@ async def logout(authorization: Optional[str] = Header(default=None)):
     if token:
         user_store.delete_session(token)
     return {"status": "ok"}
+
+
+@router.post("/discord/start")
+async def discord_oauth_start(current_user: dict = Depends(get_current_user)):
+    """Begin Discord OAuth linking for the logged-in website user."""
+    if not discord_oauth.oauth_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Discord OAuth is not configured on this server",
+        )
+    # Already linked → client can skip OAuth and open Discord directly.
+    if current_user.get("discord_user_id"):
+        return {
+            "already_linked": True,
+            "authorize_url": None,
+            "discord_url": discord_oauth.discord_guild_channel_url(),
+            "user": public_user(current_user),
+        }
+
+    state = discord_oauth.mint_oauth_state(int(current_user["id"]))
+    return {
+        "already_linked": False,
+        "authorize_url": discord_oauth.build_authorize_url(state),
+        "discord_url": discord_oauth.discord_guild_channel_url(),
+        "user": public_user(current_user),
+    }
+
+
+@router.get("/discord/callback")
+async def discord_oauth_callback(code: Optional[str] = None, state: Optional[str] = None):
+    """OAuth redirect target: exchange code, persist discord_user_id, return to /app."""
+    if not code or not state:
+        return _app_redirect({"discord": "error", "reason": "missing_params"})
+    try:
+        user_id = discord_oauth.parse_oauth_state(state)
+    except ValueError:
+        return _app_redirect({"discord": "error", "reason": "invalid_state"})
+
+    try:
+        # These make blocking HTTP/DB calls; run them off the event loop so a slow
+        # Discord token exchange (up to ~40s) doesn't stall every other request.
+        access_token = await asyncio.to_thread(
+            discord_oauth.exchange_code_for_access_token, code
+        )
+        discord_user = await asyncio.to_thread(
+            discord_oauth.fetch_discord_user, access_token
+        )
+        await asyncio.to_thread(
+            user_store.link_discord_user, user_id, str(discord_user["id"])
+        )
+    except ValueError as exc:
+        reason = str(exc) if str(exc) in {"discord_already_linked", "user_not_found"} else "link_failed"
+        return _app_redirect({"discord": "error", "reason": reason})
+    except Exception:
+        return _app_redirect({"discord": "error", "reason": "oauth_failed"})
+
+    return _app_redirect({"discord": "linked"})

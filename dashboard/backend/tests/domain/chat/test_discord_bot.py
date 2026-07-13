@@ -5,6 +5,7 @@ module is skipped so the suite stays green on minimal interpreters. No real
 Discord connection or network call is made.
 """
 
+import asyncio
 import subprocess
 import sys
 import textwrap
@@ -115,6 +116,30 @@ def test_split_discord_message_splits_long_text():
     chunks = bot_mod.split_discord_message(text, limit=100)
     assert len(chunks) > 1
     assert all(len(chunk) <= 100 for chunk in chunks)
+
+
+def test_fetch_owned_agents_maps_not_linked_code(monkeypatch):
+    """A 404 carrying ``code=discord_not_linked`` is the unlinked case."""
+    monkeypatch.setattr(
+        bot_mod,
+        "_http_get_status",
+        lambda *a, **k: (404, {"detail": {"code": "discord_not_linked"}}),
+    )
+    agents, err = asyncio.run(bot_mod.fetch_owned_agents("123"))
+    assert agents == []
+    assert err == "discord_not_linked"
+
+
+def test_fetch_owned_agents_other_404_is_fetch_failed(monkeypatch):
+    """A bare 404 (bad ATL_API_BASE / route rename) must NOT read as 'unlinked'."""
+    monkeypatch.setattr(
+        bot_mod,
+        "_http_get_status",
+        lambda *a, **k: (404, {"detail": "Not Found"}),
+    )
+    agents, err = asyncio.run(bot_mod.fetch_owned_agents("123"))
+    assert agents == []
+    assert err == "fetch_failed"
 
 
 def test_discord_bot_imports_without_secrets():
