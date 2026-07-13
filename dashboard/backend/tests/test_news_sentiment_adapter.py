@@ -4,7 +4,10 @@ from types import SimpleNamespace
 import pytest
 
 from dashboard.backend.integrations import news_sentiment as ns
-from dashboard.backend.tests.test_news_sentiment_fixture import load_signals_fixture
+from dashboard.backend.tests.test_news_sentiment_fixture import (
+    load_signals_fixture,
+    load_signals_wire_fixture,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -148,3 +151,67 @@ def test_panel_payload_unavailable_on_failure(monkeypatch):
     monkeypatch.setattr(ns, "_http_get", _boom)
     payload = ns.get_latest_panel_payload(["MSFT"])
     assert payload == ns.UNAVAILABLE_PAYLOAD  # single-sourced shape (router reuses it)
+
+
+# --- Live wire-shape coverage (staleness_hours / degraded / 304) --------------
+# The vendored on-disk fixture omits `staleness_hours` and is `status: ok`, so
+# these branches are only reachable through the stripped-and-injected wire shape
+# (contract §"Producer response shape"). See signals-wire-fixture.json.
+
+
+def test_wire_shape_passes_staleness_hours_through(monkeypatch):
+    """The panel surfaces the server-injected `staleness_hours` verbatim — the
+    documented origin of the "Updated Xh ago" header. Unreachable via the
+    on-disk fixture, which has no such key."""
+    body = load_signals_wire_fixture()
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    payload = ns.get_latest_panel_payload(["MSFT", "NVDA"])
+    assert payload["staleness_hours"] == body["staleness_hours"]
+    assert payload["staleness_hours"] is not None  # the whole point vs on-disk fixture
+
+
+def test_degraded_artifact_is_usable_projected_and_logged(monkeypatch, caplog):
+    """A `degraded` artifact is still usable (contract §"Error & degraded
+    handling"): the panel projects its signals and passes status/status_reason
+    through, and the adapter logs the reason so the run stays auditable."""
+    body = dict(load_signals_wire_fixture())
+    body["status"] = "degraded"
+    body["status_reason"] = "1 of 3 sources timed out"
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    with caplog.at_level("WARNING"):
+        payload = ns.get_latest_panel_payload(["MSFT", "NVDA"])
+    assert payload["signals"]                       # degraded != empty — still projected
+    assert payload["status"] == "degraded"
+    assert payload["status_reason"] == "1 of 3 sources timed out"
+    assert any("degraded" in r.getMessage() for r in caplog.records)
+
+
+def test_degraded_artifact_still_projects_in_backtest_path(monkeypatch):
+    """`get_news_sentiment` (the per-step backtest loader) does not branch on
+    status: a degraded-but-usable artifact still projects its signals rather
+    than collapsing to empty."""
+    body = dict(load_signals_wire_fixture())
+    body["status"] = "degraded"
+    body["status_reason"] = "partial feed"
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    ts = datetime(2026, 7, 10, 15, 0, tzinfo=timezone.utc)
+    out = ns.get_news_sentiment(["MSFT", "NVDA"], ts)
+    assert out["news_sentiment"]                    # non-empty: degraded is still projected
+    assert out["news_overview"] == body["news_overview"]
+
+
+def test_304_revalidation_serves_cached_body(monkeypatch):
+    """A conditional GET that returns 304 serves the previously cached body
+    (the latest-read path always sends If-None-Match). The on-disk fixture
+    tests never reach this branch."""
+    body = load_signals_wire_fixture()
+    responses = [
+        _fake_response(body=body, etag='"w1"'),
+        _fake_response(status=304, body={}, etag='"w1"'),
+    ]
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: responses.pop(0))
+    first = ns.get_latest_panel_payload(["MSFT"])
+    assert first["staleness_hours"] == body["staleness_hours"]
+    second = ns.get_latest_panel_payload(["MSFT"])   # 304 -> cached body reused, not refetched
+    assert second["staleness_hours"] == body["staleness_hours"]
+    assert not responses                             # both queued responses consumed
