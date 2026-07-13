@@ -1,3 +1,4 @@
+import asyncio
 import os
 from typing import Optional
 from urllib.parse import urlencode
@@ -152,9 +153,17 @@ async def discord_oauth_callback(code: Optional[str] = None, state: Optional[str
         return _app_redirect({"discord": "error", "reason": "invalid_state"})
 
     try:
-        access_token = discord_oauth.exchange_code_for_access_token(code)
-        discord_user = discord_oauth.fetch_discord_user(access_token)
-        user_store.link_discord_user(user_id, str(discord_user["id"]))
+        # These make blocking HTTP/DB calls; run them off the event loop so a slow
+        # Discord token exchange (up to ~40s) doesn't stall every other request.
+        access_token = await asyncio.to_thread(
+            discord_oauth.exchange_code_for_access_token, code
+        )
+        discord_user = await asyncio.to_thread(
+            discord_oauth.fetch_discord_user, access_token
+        )
+        await asyncio.to_thread(
+            user_store.link_discord_user, user_id, str(discord_user["id"])
+        )
     except ValueError as exc:
         reason = str(exc) if str(exc) in {"discord_already_linked", "user_not_found"} else "link_failed"
         return _app_redirect({"discord": "error", "reason": reason})

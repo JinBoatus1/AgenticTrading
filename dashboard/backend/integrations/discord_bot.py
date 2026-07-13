@@ -283,11 +283,13 @@ async def fetch_owned_agents(
     )
     if status == 404:
         detail = data.get("detail")
-        code = None
-        if isinstance(detail, dict):
-            code = detail.get("code")
-        if code == "discord_not_linked" or status == 404:
+        code = detail.get("code") if isinstance(detail, dict) else None
+        if code == "discord_not_linked":
             return [], "discord_not_linked"
+        # Any other 404 (misconfigured ATL_API_BASE, a route rename) is a real
+        # outage — don't tell the user their account "isn't linked".
+        print(f"Discord owned-agents fetch failed: HTTP 404 {data!r}")
+        return [], "fetch_failed"
     if status >= 400:
         print(f"Discord owned-agents fetch failed: HTTP {status} {data!r}")
         return [], "fetch_failed"
@@ -549,13 +551,16 @@ async def execute_backtest(
         f"Final equity: ${float(m.get('final_equity') or 0):,.0f}"
     )
     run_id = m.get("run_id")
-    agent_id = selected.get("agent_id") if selected else None
-    dash_url = dashboard_backtest_url(agent_id=agent_id, run_id=run_id)
+    # Only a builtin agent gets agent_id attached to the run (see payload above).
+    # Key the deep link + "saved to card" line off what was actually sent so we
+    # never claim a run landed on an agent's card when it didn't.
+    attached_agent_id = payload.get("agent_id")
+    dash_url = dashboard_backtest_url(agent_id=attached_agent_id, run_id=run_id)
     if dash_url:
         summary += f"\nDashboard: {dash_url}"
     elif share_url:
         summary += f"\nView: {share_url}"
-    if selected and selected.get("name"):
+    if attached_agent_id and selected and selected.get("name"):
         summary += (
             f"\nSaved to **{selected['name']}**'s card"
             + (" — open the Dashboard link above." if dash_url else

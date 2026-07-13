@@ -43,7 +43,6 @@ EXPECTED_BACKTESTS_ROUTES = {
     ("GET", "/runs/{run_id}/equity", "get_equity_curve"),
     ("GET", "/runs/{run_id}/trades", "get_run_trades"),
     ("GET", "/runs/{run_id}/plot.png", "get_run_plot"),
-    ("GET", "/runs/{run_id}/trades", "get_run_trades"),
     ("GET", "/compare", "compare_runs"),
 }
 

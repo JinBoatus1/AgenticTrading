@@ -1262,14 +1262,10 @@ async function handleDiscordOAuthReturn() {
 }
 
 function wireDiscordAccountButtons() {
-  const ids = ['openDiscordBtn', 'agentsSectionDiscordBtn', 'homeConnectDiscordBtn'];
-  ids.forEach((id) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('click', openDiscordWithAccount);
-  });
-  document.querySelectorAll('a.discord-nav-btn').forEach((el) => {
-    if (ids.includes(el.id)) return;
+  // Opt-in only: account-linking buttons carry data-discord-link. A plain
+  // "Join Discord" community invite (no marker) stays an ordinary link so
+  // logged-out visitors reach the server instead of a login modal.
+  document.querySelectorAll('[data-discord-link]').forEach((el) => {
     el.addEventListener('click', openDiscordWithAccount);
   });
 }
@@ -1350,6 +1346,12 @@ function initAuthUI() {
       setAuthState(data.user, data.token);
       await claimAgentsForUser();
       closeAuthModal();
+      // If we arrived here from a Discord deep link that needed this account
+      // (params were kept), retry it now that the owner is signed in.
+      const deepLinkParams = new URLSearchParams(window.location.search);
+      if (deepLinkParams.get('agent_id') || deepLinkParams.get('run_id')) {
+        applyAgentRunDeepLink();
+      }
     } catch (error) {
       if (errorEl) {
         errorEl.textContent = error.message;
@@ -2951,13 +2953,29 @@ async function applyAgentRunDeepLink() {
     let agent = agentId
         ? (allAgents || []).find((a) => a.agent_id === agentId)
         : null;
+    let agentAuthError = false;
     if (!agent && agentId) {
         try {
             const data = await API.get(`${API_BASE}/api/v1/agents/${encodeURIComponent(agentId)}`);
             agent = data?.agent || null;
         } catch (error) {
+            // The agent card is owner-gated (403). A Discord deep link is often
+            // opened on a different device/browser than the one that owns the
+            // agent, so surface it instead of silently landing on an empty session.
+            agentAuthError = error.status === 401 || error.status === 403;
             console.warn('Deep link: agent not accessible:', error.message);
         }
+    }
+
+    if (agentId && !agent && agentAuthError) {
+        const signedIn = !!(localStorage.getItem(AUTH_TOKEN_KEY) && getStoredAuthUser());
+        if (!signedIn) {
+            // Leave agent_id/run_id in the URL so a successful sign-in retries.
+            alert('Sign in with the account that owns this agent to open its backtest from Discord.');
+            openAuthModal('login');
+            return;
+        }
+        alert('This agent belongs to a different account. Sign in with the account that owns it to open its backtest.');
     }
 
     if (agent) {

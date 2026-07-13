@@ -49,6 +49,9 @@ def oauth_configured() -> bool:
 
 
 def _state_signing_key() -> bytes:
+    # Prefer an explicit override, else the OAuth client secret (which
+    # ``oauth_configured()`` already requires for the flow to run at all, so the
+    # bare dev fallback below is only ever reached in an unconfigured dev box).
     raw = (
         os.getenv("DISCORD_OAUTH_STATE_SECRET")
         or discord_client_secret()
