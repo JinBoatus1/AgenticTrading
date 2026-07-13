@@ -15,7 +15,7 @@
 - **No look-ahead, structurally:** the shim hardcodes `mode: "normal"` (no env knob can select a tool-attached mode) and raises on any response with non-empty `sources` (AF's tool paths populate it; the direct path leaves it empty). AF-side, `direct: True` must route to the direct path for **every** mode and transport (spec §3).
 - **Never pass `--allow-fallback`** to the deploy script — H6 exists to stop exactly that.
 - **MODELS_CONFIG schema:** the model field key is **`model_name`** (read at `datascraper.py:219,524,1012`) and the streaming flag is **`streaming`** (read at `:1384`). Copy the spec §4.1 block exactly — earlier drafts with `model`/`supports_streaming` keys would make every call send `model=None`.
-- ATL provider contract (from `providers/__init__.py:1-13` + the three existing modules): expose `INTEGRATION_ID`, `DEFAULT_MODEL`, `default_model_name()`, `make_client(anthropic_cls)`; `make_client` returns `None` and never raises when the key is absent (the existing providers do this silently; finsearch additionally prints a hint — its own choice, not a contract requirement); registered in `PROVIDERS`; never auto-selected.
+- ATL provider contract (from `providers/__init__.py:1-13` + the three existing modules): expose `INTEGRATION_ID`, `DEFAULT_MODEL`, `default_model_name()`, `make_client(anthropic_cls)`; `make_client` returns `None` and **never raises** — not just when the key is absent, but also when client construction fails (every sibling wraps the SDK-init in `try/except Exception: return None`; the documented contract in `providers/__init__.py` is "returns `None` when the SDK is missing or the integration's API key is unset / client init fails"). finsearch additionally prints a hint — its own choice, not a contract requirement; registered in `PROVIDERS`; never auto-selected.
 - **Golden-set tests:** registering a provider changes `KNOWN_INTEGRATIONS` — `tests/llm/test_providers.py::test_known_integrations_are_parallel_siblings` (`:19-23`) hardcodes the integration set and must be updated in the same commit (same staleness family as the route-contract freezes that blocked PRs #88–#91).
 - Seed-DB commits: regenerate via the deploy script, snapshot with `VACUUM INTO` from an isolated **detached** worktree, commit the binary + config diffs together. Always set `DATABASE_PATH` when smoke-testing so the committed seed stays clean.
 - AF repo tests run via `cd Main/backend && uv run pytest`; ATL tests via `pytest dashboard/backend/tests/ -v` from the repo root.
@@ -91,7 +91,7 @@ def test_direct_models_never_reach_tool_paths_or_buffet_endpoint():
     #             _call_buffet_agent NOT hit.
 ```
 
-(Reuse the fixture pattern of `tests/test_openai_api.py`'s buffet cases, but the assertion seam must be the provider client / `_call_buffet_agent` level — a re-review of this plan caught that patching `create_response` itself would mask the exact misrouting bug the test exists to prevent. It must cover the **research** dispatch too, which today has no direct check at all.)
+(There are **no** existing buffet tests in `tests/test_openai_api.py` — `grep -i buffet tests/` is empty, so build the routing-matrix assertions from scratch rather than copying a fixture that doesn't exist. The assertion seam must be the provider client / `_call_buffet_agent` level — a re-review of this plan caught that patching `create_response` itself would mask the exact misrouting bug the test exists to prevent. It must cover the **research** dispatch too, which today has no direct check at all.)
 
 - [ ] **Step 2: Run to verify failure** — `cd Main/backend && uv run pytest tests/test_trader_persona.py -v` → FAIL (`KeyError: 'FinSearch-Trader'`).
 
@@ -126,7 +126,7 @@ In `create_agent_response` (`:1015`) and `create_agent_response_stream` (`:1259`
 - [ ] **Step 4: Run the new tests + the existing OpenAI-API suite**
 
 Run: `cd Main/backend && uv run pytest tests/test_trader_persona.py tests/test_openai_api.py -v`
-Expected: PASS (buffet behavior unchanged; `/v1/models` count assertions updated in this task if they pin a count).
+Expected: PASS (buffet behavior unchanged; `/v1/models` — `TestModelsList` only asserts `len(data["data"]) > 0` today, it does **not** pin a count, so add a positive assertion that `FinSearch-Trader` appears rather than bumping a nonexistent count).
 
 - [ ] **Step 5: One manual live check** (needs env keys): `curl -s -X POST http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"FinSearch-Trader","mode":"normal","messages":[{"role":"user","content":"Reply with exactly the JSON {\"ok\": true} and nothing else."}]}'` → `choices[0].message.content` is exactly `{"ok": true}` (format compliance) and `sources` is `[]` (direct path). This is also the moment to verify provider `google` works on the direct path; if not, flip the entry to the sanctioned openai fallback (spec §9.1) and update the leaderboard `model` display string (spec §5).
 
@@ -312,7 +312,16 @@ def make_client(anthropic_cls):
     if not os.environ.get("FINGPT_API_KEY"):
         print("[finsearch] FINGPT_API_KEY not set — finsearch integration unavailable")
         return None
-    return FinSearchClient()
+    try:
+        return FinSearchClient()
+    except Exception as exc:  # SDK/env init failure -> None, matching every sibling
+        # provider (commonstack/openrouter/anthropic_native all wrap construction
+        # in try/except). The call chain (llm_agent._make_client ->
+        # service.deploy_model_run -> CLI main) only catches LeaderboardFallbackError,
+        # so an uncaught OpenAI(...) init error here would crash the whole deploy run
+        # with a raw traceback instead of degrading to rule-based trading.
+        print(f"[finsearch] client init failed: {exc}")
+        return None
 ```
 
 Register in `providers/__init__.py` `PROVIDERS` dict (import the module, add `finsearch.INTEGRATION_ID: finsearch`).
@@ -340,7 +349,7 @@ def test_finsearch_trader_priced():
     assert cost != 6.0  # not the default (1.0 + 5.0) — a real row must match first
 ```
 
-- [ ] **Step 2: Add the row** — `("FinSearch-Trader", <in>, <out>)` at the underlying foundation model's **current list price** (verify the shipped model's published rate at impl time — gemini-3-flash-preview, or gpt-5.1-chat-latest if Task 1 fell back). Comment the row with the upstream model + verification date.
+- [ ] **Step 2: Add the row** — `("finsearch-trader", <in>, <out>)` at the underlying foundation model's **current list price** (verify the shipped model's published rate at impl time — gemini-3-flash-preview, or gpt-5.1-chat-latest if Task 1 fell back). **The needle MUST be lowercase.** `price_for_model()` lowercases the lookup name (`name = (model or "").strip().lower()`, `token_cost.py:98`) but matches with `if needle in name` **without** lowercasing the needle (`:103-105`), and every existing table row is already all-lowercase. A mixed-case `"FinSearch-Trader"` needle would never match (`"FinSearch-Trader" in "finsearch-trader"` is `False`), silently falling through to the `(1.0, 5.0)` default and failing Step 1's `assert cost != 6.0`. Comment the row with the upstream model + verification date.
 - [ ] **Step 3: Run + commit** — `pytest dashboard/backend/tests/llm/ -v` → PASS; `git commit -m "feat(llm): FinSearch-Trader pricing row (approx upstream spend)"`.
 
 ---
@@ -385,7 +394,7 @@ Expected: exits 0; printed coverage 100% (or ≥95%); no `LeaderboardFallbackErr
 python3 dashboard/scripts/deploy_leaderboard_model.py --entry agentic_finsearch
 ```
 
-(161 steps; direct path ≈ seconds/call plus per-call session setup AF-side — budget about an hour.) Expected: exits 0, H6 passes, run row written to `dashboard/storage/data/backtest.db`. The ~7-call smoke cannot catch a missing budget raise; skipping this gate deterministically fails H6 mid-run (contiguous 429 block).
+(161 steps; direct path ≈ seconds/call plus per-call session setup AF-side — budget about an hour.) Expected: exits 0, H6 passes, run row written to `dashboard/storage/data/backtest.db`. The ~7-call smoke cannot catch a missing budget raise; skipping this gate deterministically fails H6 mid-run (contiguous 503 block — AF returns an OpenAI-style **503** for a daily-budget rejection, not 429; see spec §6).
 
 - [ ] **Step 3: Seed refresh commit** (detached worktree + VACUUM INTO — `git worktree add /tmp/... main` fails whenever `main` is checked out in the primary working copy, which it normally is):
 

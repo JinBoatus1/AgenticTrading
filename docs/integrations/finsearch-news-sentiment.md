@@ -71,7 +71,9 @@ This shared key is a **coarse gate** (it raises the bar against drive-by API abu
 
 ## Producer response shape (`signals-v1`)
 
-Top level: `schema_version` (=1), `profile`, `generated_at` (ISO-8601), `generator`, `model`, `prompt_version`, `source_items`, `window_hours`, `watchlist[]`, `status` (`ok` | `degraded`), `status_reason`, `news_overview`, `diagnostics{…}`, and `signals`.
+Top level — the fields the **public, bearer-gated** response carries (consume by key, not position; JSON member order is not significant): `schema_version` (=1), `profile`, `generated_at` (ISO-8601), `source_items`, `window_hours`, `watchlist[]`, `status` (`ok` | `degraded`), `status_reason`, `news_overview`, `diagnostics{…}`, `signals`, and `staleness_hours` (server-computed hours since `generated_at`, appended last by the view).
+
+> **Do not** expect `generator` / `model` / `prompt_version` on the wire: the producer strips them from every public response via `_PUBLIC_STRIP` in `signals_views.py`. Conversely `staleness_hours` is **injected** there (after the strip, so it serializes at the end of the object) and is the documented origin of the panel's "Updated Xh ago" header — it is not part of the raw on-disk artifact.
 
 `signals` is an object keyed by ticker; each value:
 

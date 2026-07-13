@@ -26,7 +26,7 @@
 
 **Files:**
 - Modify: `dashboard/backend/api/v2/models.py:19-26` (the `NewsSentimentEntry` class)
-- Modify: `docs/integrations/finsearch-news-sentiment.md` (the projection table row "`rationale`, `guid` | dropped" and the "Design note — rationale" section become stale the moment this merges — update both to record that `rationale` now has a slot; `guid` remains dropped)
+- Modify: `docs/integrations/finsearch-news-sentiment.md` — **all three** stale spots go out of date the moment this merges; update every one to record that `rationale` now has a slot (`guid` remains dropped): (1) the projection table row "`rationale`, `guid` | dropped", (2) the "Design note — rationale" section, and (3) the "**Deliberate deviation from the plan**" paragraph in the Traceability section, which still asserts the shipped entry "omits `rationale`" — leave it unfixed and the "normative" doc self-contradicts, with no CI check to catch markdown prose drift. Also re-scan for *softer* stale framing that isn't a literal "dropped/omitted" claim — e.g. the "Reference sketch" note "the `rationale` question [is] yours to decide", which is no longer open once the field ships
 - Test: `dashboard/backend/tests/test_v2_contracts.py`
 
 **Interfaces:**
@@ -562,7 +562,7 @@ def get_latest_panel_payload(tickers) -> dict:
 **Files:**
 - Create: `dashboard/backend/api/routers/news.py`
 - Modify: `dashboard/backend/api/router.py` (mount after `strategies_router`, `router.py:25`)
-- Modify: `dashboard/backend/cache.py` — beside the existing constants at `cache.py:83-94` add: `shared_ttl_cache = paper_trading_cache` (alias with a comment: the class is a generic TTL cache; paper trading was merely its first consumer — new non-paper consumers use this name), `CACHE_KEY_NEWS_SIGNALS = "news:signals"` (namespaced like the `paper:` keys), `TTL_NEWS = 420` (**deliberately above** the frontend's 300s poll so a client's own re-poll lands inside the cached window instead of always missing at the boundary)
+- Modify: `dashboard/backend/cache.py` — beside the existing constants at `cache.py:83-94` add: `shared_ttl_cache = paper_trading_cache` (alias with a comment: the class is a generic TTL cache; paper trading was merely its first consumer — new non-paper consumers use this name), `CACHE_KEY_NEWS_SIGNALS = "news:signals"` (namespaced like the `paper:` keys), `TTL_NEWS = 420` (**deliberately above** the frontend's 300s poll so a client's own re-poll lands inside the cached window instead of always missing at the boundary), and `TTL_NEWS_UNAVAILABLE = 30` (short negative-cache TTL — see the router's failure path in Step 3: an outage must not serialize every request through `_fetch_lock` at ~10s/attempt, but the panel must also recover within ~30s of the producer returning, not stay "unavailable" for the full 420s)
 - Modify: `dashboard/backend/tests/test_app_composition.py` (`EXPECTED_FULL_CONTRACT`: add `("GET", "/api/news/signals")`)
 - Modify: `dashboard/backend/tests/test_router_move.py` (add `EXPECTED_NEWS_ROUTES` golden set + `test_news_router_route_contract_unchanged`, following the existing pattern at `test_router_move.py:33-107,153-154`)
 - Test: `dashboard/backend/tests/test_news_router.py`
@@ -616,6 +616,23 @@ def test_news_signals_route_caches(monkeypatch):
     client.get("/api/news/signals")
     client.get("/api/news/signals")
     assert len(calls) == 1
+
+
+def test_news_signals_route_negative_caches_failures(monkeypatch):
+    """The whole point of the short-TTL negative cache: a second failing request
+    within TTL_NEWS_UNAVAILABLE is served from cache, NOT re-run through the ~10s
+    adapter behind _fetch_lock (the outage-serialization fix). Without the negative
+    cache this asserts len(calls) == 2 — the regression the fix prevents."""
+    cache_mod.shared_ttl_cache.invalidate(cache_mod.CACHE_KEY_NEWS_SIGNALS)
+    calls = []
+    def _boom(tickers):
+        calls.append(1)
+        raise RuntimeError("adapter exploded")
+    monkeypatch.setattr(ns, "get_latest_panel_payload", _boom)
+    client = TestClient(app)
+    assert client.get("/api/news/signals").json()["status"] == "unavailable"
+    assert client.get("/api/news/signals").json()["status"] == "unavailable"
+    assert len(calls) == 1  # second request served from the negative cache
 ```
 
 - [ ] **Step 2: Run to verify failure** — 404 on `/api/news/signals`.
@@ -630,7 +647,7 @@ import threading
 from fastapi import APIRouter
 
 from dashboard.backend.cache import (CACHE_KEY_NEWS_SIGNALS, TTL_NEWS,
-                                     shared_ttl_cache)
+                                     TTL_NEWS_UNAVAILABLE, shared_ttl_cache)
 from dashboard.backend.infrastructure.llm.validator import DJIA_30
 from dashboard.backend.integrations import news_sentiment
 
@@ -656,8 +673,17 @@ def latest_news_signals():
         try:
             payload = news_sentiment.get_latest_panel_payload(list(DJIA_30))
         except Exception:
-            return dict(news_sentiment.UNAVAILABLE_PAYLOAD)
-        shared_ttl_cache.set(CACHE_KEY_NEWS_SIGNALS, payload, ttl_seconds=TTL_NEWS)
+            payload = dict(news_sentiment.UNAVAILABLE_PAYLOAD)
+        # Negative-cache failures BRIEFLY. get_latest_panel_payload already returns
+        # UNAVAILABLE_PAYLOAD (not raises) on producer failure, so unavailable results
+        # reach here on the normal path too. Caching them (short TTL) is what stops a
+        # sustained outage from serializing every request through _fetch_lock at
+        # ~10s/attempt; the short TTL (vs TTL_NEWS) also lets the panel recover within
+        # ~30s of the producer coming back instead of showing stale "unavailable" for
+        # the full 420s.
+        ttl = (TTL_NEWS_UNAVAILABLE
+               if payload.get("status") == "unavailable" else TTL_NEWS)
+        shared_ttl_cache.set(CACHE_KEY_NEWS_SIGNALS, payload, ttl_seconds=ttl)
     return payload
 ```
 
@@ -682,7 +708,7 @@ git commit -m "feat(api): /api/news/signals panel proxy with TTL cache + contrac
 ### Task 6: Home panel frontend
 
 **Files:**
-- Modify: `dashboard/frontend/app.html` (new section inside `#homeView`, after the `.home-dashboard-grid` section that ends near `app.html:472`; new `<script src="home-news-signals.js">` beside `app.html:1507-1510`)
+- Modify: `dashboard/frontend/app.html` (new section inside `#homeView`, after the `.home-dashboard-grid` section that ends near `app.html:472`; new `<script src="home-news-signals.js">` **after** `app.js` (`:1513`) and `home-page.js` (`:1515`) — **not** beside the `market-events/*` block at `1507-1510`, which loads *before* `app.js`. The panel script depends on `app.js` globals `API` / `API_BASE` / `escapeHtml`, so it must come after them, exactly as its own load-order comment in Step 2 requires)
 - Create: `dashboard/frontend/home-news-signals.js`
 - Modify: `dashboard/frontend/home-page.js` (call `newsSignalsPanel.onShow()` / `.onHide()` from `onHomePageShow`/`onHomePageHide`, `home-page.js:648-656`)
 - Modify: `dashboard/frontend/styles.css` (panel styles, following `.home-dash-card` family at `styles.css:4359-4368`)
@@ -725,6 +751,15 @@ git commit -m "feat(api): /api/news/signals panel proxy with TTL cache + contrac
   const POLL_MS = 5 * 60 * 1000;
   let timer = null;
 
+  // escapeHtml (app.js) neutralizes quotes/angle-brackets but does NOT scheme-validate
+  // a URL — a `javascript:` value would survive it unchanged and execute on click.
+  // The producer's clean_text does not validate scheme either, so this is the only
+  // guard: gate every outbound link to http(s) BEFORE it reaches an href.
+  function safeUrl(raw) {
+    const s = String(raw == null ? '' : raw).trim();
+    return /^https?:\/\//i.test(s) ? s : '#';
+  }
+
   function relTime(publishedEpochSeconds) {
     // Shared helper takes ms/Date-parseable input; producer sends epoch seconds.
     return window.formatMarketEventRelativeTime
@@ -755,7 +790,7 @@ git commit -m "feat(api): /api/news/signals panel proxy with TTL cache + contrac
 
     feedList.innerHTML = (payload.feed || []).map(item => `
       <li class="nns-item">
-        <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.headline)}</a>
+        <a href="${escapeHtml(safeUrl(item.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.headline)}</a>
         <span class="nns-meta">${escapeHtml(item.source)} · ${escapeHtml(item.ticker)} · ${relTime(item.published)}</span>
       </li>`).join('') || '<li class="nns-empty">No qualifying news today.</li>';
 
@@ -764,7 +799,7 @@ git commit -m "feat(api): /api/news/signals panel proxy with TTL cache + contrac
         <span class="nns-chip">${escapeHtml(s.sentiment)}</span>
         <strong>${escapeHtml(sym)}</strong> <span class="nns-score">${Number(s.score).toFixed(2)}</span>
         <span class="nns-rationale">${escapeHtml(s.rationale || '')}</span>
-        <a class="nns-src" href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.source)}</a>
+        <a class="nns-src" href="${escapeHtml(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.source)}</a>
       </li>`).join('') || '<li class="nns-empty">No directional reads.</li>';
   }
 
