@@ -30,9 +30,11 @@ from dashboard.backend.domain.backtesting.metrics import (
     calculate_max_drawdown,
 )
 from dashboard.backend.domain.backtesting.portfolio_manager import PortfolioManager
-from dashboard.backend.infrastructure.market_data.alpaca_bars import (
-    AlpacaDataLoader,
-    MarketDataUnavailableError,
+from dashboard.backend.infrastructure.market_data.alpaca_bars import MarketDataUnavailableError
+from dashboard.backend.infrastructure.market_data.provider import (
+    ALPACA,
+    VNPY_SIMULATION,
+    create_market_data_provider,
 )
 import dashboard.backend.infrastructure.llm.backtest_harness as llm_harness
 from dashboard.backend.infrastructure.llm.backtest_harness import (
@@ -52,7 +54,20 @@ from dashboard.backend.infrastructure.llm.pipeline_runner import (
 class HourlyBacktester:
     """Runs hourly backtest with agent and baselines."""
     
-    def __init__(self, start_date: str, end_date: str, session_id: str = "legacy-demo-session", use_llm: bool = True, mode: str = "safe_trading", strategy_prompt: str = None, model: str = None, pipeline: list = None, live_run_id: str = None, progress_file: str = None):
+    def __init__(
+        self,
+        start_date: str,
+        end_date: str,
+        session_id: str = "legacy-demo-session",
+        use_llm: bool = True,
+        mode: str = "safe_trading",
+        strategy_prompt: str = None,
+        model: str = None,
+        pipeline: list = None,
+        live_run_id: str = None,
+        progress_file: str = None,
+        data_source: str = ALPACA,
+    ):
         # Validate and swap dates if they're in the wrong order
         from datetime import datetime as dt_parser
         try:
@@ -81,9 +96,10 @@ class HourlyBacktester:
         self.model = model or default_model_name()
         self.live_run_id = (live_run_id or "").strip() or None
         self.progress_file = (progress_file or "").strip() or None
-        self.data_loader = AlpacaDataLoader()
+        self.data_source = data_source
+        self.data_loader = create_market_data_provider(data_source)
         self.all_data = {}
-        self.use_llm = use_llm and HAS_ANTHROPIC
+        self.use_llm = use_llm and HAS_ANTHROPIC and data_source != VNPY_SIMULATION
         self.llm_client = None
         
         # Initialize LLM client if enabled. Prefer CommonStack (the model we host)
@@ -161,7 +177,7 @@ class HourlyBacktester:
             print(f"   ⚠️  Could not write live progress: {exc}")
     
     def load_data(self):
-        """Fetch hourly data from Alpaca."""
+        """Fetch hourly data from the selected normalized provider."""
         self.all_data = self.data_loader.fetch_bars(DJIA_30, self.start_date, self.end_date)
         if not self.all_data:
             # Raise, don't sys.exit(1): this runs inside server threads
@@ -169,7 +185,8 @@ class HourlyBacktester:
             # `except Exception` and strands the run (the B0 class).
             print("❌ No data fetched.")
             raise MarketDataUnavailableError(
-                f"No market data available for {self.start_date}..{self.end_date}"
+                f"No {self.data_source} market data available for "
+                f"{self.start_date}..{self.end_date}"
             )
     
     def calculate_indicators(self):
@@ -183,14 +200,13 @@ class HourlyBacktester:
                 print(f"  ✅ {count}/{len(self.all_data)} symbols...")
         print(f"  ✅ All indicators calculated\n")
     
-    def _llm_run_metadata(self) -> Optional[Dict]:
-        """Config snapshot recorded on the agent run row.
+    def _run_metadata(self) -> Dict:
+        """Data provenance and effective config recorded on each run row.
 
         LLM_MAX_OUTPUT_TOKENS is an env knob that changes a run's spend and
         response truncation; recording the EFFECTIVE value (post defensive
-        parse) makes runs auditable after the env changes. Rule-based runs
-        record nothing unless post-trade adaptations were produced."""
-        meta: Dict = {}
+        parse) makes runs auditable after the env changes."""
+        meta: Dict = {"data_source": self.data_source}
         if self.use_llm:
             meta["llm_max_output_tokens"] = llm_harness.DEFAULT_MAX_OUTPUT_TOKENS
         if self.prompt_adaptations:
@@ -199,7 +215,7 @@ class HourlyBacktester:
             meta["initial_pipeline"] = self.initial_pipeline
         if self.pipeline is not None:
             meta["final_pipeline"] = self.pipeline
-        return meta or None
+        return meta
 
     def _current_equity(self, manager: PortfolioManager) -> float:
         if manager.equity_history:
@@ -249,7 +265,6 @@ class HourlyBacktester:
         if record:
             self.prompt_adaptations.append(record)
         self.pipeline = recombine_pipeline(patched, post_trade_steps)
-
     def run_agent_backtest(self) -> Tuple[str, List[Dict]]:
         """Run backtest with agent making hourly decisions."""
         print("🤖 Running Agent backtest (hourly decisions)...\n")
@@ -430,7 +445,7 @@ class HourlyBacktester:
             input_tokens=manager.input_tokens,
             output_tokens=manager.output_tokens,
             est_cost_usd=est_cost,
-            metadata=self._llm_run_metadata(),
+            metadata=self._run_metadata(),
         )
 
         db.insert_equity_points(run_id, equity_curve)
@@ -484,7 +499,8 @@ class HourlyBacktester:
             total_return=total_return,
             sharpe_ratio=self._calc_sharpe(equity_history),
             max_drawdown=self._calc_max_dd(equity_history),
-            num_trades=1
+            num_trades=1,
+            metadata=self._run_metadata(),
         )
         
         db.insert_equity_points(run_id, equity_history)
@@ -530,7 +546,8 @@ class HourlyBacktester:
             total_return=total_return,
             sharpe_ratio=self._calc_sharpe(equity_history),
             max_drawdown=self._calc_max_dd(equity_history),
-            num_trades=0
+            num_trades=0,
+            metadata=self._run_metadata(),
         )
         
         db.insert_equity_points(run_id, equity_history)

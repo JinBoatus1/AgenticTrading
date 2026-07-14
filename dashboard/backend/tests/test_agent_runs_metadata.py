@@ -100,7 +100,7 @@ def test_migration_adds_metadata_column(tmp_path):
 
 def test_engine_llm_run_metadata_snapshot(monkeypatch):
     """The engine's agent run records the EFFECTIVE cap (whatever the env
-    parse produced), and rule-based runs record nothing."""
+    parse produced), while every run records data provenance."""
     import dashboard.backend.domain.backtesting.engine as engine_mod
     from dashboard.backend.domain.backtesting.engine import HourlyBacktester
 
@@ -112,11 +112,15 @@ def test_engine_llm_run_metadata_snapshot(monkeypatch):
     backtester.initial_pipeline = None
     backtester.pipeline = None
     monkeypatch.setattr(engine_mod.llm_harness, "DEFAULT_MAX_OUTPUT_TOKENS", 777)
+    backtester.data_source = "alpaca"
 
     backtester.use_llm = True
-    assert backtester._llm_run_metadata() == {"llm_max_output_tokens": 777}
+    assert backtester._run_metadata() == {
+        "data_source": "alpaca",
+        "llm_max_output_tokens": 777,
+    }
     backtester.use_llm = False
-    assert backtester._llm_run_metadata() is None
+    assert backtester._run_metadata() == {"data_source": "alpaca"}
 
 
 def test_engine_agent_run_wires_the_metadata():
@@ -128,4 +132,4 @@ def test_engine_agent_run_wires_the_metadata():
         Path(__file__).resolve().parents[1]
         / "domain" / "backtesting" / "engine.py"
     ).read_text(encoding="utf-8")
-    assert "metadata=self._llm_run_metadata()" in engine_src
+    assert "metadata=self._run_metadata()" in engine_src
