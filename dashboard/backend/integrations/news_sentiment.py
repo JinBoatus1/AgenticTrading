@@ -236,7 +236,9 @@ def _story_fields(sig: dict) -> dict:
 def _project_entry(sig: dict, reference_ts: float) -> dict:
     return {
         "sentiment": sig["sentiment"],
-        "score": sig["score"],
+        # v2 sentiment_score with transitional v1 fallback — PR-2 of the
+        # FinSearch score-field disambiguation deletes the fallback.
+        "score": sig.get("sentiment_score", sig.get("score")),
         **_story_fields(sig),
         "n_articles": sig["n_articles"],
         "age_hours": max(0.0, (reference_ts - float(sig["published"])) / 3600.0),

@@ -102,7 +102,7 @@ def test_items_fixture_is_the_batch_the_signals_fixture_came_from():
 
 def test_fixture_matches_contract_essentials():
     body = load_signals_fixture()
-    assert body["schema_version"] == 1
+    assert body["schema_version"] in (1, 2)  # transitional; PR-2 pins == 2
     assert isinstance(body["signals"], dict) and body["signals"]
     sample = next(iter(body["signals"].values()))
     for field in ("sentiment", "score", "rationale", "headline", "source",
