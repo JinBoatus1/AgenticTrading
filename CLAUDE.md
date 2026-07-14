@@ -101,6 +101,22 @@ Two step-driven agent surfaces coexist; they are **not peers**:
 - **Frontend** → Vercel (`vercel.json`): static `dashboard/frontend`.
 - **Container** (`Dockerfile`): `WORKDIR /app`; `uvicorn dashboard.backend.app:app`.
 
+## Merge & branch discipline
+
+**`main` has no branch protection, no required checks, and no CODEOWNERS.** Nothing gates a merge. Any collaborator can merge any open PR at any moment, and the observed norm is that they do — unreviewed, and over red CI. Merging to `main` also auto-deploys prod (see the Deployment gotcha). Treat every open PR as merge-able *right now* by someone who has not read your plan.
+
+- **Never push follow-up work to a branch whose PR is already merged.** Cut a new branch. GitHub gives **no notification, no reopening, and no warning** when commits land behind a merged PR — they orphan silently, and the only signal is a human noticing the branch is ahead of the PR that consumed it. (This is exactly how PR #107 shipped without the fix that was meant to be part of it; the follow-ups had to be re-landed as #110 off the same ref.) Check before pushing: `gh pr list --head <branch> --state all`.
+- **If a PR must not merge yet, publish that where GitHub shows or enforces it** — **open it as a draft**, or add a `blocked` label, and put the gate as an imperative in the *first line of the body* ("DO NOT MERGE until X ships"). A comment is not a gate, and a body that explains why the change is *safe* to land early ("depends on X, but falls back transparently until then") reads as *please merge me*. A gating instruction posted after the merge is worthless — intent that only exists in a local worktree or an agent session's memory does not exist.
+- **Never record in notes/memory that a merge was sequenced deliberately unless a session actually verified and pressed the button.** Check `gh api repos/Open-Finance-Lab/AgenticTrading/pulls/N --jq '.merged_by.login'`. Writing down a gate that nobody applied teaches every later reader that the gate works.
+
+### Fail-closed is not fail-visible
+
+The FinSearch news adapter (`dashboard/backend/integrations/news_sentiment.py`) is the cautionary case. `get_latest_panel_payload`'s `if not feed:` fallback to the Phase-A representative feed makes **"the upstream endpoint isn't deployed"** and **"the endpoint is live and every story is being silently rejected"** produce a byte-identical `status: ok` HTTP 200. The 404 path logs *nothing* (a bare `pass`). A field rename upstream therefore degraded prod for hours with no error, no metric, and a green test suite.
+
+- When adding a fallback, ask **what distinguishes *absent* from *broken***. If nothing does, log ERROR at the wholesale-drift boundary (a per-item warning cannot report a total contract break).
+- **Never build an upstream's fixture from your own adapter's field names.** Fixtures written that way test the mapper against itself and drift with the code, so a producer rename stays green forever. Pin the shape from a real recorded response (`dashboard/backend/tests/fixtures/items-wire-fixture.json`).
+- **Mocked coverage cannot detect a cross-repo producer rename** — the producer is mocked. Only a canary against the live endpoint can. Don't mistake more mock tests for coverage of this seam.
+
 ## Gotchas
 
 - Root `pyproject.toml` (`finagent-orchestration`) is for the **orchestration** subsystem, not the dashboard — edit `requirements.txt` for dashboard deps.
