@@ -287,7 +287,7 @@ def fetch_items(*, limit: int = _PANEL_FEED_LIMIT) -> Optional[list]:
         except ValueError:
             logger.error("news_sentiment: unparseable items body")
             return None
-        items = body.get("items")
+        items = body.get("items") if isinstance(body, dict) else None
         if not isinstance(items, list):
             logger.error("news_sentiment: items body missing 'items' list")
             return None

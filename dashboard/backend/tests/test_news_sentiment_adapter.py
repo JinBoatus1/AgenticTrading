@@ -380,6 +380,18 @@ def test_items_missing_items_list_falls_back(monkeypatch):
     assert payload["feed"] == ns._representative_feed(signals_body["signals"])
 
 
+def test_items_non_dict_body_falls_back(monkeypatch):
+    """A valid-JSON but non-dict items body (e.g. a bare list) must fail closed
+    to None — body.get() on a list would AttributeError — so the panel falls
+    back to the representative feed rather than raising."""
+    signals_body = load_signals_fixture()
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    monkeypatch.setattr(ns, "_http_get_items",
+                         lambda **kw: _fake_response(body=[{"guid": "g1"}]))  # bare list, not a dict
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["feed"] == ns._representative_feed(signals_body["signals"])
+
+
 def test_items_unparseable_body_falls_back(monkeypatch):
     signals_body = load_signals_fixture()
     monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
