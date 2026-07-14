@@ -36,6 +36,11 @@ No ATL-side contract change is needed — the `/api/v2` refactor shipped the who
   | `age_hours` | float | ≥ 0.0 |
   | `n_articles` | int | ≥ 0 |
   | `rationale` | str \| None | optional — see design note |
+
+> **Transitional:** until FinSearch's schema-v2 deploy lands, the producer
+> still sends `score` (v1); the adapter reads `sentiment_score` with a `score`
+> fallback. PR-2 removes the fallback and pins `schema_version == 2`.
+
 - **Universe:** the loader is called with `list(DJIA_30)` (the canonical current Dow-30 constant, `infrastructure/llm/validator.py`, reconciled in #91/#94 — the old `AMEX` typo is gone). Pass that straight through as the `?tickers=` filter.
 
 ---
@@ -82,7 +87,7 @@ Top level — the fields the **public, bearer-gated** response carries (consume 
 ```json
 "MSFT": {
   "sentiment": "bullish",
-  "score": 0.5,
+  "sentiment_score": 0.5,
   "rationale": "Two distinct outlets report upbeat Azure guidance.",
   "headline": "Microsoft raises Azure guidance after record quarter",
   "source": "Reuters",
@@ -104,7 +109,7 @@ The producer artifact and the consumer type were designed independently and **do
 | `NewsSentimentEntry` | ← source | transform |
 |----------------------|----------|-----------|
 | `sentiment` | `sentiment` | passthrough — the enums are identical (`bullish`/`bearish`/`neutral`) |
-| `score` | `score` | passthrough (already −1…1) |
+| `score` | `sentiment_score` | passthrough (already −1…1) |
 | `headline` | `headline` | passthrough |
 | `source` | `source` | passthrough |
 | `url` | `url` | passthrough |
@@ -191,7 +196,7 @@ def get_news_sentiment(universe, timestamp):
     for ticker, s in body.get("signals", {}).items():
         out[ticker] = {
             "sentiment": s["sentiment"],
-            "score": s["score"],
+            "score": s["sentiment_score"],
             "headline": s["headline"],
             "source": s["source"],
             "url": s["url"],
