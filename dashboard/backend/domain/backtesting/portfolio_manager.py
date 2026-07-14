@@ -70,7 +70,8 @@ class PortfolioManager:
         self.llm_decisions = 0    # steps the model actually drove (H6 coverage)
         self.input_tokens = 0
         self.output_tokens = 0
-    
+        # Latest decision-pipeline step outputs (for daily post-trade analysis).
+        self.last_pipeline_step_outputs = []    
     def get_portfolio_state(self, market_data: Dict[str, pd.Series], price_cache: Dict = None, timestamp = None) -> Dict:
         """Get current portfolio state with market indicators.
 
@@ -287,15 +288,18 @@ class PortfolioManager:
 
             if pipeline:
                 print(f"   Sub-agent pipeline: {len(pipeline)} step(s)")
-                decision, (input_delta, output_delta), pipeline_calls = run_pipeline_decision(
-                    llm_client,
-                    pipeline=pipeline,
-                    market_snapshot=market_snapshot,
-                    model=model,
+                decision, (input_delta, output_delta), pipeline_calls, step_outputs = (
+                    run_pipeline_decision(
+                        llm_client,
+                        pipeline=pipeline,
+                        market_snapshot=market_snapshot,
+                        model=model,
+                    )
                 )
                 self.input_tokens += input_delta
                 self.output_tokens += output_delta
                 self.llm_calls += pipeline_calls
+                self.last_pipeline_step_outputs = step_outputs or []
                 if decision is None:
                     print("   Falling back to rule-based logic")
                     return self.make_trading_decision(portfolio_state)

@@ -5895,6 +5895,21 @@ body.agent-editor-open {
     font-size: 15px;
     font-weight: 700;
     color: var(--text-primary);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.agent-sub-freq-badge {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-secondary, #64748b);
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 4px;
+    padding: 2px 6px;
 }
 
 .agent-sub-label-input {

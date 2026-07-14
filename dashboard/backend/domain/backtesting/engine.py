@@ -40,6 +40,13 @@ from dashboard.backend.infrastructure.llm.backtest_harness import (
     default_model_name,
     make_llm_client,
 )
+from dashboard.backend.infrastructure.llm.pipeline_runner import (
+    is_last_bar_of_trading_day,
+    recombine_pipeline,
+    run_post_trade_analysis,
+    split_pipeline,
+    trading_day_key,
+)
 
 
 class HourlyBacktester:
@@ -66,6 +73,10 @@ class HourlyBacktester:
         self.strategy_prompt = (strategy_prompt or "").strip() or None
         # Optional sub-agent pipeline (when set, overrides strategy_prompt).
         self.pipeline = pipeline if pipeline else None
+        self.initial_pipeline = (
+            json.loads(json.dumps(self.pipeline)) if self.pipeline else None
+        )
+        self.prompt_adaptations: List[Dict] = []
         # Model id; defaults to the gateway-appropriate slug (CommonStack vs native).
         self.model = model or default_model_name()
         self.live_run_id = (live_run_id or "").strip() or None
@@ -178,10 +189,66 @@ class HourlyBacktester:
         LLM_MAX_OUTPUT_TOKENS is an env knob that changes a run's spend and
         response truncation; recording the EFFECTIVE value (post defensive
         parse) makes runs auditable after the env changes. Rule-based runs
-        record nothing."""
-        if not self.use_llm:
-            return None
-        return {"llm_max_output_tokens": llm_harness.DEFAULT_MAX_OUTPUT_TOKENS}
+        record nothing unless post-trade adaptations were produced."""
+        meta: Dict = {}
+        if self.use_llm:
+            meta["llm_max_output_tokens"] = llm_harness.DEFAULT_MAX_OUTPUT_TOKENS
+        if self.prompt_adaptations:
+            meta["prompt_adaptations"] = self.prompt_adaptations
+        if self.initial_pipeline is not None:
+            meta["initial_pipeline"] = self.initial_pipeline
+        if self.pipeline is not None:
+            meta["final_pipeline"] = self.pipeline
+        return meta or None
+
+    def _current_equity(self, manager: PortfolioManager) -> float:
+        if manager.equity_history:
+            return float(manager.equity_history[-1].get("equity") or manager.cash)
+        return float(manager.cash)
+
+    def _run_daily_post_trade(
+        self,
+        *,
+        manager: PortfolioManager,
+        day_episode: Dict,
+        post_trade_steps: List[Dict],
+    ) -> None:
+        """Run once-per-day post-trade analysis and mutate ``self.pipeline``."""
+        if not post_trade_steps or not self.use_llm or not self.llm_client:
+            return
+        if not day_episode.get("trading_day"):
+            return
+
+        decision_steps, _ = split_pipeline(self.pipeline)
+        start_eq = float(day_episode.get("day_start_equity") or 0)
+        end_eq = self._current_equity(manager)
+        day_return = ((end_eq - start_eq) / start_eq) if start_eq else 0.0
+        trade_start = int(day_episode.get("trade_start_index") or 0)
+        day_trades = manager.trades[trade_start:]
+
+        episode_context = {
+            "trading_day": day_episode.get("trading_day"),
+            "day_start_equity": start_eq,
+            "day_end_equity": end_eq,
+            "day_return": day_return,
+            "trade_count": len(day_trades),
+            "trades": day_trades,
+            "latest_step_outputs": day_episode.get("latest_step_outputs") or [],
+        }
+
+        patched, record, (in_tok, out_tok), calls = run_post_trade_analysis(
+            self.llm_client,
+            post_trade_steps=post_trade_steps,
+            episode_context=episode_context,
+            decision_pipeline=decision_steps,
+            model=self.model,
+        )
+        manager.input_tokens += in_tok
+        manager.output_tokens += out_tok
+        manager.llm_calls += calls
+        if record:
+            self.prompt_adaptations.append(record)
+        self.pipeline = recombine_pipeline(patched, post_trade_steps)
 
     def run_agent_backtest(self) -> Tuple[str, List[Dict]]:
         """Run backtest with agent making hourly decisions."""
@@ -192,6 +259,12 @@ class HourlyBacktester:
         llm_model = "rule-based"  # Default
         
         manager = PortfolioManager(initial_capital=INITIAL_CAPITAL)
+        _decision_steps, post_trade_steps = split_pipeline(self.pipeline)
+        if post_trade_steps:
+            print(
+                f"   Post-trade analysis: {len(post_trade_steps)} step(s), "
+                "once per trading day\n"
+            )
         
         # Get all timestamps
         all_timestamps = set()
@@ -251,9 +324,25 @@ class HourlyBacktester:
                         price_cache[symbol][timestamp] = last_price
         
         print("   ✅ Cache ready\n")
+
+        day_episode: Dict = {
+            "trading_day": None,
+            "day_start_equity": None,
+            "trade_start_index": 0,
+            "latest_step_outputs": [],
+        }
         
         # Hourly loop
         for i, timestamp in enumerate(all_timestamps):
+            day_key = trading_day_key(timestamp)
+            if day_episode["trading_day"] != day_key:
+                day_episode = {
+                    "trading_day": day_key,
+                    "day_start_equity": self._current_equity(manager),
+                    "trade_start_index": len(manager.trades),
+                    "latest_step_outputs": [],
+                }
+
             # Get market data for this hour (real data when available)
             market_data = {}
             for symbol in DJIA_30:
@@ -281,6 +370,8 @@ class HourlyBacktester:
                 llm_calls_count += 1  # Track that LLM was used
                 if llm_calls_count == 1:  # Set on first call
                     llm_model = self.model
+                if manager.last_pipeline_step_outputs:
+                    day_episode["latest_step_outputs"] = manager.last_pipeline_step_outputs
             else:
                 decision = manager.make_trading_decision(state)
             
@@ -290,6 +381,13 @@ class HourlyBacktester:
             # Update equity (uses forward-filled prices for smooth valuation)
             manager.update_equity(market_data, price_cache, timestamp)
             self._publish_live_progress(i + 1, total_steps, manager)
+
+            if post_trade_steps and is_last_bar_of_trading_day(all_timestamps, i):
+                self._run_daily_post_trade(
+                    manager=manager,
+                    day_episode=day_episode,
+                    post_trade_steps=post_trade_steps,
+                )
             
             # Progress
             if (i + 1) % 100 == 0:
@@ -345,6 +443,8 @@ class HourlyBacktester:
         print(f"     • LLM Calls: {llm_calls_count}")
         print(f"     • Tokens: {manager.input_tokens:,} in / {manager.output_tokens:,} out (est. cost ${est_cost:.4f})")
         print(f"     • Trades: {len(manager.trades)}")
+        if self.prompt_adaptations:
+            print(f"     • Post-trade adaptations: {len(self.prompt_adaptations)} day(s)")
         print(f"     • Final: ${final_eq:,.0f}")
         print(f"     • Return: {total_return*100:+.2f}%\n")
         

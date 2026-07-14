@@ -349,5 +349,7 @@ if __name__ == "__main__":
     # Canonical startup is ``uvicorn dashboard.backend.app:app``. This direct
     # invocation is a deprecated compatibility path; reference the app by its
     # canonical import string so the reloader resolves the same module identity.
+    import os
     import uvicorn
-    uvicorn.run("dashboard.backend.app:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", "8000"))
+    uvicorn.run("dashboard.backend.app:app", host="0.0.0.0", port=port, reload=True)
