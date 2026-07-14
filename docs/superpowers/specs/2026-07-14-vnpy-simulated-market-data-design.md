@@ -138,10 +138,12 @@ Simulation uses the real `vnpy.trader.object.BarData` type with:
 - `interval=Interval.HOUR`
 - `gateway_name="VNPY_SIM"`
 
-vn.py is a development-only optional dependency, pinned to `vnpy==4.4.0` in a
-separate `requirements-vnpy.txt`. It is imported lazily only after
-`vnpy_simulation` is selected. The production Alpaca path must import and run
-without vn.py installed. `vnpy_ib` is not installed in Loop 1.
+vn.py is a development-only optional dependency. A separate
+`requirements-vnpy.txt` pins `vnpy==4.4.0` and repeats the project's
+`numpy==2.2.6` pin so vn.py's broad NumPy constraint cannot upgrade the runtime
+past the versions supported by the existing Numba/SciPy stack. vn.py is imported
+lazily only after `vnpy_simulation` is selected. The production Alpaca path must
+import and run without vn.py installed. `vnpy_ib` is not installed in Loop 1.
 
 Loop 1 does not instantiate `EventEngine`, `MainEngine`, or `IbGateway`.
 

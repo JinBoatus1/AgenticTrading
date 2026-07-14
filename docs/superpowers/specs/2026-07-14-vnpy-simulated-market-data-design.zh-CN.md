@@ -130,9 +130,11 @@ open, high, low, close, volume
 - `interval=Interval.HOUR`
 - `gateway_name="VNPY_SIM"`
 
-vn.py 是仅供开发使用的可选依赖，在独立的 `requirements-vnpy.txt` 中固定为
-`vnpy==4.4.0`。只有选择 `vnpy_simulation` 后才延迟导入。生产环境的 Alpaca 路径
-必须在没有安装 vn.py 时也能正常导入和运行。第 1 轮不安装 `vnpy_ib`。
+vn.py 是仅供开发使用的可选依赖。独立的 `requirements-vnpy.txt` 固定
+`vnpy==4.4.0`，并重复项目已有的 `numpy==2.2.6` 约束，防止 vn.py 的宽松 NumPy
+范围将运行环境升级到现有 Numba/SciPy 不支持的版本。只有选择 `vnpy_simulation` 后
+才延迟导入。生产环境的 Alpaca 路径必须在没有安装 vn.py 时也能正常导入和运行。
+第 1 轮不安装 `vnpy_ib`。
 
 第 1 轮不创建 `EventEngine`、`MainEngine` 或 `IbGateway`。
 

@@ -120,9 +120,11 @@ def bars_to_frame(bars: Sequence[BarData]) -> pd.DataFrame: ...
 
 - [ ] **Step 1：增加可选依赖并安装**
 
-`requirements-vnpy.txt` 只包含：
+`requirements-vnpy.txt` 固定 vn.py，并重复主依赖中的 NumPy 版本，防止解析器将 NumPy
+升级到现有 Numba/SciPy 不支持的版本：
 
 ```text
+numpy==2.2.6
 vnpy==4.4.0
 ```
 
