@@ -20,7 +20,7 @@ import uuid
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import pytz
 from datetime import datetime
@@ -38,6 +38,14 @@ matplotlib.use("Agg")
 from dashboard.backend.database import db, DB_PATH
 from dashboard.backend.paths import DASHBOARD_DIR, REPO_ROOT, SCRIPTS_DIR
 from dashboard.backend.middleware import get_session_id_from_request
+from dashboard.backend.infrastructure.market_data.provider import (
+    ALPACA,
+    VNPY_SIMULATION,
+    MarketDataDependencyError,
+    MarketDataSourceDisabled,
+    UnsupportedMarketDataSource,
+    ensure_market_data_source_available,
+)
 from dashboard.backend.api.rate_limit import FixedWindowRateLimiter, client_key
 from dashboard.backend.domain.agents.service import agent_service
 from dashboard.backend.equity_plot import (
@@ -172,6 +180,7 @@ backtest_status = {
     "started_at": None,
     "progress_file": None,
     "live_run_id": None,
+    "data_source": ALPACA,
 }
 backtest_session_id = None  # Track which session owns the running backtest
 
@@ -198,6 +207,7 @@ def run_backtest_background(
     model: Optional[str] = None,
     pipeline: Optional[List[Dict[str, Any]]] = None,
     agent_id: Optional[str] = None,
+    data_source: str = ALPACA,
 ):
     """Run backtest in background thread."""
     global backtest_status, backtest_session_id
@@ -215,6 +225,7 @@ def run_backtest_background(
         backtest_status["running"] = True
         backtest_status["error"] = None
         backtest_status["started_at"] = time.time()
+        backtest_status["data_source"] = data_source
         backtest_session_id = session_id  # Store session for status polling
 
         live_run_id = f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
@@ -242,10 +253,11 @@ def run_backtest_background(
         print(f"📁 Database dir exists: {db_path.parent.exists()}", flush=True)
         print(f"📁 Can write to {db_path.parent}: {os.access(db_path.parent, os.W_OK)}", flush=True)
         
-        # Run backtest script with LLM enabled
-        # Set environment variables for LLM
+        # Set environment variables for LLM-backed Alpaca runs.
         env = os.environ.copy()
-        if "ANTHROPIC_API_KEY" not in env:
+        if data_source == VNPY_SIMULATION:
+            print("Simulation data selected; LLM is disabled", flush=True)
+        elif "ANTHROPIC_API_KEY" not in env:
             print("⚠️ Warning: ANTHROPIC_API_KEY not set, LLM will be disabled", flush=True)
         else:
             print(f"✅ ANTHROPIC_API_KEY is set, LLM enabled", flush=True)
@@ -254,8 +266,9 @@ def run_backtest_background(
             python_exe, str(script_path),
             "--start", start_date, "--end", end_date,
             "--session-id", session_id,
-            "--use-llm",  # Enable LLM for real agent trading
+            "--data-source", data_source,
         ]
+        cmd.append("--no-llm" if data_source == VNPY_SIMULATION else "--use-llm")
 
         # Optional free-form strategy prompt: written to a temp file (avoids
         # shell-escaping a long prompt) and passed via --strategy-prompt-file.
@@ -380,6 +393,7 @@ class BacktestRunRequest(BaseModel):
     model: Optional[str] = None
     agent_id: Optional[str] = None
     pipeline: Optional[List[Dict[str, Any]]] = None
+    data_source: Optional[Literal["alpaca", "vnpy_simulation"]] = None
 
 
 # /backtest/run spends real operator LLM credits per trading hour of the run, on
@@ -506,6 +520,7 @@ async def run_backtest_endpoint(
     end_date: str = "2026-05-07",
     strategy_prompt: Optional[str] = None,
     model: Optional[str] = None,
+    data_source: str = ALPACA,
     body: Optional[BacktestRunRequest] = None,
 ):
     """
@@ -525,6 +540,7 @@ async def run_backtest_endpoint(
         end_date = body.end_date or end_date
         strategy_prompt = body.strategy_prompt or strategy_prompt
         model = body.model or model
+        data_source = body.data_source or data_source
         agent_id = body.agent_id
         if body.pipeline is not None:
             pipeline = body.pipeline
@@ -540,6 +556,15 @@ async def run_backtest_endpoint(
     # caller correcting a bad request isn't charged rate budget for a typo), then
     # the per-client run budget.
     _validate_backtest_params(start_date, end_date, strategy_prompt, model, pipeline)
+    try:
+        ensure_market_data_source_available(data_source)
+    except UnsupportedMarketDataSource as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except MarketDataSourceDisabled as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except MarketDataDependencyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     if not _backtest_rate_limiter.allow(client_key(request)):
         raise HTTPException(
             status_code=429,
@@ -549,6 +574,7 @@ async def run_backtest_endpoint(
     session_id = _resolve_backtest_session(request, agent_id)
     print(f"📌 /backtest/run endpoint called: start_date={start_date}, end_date={end_date}", flush=True)
     print(f"   Session: {session_id[:8]}...", flush=True)
+    print(f"   Market data: {data_source}", flush=True)
     if strategy_prompt and not pipeline:
         print(f"   Custom strategy prompt: {len(strategy_prompt)} chars", flush=True)
     if pipeline:
@@ -567,7 +593,16 @@ async def run_backtest_endpoint(
     print(f"🧵 Starting background thread for backtest", flush=True)
     thread = threading.Thread(
         target=run_backtest_background,
-        args=(start_date, end_date, session_id, strategy_prompt, model, pipeline, agent_id),
+        args=(
+            start_date,
+            end_date,
+            session_id,
+            strategy_prompt,
+            model,
+            pipeline,
+            agent_id,
+            data_source,
+        ),
         daemon=True
     )
     thread.start()
@@ -577,6 +612,7 @@ async def run_backtest_endpoint(
         "message": "Backtest started in background. Check /backtest/status for progress.",
         "status_url": "/backtest/status",
         "session_id": session_id,
+        "data_source": data_source,
     }
 
 @router.get("/backtest/status")

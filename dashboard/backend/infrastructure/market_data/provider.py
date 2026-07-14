@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 from typing import Protocol
 
@@ -59,9 +60,18 @@ def validate_market_data_source(data_source: str) -> None:
         )
 
 
+def ensure_market_data_source_available(data_source: str) -> None:
+    """Validate configuration and optional dependencies without importing vn.py."""
+    validate_market_data_source(data_source)
+    if data_source == VNPY_SIMULATION and importlib.util.find_spec("vnpy") is None:
+        raise MarketDataDependencyError(
+            "vn.py is not installed; run pip install -r requirements-vnpy.txt"
+        )
+
+
 def create_market_data_provider(data_source: str = ALPACA) -> MarketDataProvider:
     """Create a provider while keeping optional vn.py imports isolated."""
-    validate_market_data_source(data_source)
+    ensure_market_data_source_available(data_source)
 
     if data_source == ALPACA:
         return AlpacaDataLoader()

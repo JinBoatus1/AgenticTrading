@@ -22,6 +22,7 @@ EXEMPT_PATHS = {
     '/api/health',
     '/ticker',
     '/config/defaults',  # Default configuration (public, no session needed)
+    '/config/features',  # Optional frontend capabilities (public, read-only)
     '/compare',  # Public equity comparison (browser-friendly links)
     '/runs',  # Public backtest run listing
     '/strategy',  # Public strategy viewer page (shared links, no session needed)
