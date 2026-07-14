@@ -1,4 +1,4 @@
-// Home panel: FinSearch signal stories (left) + identified signals (right).
+// Home panel: FinSearch latest news (left) + identified signals (right).
 // Data: GET /api/news/signals (server-side proxy; 420s TTL — above this 300s
 // poll, so a re-poll lands in-cache). Poll only while the Home view is visible.
 // Reuses app.js globals: escapeHtml (attribute-safe), API (fetch wrapper),
@@ -49,11 +49,21 @@
     if (!badge.hidden) badge.textContent = `degraded: ${payload.status_reason || 'partial data'}`;
     overview.textContent = payload.news_overview || '';
 
-    feedList.innerHTML = (payload.feed || []).map(item => `
+    feedList.innerHTML = (payload.feed || []).map(item => {
+      // Phase B's raw-items feed can carry a null ticker (general-market story
+      // with no symbol); Phase A's signals-derived feed always had one. Build
+      // the meta line from only the non-empty segments so a missing ticker (or
+      // an absent relTime helper) collapses cleanly instead of leaving a
+      // dangling " · " separator. relTime is a controlled string, not producer
+      // data, so it stays unescaped like before.
+      const meta = [escapeHtml(item.source), escapeHtml(item.ticker), relTime(item.published)]
+        .filter(Boolean).join(' · ');
+      return `
       <li class="nns-item">
         <a href="${escapeHtml(safeUrl(item.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.headline)}</a>
-        <span class="nns-meta">${escapeHtml(item.source)} · ${escapeHtml(item.ticker)} · ${relTime(item.published)}</span>
-      </li>`).join('') || '<li class="nns-empty">No qualifying news today.</li>';
+        <span class="nns-meta">${meta}</span>
+      </li>`;
+    }).join('') || '<li class="nns-empty">No qualifying news today.</li>';
 
     sigList.innerHTML = Object.entries(payload.signals || {}).map(([sym, s]) => `
       <li class="nns-item nns-signal nns-${escapeHtml(s.sentiment)}">

@@ -20,6 +20,86 @@ def load_signals_wire_fixture() -> dict:
     return json.loads((FIXTURES / "signals-wire-fixture.json").read_text())
 
 
+def load_items_wire_fixture() -> dict:
+    """The `GET /api/news/items/` response shape (news-story v1), the single
+    recorded record of what the adapter's items path parses — see
+    docs/integrations/finsearch-news-items.md.
+
+    Content is synthetic (like the signals fixtures) but the KEY SET is the one
+    the live producer emits, verified against prod 2026-07-14. That verification
+    is the point: before this fixture existed the items shape lived only as
+    inline dicts inside individual tests, so when AF renamed title/link ->
+    headline/url the tests and the adapter drifted together and stayed green
+    while prod silently served the Phase-A fallback.
+
+    This is the batch the signals fixtures were derived FROM: `batch` matches
+    their `source_items`, and the 6 stories reconcile with their diagnostics
+    (stories_total 6; MSFT/NVDA signalled, AAPL/GOOGL not; one MSFT near-dup) —
+    so the pair also demonstrates the Phase-B thesis that the items feed is
+    broader than the signals it feeds."""
+    return json.loads((FIXTURES / "items-wire-fixture.json").read_text())
+
+
+# Every key `GET /api/news/items/` puts on a story, per the news-story v1 table
+# in docs/integrations/finsearch-news-items.md. The first five are the shared
+# vocabulary; guid/description/score are the items-only extras.
+ITEMS_STORY_KEYS = {"headline", "url", "source", "published", "tickers",
+                    "guid", "description", "score"}
+
+
+def test_items_wire_fixture_matches_contract_essentials():
+    """Pins the items fixture to the documented contract, so a future producer
+    rename has to change this file — and be seen in review — rather than being
+    absorbed silently into whichever test dict happened to mention the field."""
+    body = load_items_wire_fixture()
+    assert body["schema_version"] == 1
+    assert set(body) == {"schema_version", "items", "count", "batch"}
+    items = body["items"]
+    assert isinstance(items, list) and items
+    assert body["count"] == len(items)
+    for item in items:
+        assert set(item) == ITEMS_STORY_KEYS
+        assert isinstance(item["headline"], str) and item["headline"]
+        assert isinstance(item["url"], str) and item["url"]
+        assert isinstance(item["published"], float)
+        assert isinstance(item["tickers"], list)
+    # newest-first, as the endpoint sorts it
+    published = [i["published"] for i in items]
+    assert published == sorted(published, reverse=True)
+
+
+def test_items_wire_fixture_does_not_speak_the_retired_vocabulary():
+    """Regression guard on the 2026-07-14 incident: `title`/`link` are the
+    on-disk RSS-native names and must never reappear on the wire fixture — the
+    rename happens at AF's boundary, so a consumer that sees them is looking at
+    a pre-v1 shape."""
+    for item in load_items_wire_fixture()["items"]:
+        assert "title" not in item
+        assert "link" not in item
+
+
+def test_items_fixture_is_the_batch_the_signals_fixture_came_from():
+    """Content-parity guard across the fixture pair (mirrors the signals
+    wire/on-disk parity test below): if these drift apart, the items fixture
+    stops being a coherent producer batch and the Phase-B breadth it
+    demonstrates goes hollow."""
+    signals_body = load_signals_fixture()
+    items_body = load_items_wire_fixture()
+    assert items_body["batch"] == signals_body["source_items"]
+    assert items_body["count"] == signals_body["diagnostics"]["stories_total"]
+    # every signalled story must exist in the batch, keyed by guid
+    by_guid = {i["guid"]: i for i in items_body["items"]}
+    for sym, sig in signals_body["signals"].items():
+        story = by_guid[sig["guid"]]
+        assert story["headline"] == sig["headline"]
+        assert story["url"] == sig["url"]
+        assert story["source"] == sig["source"]
+        assert story["published"] == sig["published"]
+        assert sym in story["tickers"]
+    # ...and the batch must be strictly broader than the signals (the Phase-B point)
+    assert len(items_body["items"]) > len(signals_body["signals"])
+
+
 def test_fixture_matches_contract_essentials():
     body = load_signals_fixture()
     assert body["schema_version"] == 1

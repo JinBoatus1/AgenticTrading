@@ -2,6 +2,7 @@
 
 **Audience:** whoever builds `dashboard/backend/integrations/news_sentiment.py`.
 **Status (2026-07-13):** the FinSearch producer half is **shipped and LIVE**; the ATL consumer seam is **already in this repo and fail-closed**. The only missing piece is the adapter this document specifies.
+**See also:** [`finsearch-news-items.md`](finsearch-news-items.md) — the shared `news-story v1` story vocabulary and the raw-items endpoint behind the Home panel's "Latest news" column (Phase B).
 
 ---
 
