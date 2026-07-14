@@ -2,6 +2,8 @@
 2026-07-14-score-field-disambiguation-design.md): _project_entry must read
 sentiment_score (signals v2) and fall back to score (v1) until PR-2 deletes
 the fallback."""
+import pytest
+
 from dashboard.backend.integrations.news_sentiment import _project_entry
 
 BASE = {"sentiment": "bullish", "rationale": "r", "headline": "h",
@@ -25,3 +27,10 @@ def test_project_entry_prefers_sentiment_score_when_both_present():
     entry = _project_entry({**BASE, "sentiment_score": 0.5, "score": -0.9},
                            reference_ts=1783333600.0)
     assert entry["score"] == 0.5
+
+
+def test_project_entry_raises_when_both_score_keys_absent():
+    # Fail loud like every other required field: a payload with neither key is
+    # broken upstream, and score=None would flow silently into the panel.
+    with pytest.raises(KeyError):
+        _project_entry(dict(BASE), reference_ts=1783333600.0)

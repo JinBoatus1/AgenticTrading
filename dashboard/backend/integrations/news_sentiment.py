@@ -238,7 +238,7 @@ def _project_entry(sig: dict, reference_ts: float) -> dict:
         "sentiment": sig["sentiment"],
         # v2 sentiment_score with transitional v1 fallback — PR-2 of the
         # FinSearch score-field disambiguation deletes the fallback.
-        "score": sig.get("sentiment_score", sig.get("score")),
+        "score": sig["sentiment_score"] if "sentiment_score" in sig else sig["score"],
         **_story_fields(sig),
         "n_articles": sig["n_articles"],
         "age_hours": max(0.0, (reference_ts - float(sig["published"])) / 3600.0),
