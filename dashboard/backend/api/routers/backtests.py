@@ -139,6 +139,7 @@ class RunMetadata(BaseModel):
     baseline_djia_run_id: Optional[str] = None
     baseline_buyhold_run_id: Optional[str] = None
     llm_model: Optional[str] = None
+    data_source: str = ALPACA
 
 
 class EquityCurve(BaseModel):
@@ -166,6 +167,15 @@ class BacktestChartData(BaseModel):
     timestamps: List[str]
     x_labels: List[str]
     series: List[ChartSeries]
+
+
+def _run_metadata_response(run: Dict[str, Any]) -> RunMetadata:
+    """Expose data provenance while keeping historical runs backward compatible."""
+    metadata = run.get("metadata")
+    data_source = metadata.get("data_source") if isinstance(metadata, dict) else None
+    payload = dict(run)
+    payload["data_source"] = data_source or ALPACA
+    return RunMetadata(**payload)
 
 
 # ============================================================================
@@ -681,7 +691,7 @@ async def get_backtest_runs(request: Request):
     session_id = get_session_id_from_request(request)
     runs = db.get_runs_by_session(session_id)
     runs = [r for r in runs if r['mode'] == 'backtest']
-    return [RunMetadata(**run) for run in runs]
+    return [_run_metadata_response(run) for run in runs]
 
 
 # IMPORTANT: Register /compare/latest BEFORE /{run_id} to prevent {run_id} from matching "compare/latest"
@@ -813,7 +823,7 @@ async def get_latest_metrics(request: Request):
         raise HTTPException(status_code=404, detail="No Agent backtest runs found for this session")
     
     latest_run = max(runs, key=lambda r: r['created_at'])
-    return RunMetadata(**latest_run)
+    return _run_metadata_response(latest_run)
 
 
 @router.get("/runs", response_model=List[RunMetadata])
@@ -836,7 +846,7 @@ async def get_runs(request: Request, mode: Optional[str] = None):
     
     print(f"\n📍 /runs: returning {len(runs)} backtest runs")
     
-    return [RunMetadata(**run) for run in runs]
+    return [_run_metadata_response(run) for run in runs]
 
 
 @router.get("/runs/{run_id}", response_model=RunMetadata)
@@ -846,7 +856,7 @@ async def get_run(run_id: str, request: Request):
     run = db.get_run_with_session(run_id, session_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found or not yours")
-    return RunMetadata(**run)
+    return _run_metadata_response(run)
 
 
 @router.get("/runs/{run_id}/equity", response_model=EquityCurve)

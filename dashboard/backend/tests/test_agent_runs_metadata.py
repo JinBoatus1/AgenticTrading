@@ -55,6 +55,19 @@ def test_session_listings_parse_metadata_consistently(tmp_path):
     assert grouped["meta-session"][0]["metadata"] == {"llm_max_output_tokens": 1234}
 
 
+def test_data_source_provenance_roundtrips_for_api_projection(tmp_path):
+    db = _make_db(tmp_path)
+    _insert_minimal(
+        db,
+        "run_vnpy_source",
+        metadata={"data_source": "vnpy_simulation"},
+    )
+
+    assert db.get_run("run_vnpy_source")["metadata"]["data_source"] == (
+        "vnpy_simulation"
+    )
+
+
 def test_migration_adds_metadata_column(tmp_path):
     """A DB created before the column must gain it on open (both
     _init_schema's CREATE IF NOT EXISTS and _migrate_schema must know it)."""
