@@ -2255,6 +2255,32 @@ a.header-brand:hover .title-section h1 {
         grid-template-columns: 1fr;
     }
 
+    .playground-backtest-panel .left-panel {
+        display: flex;
+    }
+
+    .playground-backtest-panel .right-panel {
+        display: flex;
+    }
+
+    .performance-card .section-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .performance-card .chart-controls {
+        width: 100%;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+
+    .performance-card .chart-controls .backtest-run-select {
+        flex: 1 0 100%;
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+    }
+
     .right-panel {
         display: none;
     }

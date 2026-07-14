@@ -6,6 +6,7 @@ from pathlib import Path
 _FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
 _APP_HTML = _FRONTEND / "app.html"
 _APP_JS = _FRONTEND / "app.js"
+_STYLES = _FRONTEND / "styles.css"
 
 
 def test_market_data_controls_and_provenance_badge_exist():
@@ -34,3 +35,18 @@ def test_backtest_request_and_result_labels_include_data_source():
     assert "renderBacktestDataSourceBadge(selectedRun)" in source
     assert "run.data_source === 'vnpy_simulation'" in source
     assert "vn.py simulated data" in source
+
+
+def test_mobile_backtest_keeps_setup_controls_visible():
+    styles = " ".join(_STYLES.read_text(encoding="utf-8").split())
+
+    assert "@media (max-width: 900px)" in styles
+    assert ".playground-backtest-panel .left-panel { display: flex; }" in styles
+    assert ".playground-backtest-panel .right-panel { display: flex; }" in styles
+    assert ".performance-card .section-header { flex-direction: column;" in styles
+
+
+def test_backtest_refresh_reloads_agent_selector():
+    source = " ".join(_APP_JS.read_text(encoding="utf-8").split())
+
+    assert "if (!allAgents.length) loadAgents();" in source

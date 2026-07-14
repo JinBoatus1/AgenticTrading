@@ -3138,6 +3138,7 @@ function showPlaygroundPanel(tab) {
     if (tab === 'backtest') {
         currentMode = 'backtest';
         populateBacktestAgentSelect();
+        if (!allAgents.length) loadAgents();
         loadData();
         loadPerformanceMetrics();
     } else if (tab === 'paper') {
@@ -3726,7 +3727,8 @@ function initializeCharts() {
                             color: '#e5e7eb',
                             font: { size: 11, weight: '500' },
                             maxRotation: 0,
-                            autoSkip: false,
+                            autoSkip: true,
+                            maxTicksLimit: 8,
                             callback: function(_value, index) {
                                 const label = xLabels[index];
                                 return label || undefined;
