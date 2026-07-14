@@ -1,8 +1,8 @@
 # Design: a shared `news-story` vocabulary for AF ↔ ATL (Phase B)
 
 **Date:** 2026-07-14
-**Status:** design — awaiting review
-**Repos:** Agentic FinSearch (AF, `fingpt_rcos`, PR #359) + Agentic Trading Lab (ATL, PR #107)
+**Status:** **implemented** — AF #359 shipped and is live; the ATL consumer lands in #110. This document is a point-in-time design record: the "Rollout / merge order" section below describes the plan as written, not what happened (the order inverted — see the postscript). The live contract is documented in [`docs/integrations/finsearch-news-items.md`](../../integrations/finsearch-news-items.md); prefer that as the reference.
+**Repos:** Agentic FinSearch (AF, `fingpt_rcos`, PR #359) + Agentic Trading Lab (ATL, PR #107 → #110)
 **Supersedes nothing; extends** `docs/integrations/finsearch-news-sentiment.md` (Phase A contract).
 
 ---
@@ -151,3 +151,32 @@ rather than erroring.
 **Independent blocker (unrelated to this design):** OFL `main` CI is red from #104's
 `test_engine_llm_run_metadata_snapshot`; the deploy hook gates on green tests, so
 neither PR merge-and-deploys until that ~3-line test fix lands.
+
+---
+
+## Postscript: what actually happened (2026-07-14)
+
+Everything above is the design as written. The rollout did not follow it, and the
+gap is the useful part of this record:
+
+1. The CI blocker cleared (#108), then **ATL #107 was merged at a commit that
+   predated this design's ATL change** — the adapter half (`headline`/`url`) was
+   never in it. The merge-order analysis above was sound but reasoned about *PRs*,
+   not about *which commit of a still-advancing branch* the merge button captures.
+2. **AF #359 then shipped and deployed**, so the producer began emitting v1 while
+   ATL still read `title`/`link`.
+3. Result: exactly the "temporary ordering skew" this section predicted — but in
+   the inverted direction, and it lasted hours rather than seconds. The fail-closed
+   design worked as designed: no error, no outage, the panel just quietly served the
+   Phase-A feed. **That is also why nobody noticed.** It was found by manually
+   A/B-ing the adapter against live prod, not by any alarm.
+4. **PR #110** lands the adapter fix, plus the two things this design lacked: an
+   `ERROR` when a non-empty batch projects to zero entries (drift is now loud), and
+   a recorded `items-wire-fixture.json` so the assumed wire shape is one reviewable
+   artifact rather than dicts inlined per test.
+
+**Lesson for the next cross-repo contract change.** "Fail closed" and "fail visibly"
+are different properties, and this design bought only the first. A silent fallback is
+the correct *behavior* and a terrible *signal* — any degradation path that hides a
+contract break from the UI needs a paired alarm, decided at design time, or the
+system will sit in the degraded state for as long as nobody happens to look.

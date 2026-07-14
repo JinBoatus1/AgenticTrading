@@ -357,7 +357,12 @@ def get_latest_panel_payload(tickers) -> dict:
 
     One malformed signal/item is dropped (logged) rather than collapsing the
     whole panel: the producer is the trust boundary, but a single off-spec
-    entry must still degrade to partial rendering, not an outage."""
+    entry must still degrade to partial rendering, not an outage.
+
+    Failing closed is not the same as failing visibly, so the two are separated:
+    a non-empty batch that projects to NOTHING means the wire contract moved, and
+    is logged at ERROR. The fallback keeps the panel alive either way — that is
+    exactly why the break needs its own alarm to not sit unnoticed."""
     body = fetch_signals(as_of=None, tickers=tuple(sorted(tickers or ())))
     if not body:
         return dict(UNAVAILABLE_PAYLOAD)
@@ -366,6 +371,14 @@ def get_latest_panel_payload(tickers) -> dict:
     items = fetch_items()
     if items:
         feed = _feed_from_items(items)
+        if not feed:
+            # Drift, not one bad story — and the fallback below hides it from the
+            # UI, so this is the only signal the items path has gone dead. Per-item
+            # warnings alone let AF's title/link -> headline/url rename serve the
+            # Phase-A feed unnoticed for hours (2026-07-14).
+            logger.error("news_sentiment: items feed produced 0 usable entries from "
+                         "%d raw item(s) — producer wire-shape drift? falling back "
+                         "to the Phase-A feed", len(items))
     if not feed:  # None, [], or all-malformed -> fall back to Phase A
         feed = _representative_feed(signals)
     return {

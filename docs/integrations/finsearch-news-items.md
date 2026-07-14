@@ -1,7 +1,7 @@
 # FinSearch Raw News Items — the `news-story v1` Contract (Phase B)
 
 **Audience:** both teams — AF producer (`Main/backend/api/signals_views.py`, Agentic-FinSearch) and ATL consumer (`dashboard/backend/integrations/news_sentiment.py`).
-**Status (2026-07-14):** adopted by AF PR #359 + ATL PR #107; merge order is AF first (ATL fails closed to the Phase-A feed until then).
+**Status (2026-07-14):** **live.** AF PR #359 shipped the producer and is deployed (wire shape verified against prod). The ATL consumer lands in PR #110 — ATL PR #107 merged at a commit that predated the `headline`/`url` rename, so between the two merges the adapter read the retired keys and the panel silently served the Phase-A fallback; #110 is the fix.
 **Design rationale:** `docs/superpowers/specs/2026-07-14-finsearch-news-story-contract-design.md`.
 **Companion:** [`finsearch-news-sentiment.md`](finsearch-news-sentiment.md) — Phase A, the signals endpoint this contract's vocabulary is anchored to.
 
@@ -26,8 +26,17 @@ never see per-source dialects.
 Items-only per-story extras (absent from a signals story): `guid`, `description`, `score`.
 
 **Response-level field:** `schema_version` (int, currently `1`) — sits at the
-top of the response body, **not** inside each story. Evolution valve: fields
-are added additively; a breaking change bumps the version.
+top of the response body, **not** inside each story. Intended evolution valve:
+fields are added additively; a breaking change bumps the version.
+
+> **It is a producer-side convention only — no consumer reads it today.** ATL
+> parses stories by key and ignores `schema_version` entirely. So a v2 that
+> renamed a field would not be *detected*; every story would simply fail to
+> project and the panel would fall back to Phase A. That is fail-closed, which
+> is why it is tolerable, but the version number does no work in preventing it —
+> the thing that actually surfaces such a break is the drift `ERROR` in
+> `get_latest_panel_payload` (0 usable entries from a non-empty batch). Don't
+> mistake the presence of this field for a consumer that gates on it.
 
 **Disk vs. wire:** on-disk batches (`items-*.jsonl`) stay RSS-native
 (`title`/`link` — the scraper's format, validated by the ported
@@ -62,7 +71,13 @@ powers ATL's Home-panel "Latest news" column.
 
 - Read stories **by key**; ignore unknown keys (additive evolution).
 - Fail closed: a malformed **item** is dropped (logged), a malformed **body** falls back to the Phase-A representative feed — the panel never regresses below Phase A and never errors out.
-- `tickers[]` stays a list on the wire; ATL's panel currently collapses it to `tickers[0] | null` for its single chip (multi-chip display deferred).
+- `tickers[]` stays a list on the wire; ATL's panel currently collapses it to `tickers[0] | null` for its single chip (multi-chip display deferred). A `[]` general-market story therefore renders with **no ticker chip** — the meta line is joined from non-empty segments, so the separator collapses with it.
+- **Alarm on wholesale drift.** Because the fallback is silent by design, a consumer must distinguish *one* bad story from *the contract moved*. ATL logs `ERROR` when a non-empty batch projects to zero usable entries; an empty batch is "no news", not drift. This is the safety net the 2026-07-14 rename slipped past.
+- **Pin the wire shape in a fixture, not in inline test dicts.** ATL records it once in `dashboard/backend/tests/fixtures/items-wire-fixture.json` (key set verified against prod) and drives the adapter's happy path from it, so a rename must visibly edit that file. Fixtures written inline beside the code they test drift *with* the code and stay green.
+
+## Known gap
+
+Nothing in ATL's test suite can *catch* a producer rename — the producer is mocked, so AF and ATL can only drift apart between deploys. The fixture makes the assumed shape reviewable and the drift `ERROR` makes a break visible within one poll, but neither is a cross-repo contract test. If this seam breaks a third time, the fix is a canary that exercises the real endpoint (or an AF-published fixture ATL diffs in CI), not more mocked coverage.
 
 ## Traceability
 
@@ -72,3 +87,5 @@ powers ATL's Home-panel "Latest news" column.
 | Rename at producer boundary, disk stays RSS-native | design spec §"The contract"; AF `signals_views.py` `_ITEMS_WIRE_RENAMES` |
 | Broad feed, no `?tickers=` | design spec §"Deliberately settled / deferred" |
 | Fallback/fail-closed consumer behavior | ATL `news_sentiment.py` `get_latest_panel_payload` docstring |
+| Drift `ERROR` vs. per-item warning | ATL `test_items_all_dropped_logs_drift_error` / `test_partial_malformed_items_does_not_log_drift_error` |
+| Recorded wire shape + its coherence with the signals fixtures | ATL `items-wire-fixture.json`; `test_news_sentiment_fixture.py` |

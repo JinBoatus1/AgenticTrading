@@ -6,6 +6,7 @@ import pytest
 
 from dashboard.backend.integrations import news_sentiment as ns
 from dashboard.backend.tests.test_news_sentiment_fixture import (
+    load_items_wire_fixture,
     load_signals_fixture,
     load_signals_wire_fixture,
 )
@@ -332,25 +333,26 @@ def _items_body(items, batch="items-test.jsonl"):
 
 
 def test_items_feed_preferred_and_mapped_correctly(monkeypatch):
+    """Happy path driven by the RECORDED producer response (items-wire-fixture)
+    rather than dicts written inline here — so the wire shape the adapter is
+    tested against is the one artifact a producer rename must visibly update."""
     signals_body = load_signals_fixture()
-    items = [
-        {"guid": "g1", "headline": "Fed cuts rates", "url": "https://x/1", "source": "Reuters",
-         "published": 1700000200.0, "description": "d1", "tickers": ["AAPL"], "score": 0.5},
-        {"guid": "g2", "headline": "Tech rally continues", "url": "https://x/2", "source": "Bloomberg",
-         "published": 1700000100.0, "description": "d2", "tickers": [], "score": 0.3},
-    ]
+    items_body = load_items_wire_fixture()
     monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
-    monkeypatch.setattr(ns, "_http_get_items", lambda **kw: _fake_response(body=_items_body(items)))
+    monkeypatch.setattr(ns, "_http_get_items", lambda **kw: _fake_response(body=items_body))
     payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
     assert payload["news_overview"] == signals_body["news_overview"]  # signals side unchanged
     assert payload["signals"]
     feed = payload["feed"]
-    assert [entry["headline"] for entry in feed] == ["Fed cuts rates", "Tech rally continues"]  # newest-first
+    # Phase B breadth: the whole batch is served, not just the signalled stories.
+    assert len(feed) == len(items_body["items"]) > len(signals_body["signals"])
     assert feed[0] == {
-        "headline": "Fed cuts rates", "source": "Reuters", "url": "https://x/1",
-        "published": 1700000200.0, "ticker": "AAPL",
+        "headline": "Nvidia reports record datacenter orders", "source": "CNBC",
+        "url": "https://example.com/nvda-1", "published": 1783339200.0, "ticker": "NVDA",
     }
-    assert feed[1]["ticker"] is None  # empty tickers list -> None
+    assert [e["published"] for e in feed] == sorted(
+        (e["published"] for e in feed), reverse=True)  # newest-first
+    assert feed[-1]["ticker"] is None  # general-market story: empty tickers -> None
 
 
 def test_items_404_falls_back_to_representative_feed(monkeypatch):
@@ -411,6 +413,56 @@ def test_items_all_malformed_falls_back(monkeypatch):
     monkeypatch.setattr(ns, "_http_get_items", lambda **kw: _fake_response(body=_items_body(malformed_items)))
     payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
     assert payload["feed"] == ns._representative_feed(signals_body["signals"])
+
+
+def test_items_all_dropped_logs_drift_error(monkeypatch, caplog):
+    """Wholesale wire-shape drift must be LOUD. Every item failing to project is
+    categorically different from one off-spec story: it means the producer's
+    contract moved (as it did on 2026-07-14, when AF renamed title/link ->
+    headline/url and this adapter silently served the Phase-A feed for hours on
+    nothing but per-item warnings). The fallback keeps the panel alive; this
+    ERROR is the only thing that says the items feed is dead."""
+    signals_body = load_signals_fixture()
+    drifted_items = [{"guid": "g1", "title": "Fed cuts rates", "link": "https://x/1",
+                      "source": "Reuters", "published": 1700000200.0, "tickers": ["AAPL"]}]
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    monkeypatch.setattr(ns, "_http_get_items", lambda **kw: _fake_response(body=_items_body(drifted_items)))
+    with caplog.at_level("ERROR"):
+        payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["feed"] == ns._representative_feed(signals_body["signals"])  # still fails closed
+    drift = [r for r in caplog.records if r.levelname == "ERROR" and "0 usable entries" in r.getMessage()]
+    assert len(drift) == 1
+    assert "1 raw item" in drift[0].getMessage()  # reports the raw count that was dropped
+
+
+def test_partial_malformed_items_does_not_log_drift_error(monkeypatch, caplog):
+    """The counterpart to the drift alarm: one bad story among good ones is
+    routine producer noise, already covered by the per-item warning. Escalating
+    that to ERROR would train everyone to ignore the alarm that matters."""
+    signals_body = load_signals_fixture()
+    items = [
+        {"guid": "g1", "headline": "Fed cuts rates", "url": "https://x/1", "source": "Reuters",
+         "published": 1700000200.0, "tickers": ["AAPL"]},
+        {"guid": "g2", "source": "Bloomberg", "published": 1700000100.0, "tickers": []},  # malformed
+    ]
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    monkeypatch.setattr(ns, "_http_get_items", lambda **kw: _fake_response(body=_items_body(items)))
+    with caplog.at_level("WARNING"):
+        payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert [e["headline"] for e in payload["feed"]] == ["Fed cuts rates"]  # good item survives
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+
+def test_items_empty_list_does_not_log_drift_error(monkeypatch, caplog):
+    """An empty batch is "no news yet", not drift — there is nothing to have
+    dropped. Only a non-empty batch that projects to nothing is a contract break."""
+    signals_body = load_signals_fixture()
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    monkeypatch.setattr(ns, "_http_get_items", lambda **kw: _fake_response(body=_items_body([])))
+    with caplog.at_level("ERROR"):
+        payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["feed"] == ns._representative_feed(signals_body["signals"])
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
 
 
 def test_signals_down_returns_unavailable_and_skips_items_fetch(monkeypatch):
