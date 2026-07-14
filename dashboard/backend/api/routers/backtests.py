@@ -197,6 +197,7 @@ def run_backtest_background(
     strategy_prompt: Optional[str] = None,
     model: Optional[str] = None,
     pipeline: Optional[List[Dict[str, Any]]] = None,
+    agent_id: Optional[str] = None,
 ):
     """Run backtest in background thread."""
     global backtest_status, backtest_session_id
@@ -204,6 +205,7 @@ def run_backtest_background(
     strategy_prompt_path = None
     pipeline_path = None
     progress_file = None
+    live_run_id = None
     try:
         import subprocess
         import sys
@@ -304,33 +306,63 @@ def run_backtest_background(
             print(f"✅ Backtest completed. Found {len(runs)} runs in database.", flush=True)
             if len(runs) > 0:
                 print(f"   Latest run IDs: {[r['run_id'] for r in runs[:3]]}", flush=True)
+            _maybe_writeback_adapted_pipeline(agent_id, live_run_id)
     except Exception as e:
         backtest_status["error"] = str(e)
         print(f"❌ Backtest exception: {e}", flush=True)
     finally:
+        import os
+
         backtest_status["running"] = False
         backtest_status["started_at"] = None
         backtest_status["live_run_id"] = None
+        backtest_status["progress_file"] = None
         if progress_file:
             try:
-                import os
-                os.remove(progress_file)
+                Path(progress_file).unlink(missing_ok=True)
             except OSError:
                 pass
-        backtest_status["progress_file"] = None
         if strategy_prompt_path:
             try:
-                import os
                 os.remove(strategy_prompt_path)
             except OSError:
                 pass
         if pipeline_path:
             try:
-                import os
                 os.remove(pipeline_path)
             except OSError:
                 pass
-        print(f"✋ Backtest background thread finished", flush=True)
+        print("✋ Backtest background thread finished", flush=True)
+
+
+def _maybe_writeback_adapted_pipeline(agent_id: Optional[str], run_id: Optional[str]) -> None:
+    """Persist post-trade adapted pipeline back onto the agent row."""
+    if not agent_id or not run_id:
+        return
+    run = db.get_run(run_id)
+    if not run:
+        return
+    metadata = run.get("metadata")
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            metadata = None
+    if not isinstance(metadata, dict):
+        return
+    adaptations = metadata.get("prompt_adaptations")
+    final_pipeline = metadata.get("final_pipeline")
+    if not adaptations or not isinstance(final_pipeline, list) or not final_pipeline:
+        return
+    try:
+        agent_service.update_agent(agent_id, pipeline=final_pipeline)
+        print(
+            f"✅ Wrote adapted pipeline back to agent {agent_id} "
+            f"({len(adaptations)} adaptation day(s))",
+            flush=True,
+        )
+    except Exception as exc:
+        print(f"⚠️  Could not write adapted pipeline to agent {agent_id}: {exc}", flush=True)
 
 class BacktestRunRequest(BaseModel):
     """Optional JSON body for POST /backtest/run.
@@ -535,7 +567,7 @@ async def run_backtest_endpoint(
     print(f"🧵 Starting background thread for backtest", flush=True)
     thread = threading.Thread(
         target=run_backtest_background,
-        args=(start_date, end_date, session_id, strategy_prompt, model, pipeline),
+        args=(start_date, end_date, session_id, strategy_prompt, model, pipeline, agent_id),
         daemon=True
     )
     thread.start()

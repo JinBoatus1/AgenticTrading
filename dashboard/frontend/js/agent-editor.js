@@ -59,6 +59,14 @@
         'JSON: { "risk_actions": [{ "symbol": "...", "action": "stop_loss|take_profit|trail|hold", "trigger_price": number, "size_pct": 0.0-1.0, "reason": "..." }] }',
     },
     {
+      presetKey: 'post_trade_analysis',
+      label: 'Post-trade Analysis',
+      defaultPrompt:
+        'You are the post-trade analysis sub-agent. Once per trading day, review that day\'s trades, equity change, and the current decision-step prompts. Identify what went wrong in those prompts (missed risk, bad signal rules, weak execution constraints). Then propose revised prompts for the upstream sub-agents so the next trading day can improve. Do not invent market facts beyond the episode context you are given.',
+      defaultOutputFormat:
+        'JSON: { "summary": "...", "prompt_problems": [{ "step_id": "...", "presetKey": "...", "issue": "..." }], "prompt_patches": [{ "step_id": "...", "presetKey": "...", "new_prompt": "...", "change_rationale": "..." }] }',
+    },
+    {
       presetKey: 'custom',
       label: 'Custom Sub-agent',
       defaultPrompt: 'Describe this sub-agent\'s responsibilities and decision boundaries.',
@@ -326,9 +334,16 @@
       const isLast = index === subAgents.length - 1;
       const canRestore = !isCustom && presetByKey[sub.presetKey];
 
+      const isPostTrade = sub.presetKey === 'post_trade_analysis';
+      const nextIsPostTrade =
+        !isLast && subAgents[index + 1] && subAgents[index + 1].presetKey === 'post_trade_analysis';
       const labelField = isCustom
         ? `<input class="agent-sub-label-input" type="text" data-field="label" value="${escapeHtml(sub.label)}" placeholder="Sub-agent name" aria-label="Sub-agent name">`
-        : `<span class="agent-sub-preset-label">${escapeHtml(sub.label)}</span>`;
+        : `<span class="agent-sub-preset-label">${escapeHtml(sub.label)}${
+            isPostTrade
+              ? '<span class="agent-sub-freq-badge" title="Runs once per trading day after trades">daily after trades</span>'
+              : ''
+          }</span>`;
 
       card.innerHTML = `
         <div class="agent-sub-head">
@@ -358,7 +373,15 @@
             <textarea data-field="outputFormat" rows="4" placeholder="JSON or structured text…">${escapeHtml(sub.outputFormat)}</textarea>
           </label>
         </div>
-        ${!isLast ? '<div class="agent-sub-connector" aria-hidden="true"><span>↓ Output to next sub-agent</span></div>' : ''}
+        ${
+          !isLast
+            ? `<div class="agent-sub-connector" aria-hidden="true"><span>${
+                nextIsPostTrade
+                  ? '↓ Then post-trade analysis (once per day)'
+                  : '↓ Output to next sub-agent'
+              }</span></div>`
+            : ''
+        }
       `;
 
       pipeline.appendChild(card);
