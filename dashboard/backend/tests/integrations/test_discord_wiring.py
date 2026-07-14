@@ -84,6 +84,9 @@ def test_bot_builds_dashboard_backtest_deep_link():
     assert '"view": "backtest"' in src
     assert "agent_id" in src and "run_id" in src
     assert "Dashboard:" in src
+    assert "agentic-trading-lab.vercel.app" in src
+    assert "onrender.com" in src  # prod API detection / never deep-link that host
+    assert "dashboard_backtest_url(agent_id=attached_agent_id, run_id=run_id)" in src
 
 
 def test_bot_sends_per_user_id_on_strategy_post():

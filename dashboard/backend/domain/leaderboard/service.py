@@ -415,22 +415,21 @@ def deploy_model_run(
     }
 
 
+def _rank_sort_key(entry: Dict[str, Any]) -> tuple:
+    """Official rank is by final portfolio value (nof1-style); tie-break on return."""
+    pv = entry.get("portfolio_value")
+    if pv is None:
+        # Unit tests / partial fixtures may omit dollars — fall back to return.
+        pv = entry.get("cumulative_return") or 0
+    return (-float(pv), -(entry.get("cumulative_return") or 0))
+
+
 def _rank_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Assign official ranks by final portfolio value (higher is better)."""
     if not entries:
         return entries
 
-    by_return = sorted(entries, key=lambda e: e.get("cumulative_return") or 0, reverse=True)
-    by_sharpe = sorted(entries, key=lambda e: e.get("sharpe_ratio") or 0, reverse=True)
-
-    rank_cr = {id(e): i + 1 for i, e in enumerate(by_return)}
-    rank_sr = {id(e): i + 1 for i, e in enumerate(by_sharpe)}
-
-    for entry in entries:
-        entry["rank_cr"] = rank_cr[id(entry)]
-        entry["rank_sr"] = rank_sr[id(entry)]
-        entry["final_score"] = (entry["rank_cr"] + entry["rank_sr"]) / 2
-
-    entries.sort(key=lambda e: (e["final_score"], -(e.get("cumulative_return") or 0)))
+    entries.sort(key=_rank_sort_key)
     for idx, entry in enumerate(entries):
         entry["rank"] = idx + 1
     return entries
@@ -446,31 +445,52 @@ def get_leaderboard(force_refresh: bool = False) -> Dict[str, Any]:
     strategy_by_id = {s["id"]: s for s in config.get("strategies", [])}
 
     entries: List[Dict[str, Any]] = []
+    display_capital = float(config.get("initial_capital", INITIAL_CAPITAL))
+
     for strategy in config.get("strategies", []):
         run = _find_cached_run(strategy["id"], start_date, end_date, session_id)
         if not run:
             continue
 
         equity_hourly = db.get_equity_curve(run["run_id"]) or []
-        initial_equity = run.get("initial_equity") or config.get("initial_capital", INITIAL_CAPITAL)
+        stored_initial = float(
+            run.get("initial_equity") or config.get("initial_capital", INITIAL_CAPITAL)
+        )
+        # Display capital may differ from the stored seed run (e.g. $100k seed
+        # shown as $1k). Scale dollar levels; returns / Sharpe stay unchanged.
+        scale = (display_capital / stored_initial) if stored_initial else 1.0
+        scaled_hourly = [
+            {
+                **pt,
+                "equity": float(pt.get("equity") or 0) * scale,
+                "cash": float(pt.get("cash") or 0) * scale,
+                "positions_value": float(pt.get("positions_value") or 0) * scale,
+            }
+            for pt in equity_hourly
+        ]
         equity_curve = chart_equity_curve(
-            equity_hourly,
-            initial_equity=float(initial_equity),
+            scaled_hourly,
+            initial_equity=display_capital,
             start_date=start_date,
         )
         strat = strategy_by_id.get(strategy["id"], strategy)
         is_model = strat.get("strategy") == "llm_agent" or strat.get("label") == "Model"
+        final_equity = run.get("final_equity")
+        if final_equity is None:
+            portfolio_value = display_capital
+        else:
+            portfolio_value = float(final_equity) * scale
 
         entries.append(
             {
                 "entry_id": strategy["id"],
                 "team_name": run["agent_name"],
-                "team_badge": strat.get("label", "Baseline"),
+                "team_badge": strat.get("label", "Baseline Strategy"),
                 "model": strat.get("model", "Baseline"),
                 "entry_type": "baseline",
                 "is_model": is_model,
-                "initial_equity": initial_equity,
-                "portfolio_value": run.get("final_equity") or config.get("initial_capital", INITIAL_CAPITAL),
+                "initial_equity": display_capital,
+                "portfolio_value": portfolio_value,
                 "cumulative_return": run.get("total_return") or 0,
                 "sharpe_ratio": run.get("sharpe_ratio") or 0,
                 "max_drawdown": run.get("max_drawdown") or 0,
@@ -491,7 +511,12 @@ def get_leaderboard(force_refresh: bool = False) -> Dict[str, Any]:
         entry["equity_curve"] = curve
 
     entries = _rank_entries(entries)
-    leader = entries[0]["team_name"] if entries else "—"
+    models = [e for e in entries if e.get("is_model")]
+    models.sort(key=lambda e: e.get("cumulative_return") or 0, reverse=True)
+    if models:
+        leader = models[0].get("model") or models[0].get("team_name") or "—"
+    else:
+        leader = entries[0]["team_name"] if entries else "—"
 
     return {
         "window": {
@@ -502,6 +527,7 @@ def get_leaderboard(force_refresh: bool = False) -> Dict[str, Any]:
         },
         "updated_at": meta.get("refreshed_at"),
         "total_entries": len(entries),
+        "display_capital": display_capital,
         "leader": leader,
         "entries": entries,
     }

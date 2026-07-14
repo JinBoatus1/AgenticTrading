@@ -93,23 +93,32 @@ def test_runtime_consumer_uses_canonical_import():
 # Ranking + tie ordering (pure function)
 # ---------------------------------------------------------------------------
 
-def test_rank_entries_orders_and_breaks_ties_by_return():
+def test_rank_entries_orders_by_portfolio_value():
     entries = [
-        {"entry_id": "A", "cumulative_return": 0.10, "sharpe_ratio": 1.0},
-        {"entry_id": "B", "cumulative_return": 0.05, "sharpe_ratio": 2.0},
-        {"entry_id": "C", "cumulative_return": 0.01, "sharpe_ratio": 0.5},
+        {"entry_id": "A", "portfolio_value": 110000, "cumulative_return": 0.10, "sharpe_ratio": 1.0},
+        {"entry_id": "B", "portfolio_value": 105000, "cumulative_return": 0.05, "sharpe_ratio": 2.0},
+        {"entry_id": "C", "portfolio_value": 101000, "cumulative_return": 0.01, "sharpe_ratio": 0.5},
     ]
     ranked = canon_service._rank_entries(entries)
     by_id = {e["entry_id"]: e for e in ranked}
 
-    # A and B tie on final_score (1.5); A wins the tie on higher cumulative_return.
-    assert by_id["A"]["final_score"] == 1.5
-    assert by_id["B"]["final_score"] == 1.5
+    # Official rank is by final portfolio value (higher Wins), not composite score.
     assert by_id["A"]["rank"] == 1
     assert by_id["B"]["rank"] == 2
     assert by_id["C"]["rank"] == 3
-    assert by_id["A"]["rank_cr"] == 1 and by_id["A"]["rank_sr"] == 2
-    assert by_id["B"]["rank_cr"] == 2 and by_id["B"]["rank_sr"] == 1
+    assert "final_score" not in by_id["A"]
+    assert "rank_cr" not in by_id["A"]
+
+
+def test_rank_entries_ties_break_on_return():
+    entries = [
+        {"entry_id": "A", "portfolio_value": 105000, "cumulative_return": 0.10},
+        {"entry_id": "B", "portfolio_value": 105000, "cumulative_return": 0.05},
+    ]
+    ranked = canon_service._rank_entries(entries)
+    assert ranked[0]["entry_id"] == "A"
+    assert ranked[0]["rank"] == 1
+    assert ranked[1]["entry_id"] == "B"
 
 
 def test_rank_entries_empty():
@@ -183,14 +192,18 @@ def test_get_leaderboard_schema_and_ranking(isolated_service):
     _seed(isolated_service, "spy_index", 0.03, 0.9)
 
     result = canon_service.get_leaderboard()
-    assert set(result.keys()) == {"window", "updated_at", "total_entries", "leader", "entries"}
+    assert set(result.keys()) == {
+        "window", "updated_at", "total_entries", "leader", "entries", "display_capital",
+    }
     assert result["total_entries"] == 2
     assert result["window"]["label"] == "2026-04-15 → 2026-05-15"
+    assert result["display_capital"] == 100000
 
     entries = result["entries"]
     # djia_index has higher return and sharpe → rank 1.
     assert entries[0]["entry_id"] == "djia_index"
     assert entries[0]["rank"] == 1
+    # No model entries in this fixture → leader falls back to overall rank-1 name.
     assert result["leader"] == "DJIA_INDEX"
 
     entry = entries[0]
@@ -198,8 +211,7 @@ def test_get_leaderboard_schema_and_ranking(isolated_service):
         "entry_id", "team_name", "team_badge", "model", "entry_type", "is_model",
         "initial_equity", "portfolio_value", "cumulative_return", "sharpe_ratio",
         "max_drawdown", "status", "run_id", "llm_calls", "input_tokens",
-        "output_tokens", "est_cost_usd", "equity_curve", "rank_cr", "rank_sr",
-        "final_score", "rank",
+        "output_tokens", "est_cost_usd", "equity_curve", "rank",
     }
     assert expected_fields.issubset(set(entry.keys()))
     assert "win_loss_ratio" not in entry
@@ -271,3 +283,36 @@ def test_get_leaderboard_equity_curve_is_hourly_with_open_tick(isolated_service)
     assert len(curve) >= 3
     assert any(str(p["timestamp"]).startswith("2026-04-15T14") for p in curve)
     assert any(str(p["timestamp"]).startswith("2026-04-15T15") for p in curve)
+
+
+def test_get_leaderboard_scales_to_display_capital_and_prefers_model_leader(
+    isolated_service, monkeypatch
+):
+    """$100k seed runs are rescaled when config.initial_capital is $1k."""
+    cfg = dict(_CONFIG)
+    cfg["initial_capital"] = 1000
+    cfg["strategies"] = [
+        {"id": "djia_index", "name": "DJIA", "label": "Index", "model": "DJIA", "strategy": "market_index"},
+        {
+            "id": "gpt_demo",
+            "name": "GPT Demo",
+            "label": "Model",
+            "model": "GPT Demo",
+            "strategy": "llm_agent",
+        },
+    ]
+    monkeypatch.setattr(canon_service, "load_leaderboard_config", lambda: cfg)
+
+    _seed(isolated_service, "djia_index", 0.10, 1.0)
+    _seed(isolated_service, "gpt_demo", 0.05, 0.8)
+
+    result = canon_service.get_leaderboard()
+    assert result["display_capital"] == 1000
+    by_id = {e["entry_id"]: e for e in result["entries"]}
+    assert by_id["djia_index"]["initial_equity"] == 1000
+    assert abs(by_id["djia_index"]["portfolio_value"] - 1100) < 1e-6
+    assert by_id["djia_index"]["cumulative_return"] == 0.10
+    assert by_id["gpt_demo"]["is_model"] is True
+    # Leader is best model even if an index outranks it overall.
+    assert result["leader"] == "GPT Demo"
+    assert by_id["gpt_demo"]["equity_curve"][0]["equity"] == 1000

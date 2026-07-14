@@ -1543,9 +1543,48 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Load ticker without blocking the rest of the page
     loadMarketTicker();
     setInterval(loadMarketTicker, 30000);
-    
+    updateMarketsOpenStatus();
+    setInterval(updateMarketsOpenStatus, 60000);
+
     console.log('🎯 Dashboard ready. Default runs:', window.DEFAULT_RUNS || 'None configured');
 });
+
+/**
+ * US equity regular session: Mon–Fri 09:30–16:00 America/New_York.
+ * Holidays are not modeled; closed on weekends and outside RTH.
+ */
+function isUsEquityMarketOpen(now = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    }).formatToParts(now);
+    const get = (type) => parts.find((p) => p.type === type)?.value;
+    const weekday = get('weekday');
+    if (weekday === 'Sat' || weekday === 'Sun') return false;
+    let hour = Number(get('hour'));
+    const minute = Number(get('minute'));
+    // Some engines emit "24" for midnight.
+    if (hour === 24) hour = 0;
+    const mins = hour * 60 + minute;
+    return mins >= 9 * 60 + 30 && mins < 16 * 60;
+}
+
+function updateMarketsOpenStatus() {
+    const el = document.getElementById('tickerMarketsStatus');
+    if (!el) return;
+    const label = el.querySelector('.ticker-markets-label');
+    const open = isUsEquityMarketOpen();
+    el.classList.toggle('is-closed', !open);
+    el.classList.toggle('ticker-markets-open', true);
+    if (label) label.textContent = open ? 'Markets open' : 'Markets closed';
+    el.setAttribute('aria-label', open ? 'US equity markets are open' : 'US equity markets are closed');
+}
+
+window.updateMarketsOpenStatus = updateMarketsOpenStatus;
+window.isUsEquityMarketOpen = isUsEquityMarketOpen;
 
 /**
  * Load performance metrics from latest backtest run

@@ -3,8 +3,8 @@
 // ============================================================================
 
 let leaderboardPayload = null;
-let currentLeaderboardFilter = 'all';
-let currentLeaderboardSort = 'return'; // 'return' | 'sharpe'
+let currentLeaderboardSort = 'rank'; // 'rank' | 'value' | 'return' | 'sharpe' | 'dd'
+let currentLeaderboardSortDir = 'asc'; // rank: asc (1 best); metrics usually start desc
 let selectedLeaderboardEntry = null;
 let equityCurvesData = null;
 let equityCurvesChartInstance = null;
@@ -17,6 +17,9 @@ let hiddenInitialized = false;
 let hoveredDatasetIndex = null;
 let canvasLeaveBound = false;
 const selectedBenchmarkLabel = 'SPY';
+/** Expanded groups in the Show-on-Chart picker: model | baseline | index */
+let curvePickerExpanded = new Set();
+let curvePickerOutsideBound = false;
 
 // Stable per-series style presets. `kind` drives width/opacity hierarchy:
 //   benchmark -> neutral gray, dotted / dash-dot, understated
@@ -49,6 +52,14 @@ const MODEL_COLOR_PALETTE = [
   '#FBBF24', '#FB923C', '#F472B6', '#A78BFA', '#34D399',
 ];
 const modelColorMap = {};
+
+function formatEntryBadge(badge) {
+  const raw = String(badge || '').trim();
+  if (!raw || raw === 'Baseline') return 'Baseline Strategy';
+  if (raw === 'Index') return 'Market Index';
+  if (raw === 'Strategy') return 'Baseline Strategy';
+  return raw;
+}
 
 function isModelEntry(entry) {
   return !!(entry && (entry.is_model || entry.team_badge === 'Model'));
@@ -100,6 +111,289 @@ function getEntryKind(entry) {
   const label = entry.model || entry.team_name;
   const preset = LEADERBOARD_STYLES[label];
   return preset ? preset.kind : 'strategy';
+}
+
+/** Map series kind → chart-picker group id. */
+function getFilterCategory(entry) {
+  const kind = getEntryKind(entry);
+  if (kind === 'model' || kind === 'team') return 'model';
+  if (kind === 'benchmark') return 'index';
+  return 'baseline'; // strategy baselines
+}
+
+const CURVE_PICKER_GROUPS = [
+  { id: 'model', title: 'Models' },
+  { id: 'baseline', title: 'Baseline Strategies' },
+  { id: 'index', title: 'Market Indices' },
+];
+
+function entrySeriesLabel(entry) {
+  return entry.model || entry.team_name || entry.entry_id || '';
+}
+
+function getCurvePickerGroups(entries) {
+  const buckets = { model: [], baseline: [], index: [] };
+  (entries || []).forEach((entry) => {
+    const cat = getFilterCategory(entry);
+    if (buckets[cat]) buckets[cat].push(entry);
+  });
+  // Models: sort by return desc for a familiar board order
+  buckets.model.sort(
+    (a, b) => (Number(b.cumulative_return) || 0) - (Number(a.cumulative_return) || 0)
+  );
+  return CURVE_PICKER_GROUPS.map((g) => ({
+    ...g,
+    entries: buckets[g.id] || [],
+  })).filter((g) => g.entries.length > 0);
+}
+
+function seriesVisible(label) {
+  return !hiddenSeries.has(label);
+}
+
+function countVisibleSeries(entries) {
+  return (entries || []).filter((e) => seriesVisible(entrySeriesLabel(e))).length;
+}
+
+function setGroupVisibility(groupEntries, visible) {
+  groupEntries.forEach((entry) => {
+    const label = entrySeriesLabel(entry);
+    if (!label) return;
+    if (visible) hiddenSeries.delete(label);
+    else hiddenSeries.add(label);
+  });
+}
+
+function groupCheckState(groupEntries) {
+  const total = groupEntries.length;
+  if (!total) return 'none';
+  const visible = groupEntries.filter((e) => seriesVisible(entrySeriesLabel(e))).length;
+  if (visible === 0) return 'none';
+  if (visible === total) return 'all';
+  return 'partial';
+}
+
+function updateCurvePickerCount() {
+  const el = document.getElementById('curvePickerCount');
+  if (!el) return;
+  const entries = leaderboardPayload?.entries || [];
+  const n = countVisibleSeries(entries);
+  const total = entries.length;
+  el.textContent = total ? `${n} selected` : '0 selected';
+}
+
+function renderCurvePicker() {
+  const body = document.getElementById('curvePickerBody');
+  if (!body) return;
+  const groups = getCurvePickerGroups(leaderboardPayload?.entries || []);
+
+  body.innerHTML = groups.map((group) => {
+    const state = groupCheckState(group.entries);
+    const visibleN = group.entries.filter((e) => seriesVisible(entrySeriesLabel(e))).length;
+    const expanded = curvePickerExpanded.has(group.id);
+    const checkClass =
+      state === 'all' ? 'is-checked' : state === 'partial' ? 'is-partial' : 'is-unchecked';
+    // Always show selected/total so collapsed groups aren't mistaken for "all".
+    const countLabel = `${visibleN}/${group.entries.length}`;
+
+    const children = group.entries.map((entry, idx) => {
+      const label = entrySeriesLabel(entry);
+      const on = seriesVisible(label);
+      const safeName = String(label)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/"/g, '&quot;');
+      return `
+        <label class="curve-picker-item">
+          <input type="checkbox" data-group-id="${group.id}" data-entry-idx="${idx}" ${on ? 'checked' : ''} />
+          <span class="curve-picker-item-name">${safeName}</span>
+        </label>`;
+    }).join('');
+
+    return `
+      <div class="curve-picker-group" data-group="${group.id}">
+        <div class="curve-picker-group-row">
+          <button type="button" class="curve-picker-group-check ${checkClass}"
+            data-group-toggle="${group.id}" aria-label="Toggle ${group.title}"
+            aria-checked="${state === 'all' ? 'true' : state === 'none' ? 'false' : 'mixed'}"></button>
+          <button type="button" class="curve-picker-group-expand" data-group-expand="${group.id}"
+            aria-expanded="${expanded ? 'true' : 'false'}">
+            <span class="curve-picker-group-title">${group.title} (${countLabel})</span>
+            <span class="curve-picker-group-chevron" aria-hidden="true">${expanded ? '▾' : '›'}</span>
+          </button>
+        </div>
+        <div class="curve-picker-children${expanded ? '' : ' is-collapsed'}">${children}</div>
+      </div>`;
+  }).join('');
+
+  updateCurvePickerCount();
+}
+
+function applyChartVisibilityChange() {
+  updateCurvePickerCount();
+  const open = document.getElementById('curvePickerTrigger')?.getAttribute('aria-expanded') === 'true';
+  if (open) renderCurvePicker();
+  else updateCurvePickerCount();
+  renderEquityCurvesChart();
+}
+
+function setCurvePickerOpen(open) {
+  const menu = document.getElementById('curvePickerMenu');
+  const trigger = document.getElementById('curvePickerTrigger');
+  const root = document.getElementById('curvePicker');
+  if (!menu || !trigger) return;
+  menu.hidden = !open;
+  trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  root?.classList.toggle('is-open', open);
+  if (open) renderCurvePicker();
+}
+
+function updateLeaderboardHeader(payload) {
+  const entries = payload.entries || [];
+  // Best LLM / provided model by cumulative return (not overall board rank).
+  const models = entries
+    .filter((e) => isModelEntry(e))
+    .slice()
+    .sort((a, b) => (Number(b.cumulative_return) || 0) - (Number(a.cumulative_return) || 0));
+
+  const totalEl = document.getElementById('totalTeams');
+  const windowEl = document.getElementById('tradingWindow');
+  const updatedEl = document.getElementById('lastUpdate');
+  const leaderEl = document.getElementById('leaderTeam');
+
+  if (totalEl) totalEl.textContent = 'Preseason';
+  if (windowEl) windowEl.textContent = payload.window?.label || '—';
+  if (updatedEl) {
+    updatedEl.textContent = payload.updated_at
+      ? new Date(payload.updated_at).toLocaleString()
+      : '—';
+  }
+  if (leaderEl) {
+    const top = models[0];
+    leaderEl.textContent = top
+      ? (top.model || top.team_name)
+      : (payload.leader || '—');
+  }
+  updateCurvePickerCount();
+}
+
+function initLeaderboardListeners() {
+  const trigger = document.getElementById('curvePickerTrigger');
+  const menu = document.getElementById('curvePickerMenu');
+  const body = document.getElementById('curvePickerBody');
+  const clearBtn = document.getElementById('curvePickerClear');
+
+  // Keep the menu open while interacting: stop bubbles, and close only on
+  // outside pointerdown (avoids the classic "rerender detaches target →
+  // document click thinks it's outside" bug).
+  menu?.addEventListener('click', (e) => e.stopPropagation());
+  menu?.addEventListener('pointerdown', (e) => e.stopPropagation());
+
+  trigger?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = trigger.getAttribute('aria-expanded') === 'true';
+    setCurvePickerOpen(!open);
+  });
+
+  clearBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const entries = leaderboardPayload?.entries || [];
+    entries.forEach((entry) => {
+      const label = entrySeriesLabel(entry);
+      if (label) hiddenSeries.add(label);
+    });
+    applyChartVisibilityChange();
+  });
+
+  body?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const expandBtn = e.target.closest('[data-group-expand]');
+    if (expandBtn) {
+      e.preventDefault();
+      const id = expandBtn.dataset.groupExpand;
+      if (curvePickerExpanded.has(id)) curvePickerExpanded.delete(id);
+      else curvePickerExpanded.add(id);
+      renderCurvePicker();
+      return;
+    }
+
+    const groupToggle = e.target.closest('[data-group-toggle]');
+    if (groupToggle) {
+      e.preventDefault();
+      const id = groupToggle.dataset.groupToggle;
+      const group = getCurvePickerGroups(leaderboardPayload?.entries || [])
+        .find((g) => g.id === id);
+      if (!group) return;
+      const state = groupCheckState(group.entries);
+      // All on → turn off; partial or none → turn all on.
+      setGroupVisibility(group.entries, state !== 'all');
+      applyChartVisibilityChange();
+    }
+  });
+
+  body?.addEventListener('change', (e) => {
+    e.stopPropagation();
+    const input = e.target;
+    if (!(input instanceof HTMLInputElement) || input.dataset.entryIdx == null) return;
+    const groupId = input.dataset.groupId;
+    const idx = Number(input.dataset.entryIdx);
+    const group = getCurvePickerGroups(leaderboardPayload?.entries || [])
+      .find((g) => g.id === groupId);
+    const entry = group?.entries?.[idx];
+    if (!entry) return;
+    const label = entrySeriesLabel(entry);
+    if (input.checked) hiddenSeries.delete(label);
+    else hiddenSeries.add(label);
+    applyChartVisibilityChange();
+  });
+
+  if (!curvePickerOutsideBound) {
+    document.addEventListener('pointerdown', (e) => {
+      const root = document.getElementById('curvePicker');
+      if (!root?.classList.contains('is-open')) return;
+      if (e.target instanceof Node && root.contains(e.target)) return;
+      setCurvePickerOpen(false);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') setCurvePickerOpen(false);
+    });
+    curvePickerOutsideBound = true;
+  }
+
+  document.querySelectorAll('.leaderboard-table th.sortable').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (!key) return;
+      if (currentLeaderboardSort === key) {
+        currentLeaderboardSortDir = currentLeaderboardSortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        currentLeaderboardSort = key;
+        // Rank: 1 first. Value/Return/Sharpe: high first. Max DD: low first.
+        currentLeaderboardSortDir = key === 'dd' || key === 'rank' ? 'asc' : 'desc';
+      }
+      updateLeaderboardSortHeaders();
+      populateLeaderboardTable();
+    });
+  });
+  updateLeaderboardSortHeaders();
+
+  document.querySelectorAll('.view-toggle-btn').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      document.querySelectorAll('.view-toggle-btn').forEach((b) => b.classList.remove('active'));
+      e.target.classList.add('active');
+      currentChartView = e.target.dataset.view === 'absolute' ? 'absolute' : 'cumulative';
+      await renderEquityCurvesChart();
+    });
+  });
+
+  document.querySelectorAll('.chart-view-btn').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      document.querySelectorAll('.chart-view-btn').forEach((b) => b.classList.remove('active'));
+      e.target.classList.add('active');
+      currentChartView = e.target.dataset.view === 'absolute' ? 'absolute' : 'cumulative';
+      await renderEquityCurvesChart();
+    });
+  });
 }
 
 function formatLeaderboardNumber(num) {
@@ -169,7 +463,7 @@ function buildEquityCurvesFromEntries(entries) {
     const values = times.map((t) => (t in byTime ? byTime[t] : null));
     const firstReal = values.find((v) => v != null);
     curves[seriesLabel] = values;
-    initials[seriesLabel] = Number(entry.initial_equity) || firstReal || 100000;
+    initials[seriesLabel] = Number(entry.initial_equity) || firstReal || 1000;
     trajectories[seriesLabel] = getSeriesStyle(seriesLabel, entry);
   });
 
@@ -195,66 +489,6 @@ function computeDefaultHidden(entries) {
   return hidden;
 }
 
-function updateLeaderboardHeader(payload) {
-  const entries = payload.entries || [];
-  // Entries arrive pre-ranked; the first team entry is the leading participant.
-  const teams = entries.filter((e) => getEntryKind(e) === 'team');
-
-  const totalEl = document.getElementById('totalTeams');
-  const windowEl = document.getElementById('tradingWindow');
-  const updatedEl = document.getElementById('lastUpdate');
-  const leaderEl = document.getElementById('leaderTeam');
-
-  if (totalEl) totalEl.textContent = String(teams.length);
-  if (windowEl) windowEl.textContent = payload.window?.label || '—';
-  if (updatedEl) {
-    updatedEl.textContent = payload.updated_at
-      ? new Date(payload.updated_at).toLocaleString()
-      : '—';
-  }
-  if (leaderEl) leaderEl.textContent = teams.length ? teams[0].team_name : 'No team results';
-}
-
-function initLeaderboardListeners() {
-  document.querySelectorAll('.filter-tab').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      document.querySelectorAll('.filter-tab').forEach((b) => b.classList.remove('active'));
-      e.target.classList.add('active');
-      currentLeaderboardFilter = e.target.dataset.filter;
-      applyFilterVisibility();
-      populateLeaderboardTable();
-      renderEquityCurvesChart();
-    });
-  });
-
-  document.querySelectorAll('.sort-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      document.querySelectorAll('.sort-btn').forEach((b) => b.classList.remove('active'));
-      e.target.classList.add('active');
-      currentLeaderboardSort = e.target.dataset.sort === 'sharpe' ? 'sharpe' : 'return';
-      populateLeaderboardTable();
-    });
-  });
-
-  document.querySelectorAll('.view-toggle-btn').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      document.querySelectorAll('.view-toggle-btn').forEach((b) => b.classList.remove('active'));
-      e.target.classList.add('active');
-      currentChartView = e.target.dataset.view === 'absolute' ? 'absolute' : 'cumulative';
-      await renderEquityCurvesChart();
-    });
-  });
-
-  document.querySelectorAll('.chart-view-btn').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      document.querySelectorAll('.chart-view-btn').forEach((b) => b.classList.remove('active'));
-      e.target.classList.add('active');
-      currentChartView = e.target.dataset.view;
-      await renderEquityCurvesChart();
-    });
-  });
-}
-
 async function loadLeaderboardData() {
   console.log('Loading leaderboard from API...');
 
@@ -265,12 +499,14 @@ async function loadLeaderboardData() {
     equityCurvesData = buildEquityCurvesFromEntries(entries);
 
     if (!hiddenInitialized) {
-      hiddenSeries = computeDefaultHidden(entries);
+      // Chart picker defaults to all curves visible (user then trims via dropdown).
+      hiddenSeries = new Set();
       hiddenInitialized = true;
     }
 
     updateLeaderboardHeader(leaderboardPayload);
     populateLeaderboardTable();
+    renderCurvePicker();
 
     if (!leaderboardListenersInitialized) {
       initLeaderboardListeners();
@@ -284,33 +520,50 @@ async function loadLeaderboardData() {
   }
 }
 
-function getFilteredLeaderboardEntries() {
-  let entries = (leaderboardPayload?.entries || []).slice();
-  if (currentLeaderboardFilter === 'baselines') {
-    entries = entries.filter((e) => e.entry_type === 'baseline');
-  } else if (currentLeaderboardFilter === 'teams') {
-    entries = entries.filter((e) => getEntryKind(e) === 'team');
-  }
-
-  const key = currentLeaderboardSort === 'sharpe' ? 'sharpe_ratio' : 'cumulative_return';
-  entries.sort((a, b) => (Number(b[key]) || 0) - (Number(a[key]) || 0));
-  return entries;
+function updateLeaderboardSortHeaders() {
+  document.querySelectorAll('.leaderboard-table th.sortable').forEach((th) => {
+    const active = th.dataset.sort === currentLeaderboardSort;
+    th.classList.toggle('is-sorted', active);
+    th.setAttribute('aria-sort', active
+      ? (currentLeaderboardSortDir === 'asc' ? 'ascending' : 'descending')
+      : 'none');
+    const arrow = th.querySelector('.sort-arrow');
+    if (arrow) {
+      arrow.textContent = active ? (currentLeaderboardSortDir === 'asc' ? '↑' : '↓') : '';
+    }
+  });
 }
 
-// The filter tabs also drive which curves are visible on the chart.
-function applyFilterVisibility() {
-  const entries = leaderboardPayload?.entries || [];
-  if (currentLeaderboardFilter === 'teams') {
-    hiddenSeries = new Set(
-      entries.filter((e) => getEntryKind(e) !== 'team').map((e) => e.model || e.team_name)
-    );
-  } else if (currentLeaderboardFilter === 'baselines') {
-    hiddenSeries = new Set(
-      entries.filter((e) => e.entry_type !== 'baseline').map((e) => e.model || e.team_name)
-    );
-  } else {
-    hiddenSeries = computeDefaultHidden(entries);
-  }
+function getFilteredLeaderboardEntries() {
+  // Official rankings table always lists every entry; chart visibility is separate.
+  // Left Rank stays the official portfolio-value rank; this only reorders rows.
+  const entries = (leaderboardPayload?.entries || []).slice();
+  const dir = currentLeaderboardSortDir === 'asc' ? 1 : -1;
+  const num = (v) => Number(v) || 0;
+  entries.sort((a, b) => {
+    let cmp = 0;
+    switch (currentLeaderboardSort) {
+      case 'rank':
+        cmp = num(a.rank) - num(b.rank);
+        break;
+      case 'value':
+        cmp = num(a.portfolio_value) - num(b.portfolio_value);
+        break;
+      case 'return':
+        cmp = num(a.cumulative_return) - num(b.cumulative_return);
+        break;
+      case 'sharpe':
+        cmp = num(a.sharpe_ratio) - num(b.sharpe_ratio);
+        break;
+      case 'dd':
+        cmp = Math.abs(num(a.max_drawdown)) - Math.abs(num(b.max_drawdown));
+        break;
+      default:
+        cmp = num(a.rank) - num(b.rank);
+    }
+    return cmp * dir;
+  });
+  return entries;
 }
 
 function populateLeaderboardTable() {
@@ -319,15 +572,13 @@ function populateLeaderboardTable() {
 
   const filtered = getFilteredLeaderboardEntries();
   if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text-secondary);">No leaderboard entries yet. Baselines compute on first load (requires market data).</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-secondary);">No leaderboard entries yet. Baselines compute on first load (requires market data).</td></tr>';
     return;
   }
 
   tbody.innerHTML = filtered.map((entry) => {
-    const rankBadges = `<span class="rank-badge ${entry.rank_cr <= 3 ? 'top3' : ''}">${entry.rank_cr}</span>
-         <span class="rank-badge ${entry.rank_sr <= 3 ? 'top3' : ''}">${entry.rank_sr}</span>`;
-
     const safeId = String(entry.entry_id || entry.team_name).replace(/'/g, "\\'");
+    const entryLabel = entry.model || entry.team_name || '—';
     const ret = Number(entry.cumulative_return || 0);
     const retClass = ret >= 0 ? 'return-positive' : 'return-negative';
     const ddRaw = Number(entry.max_drawdown || 0);
@@ -338,19 +589,16 @@ function populateLeaderboardTable() {
         <td class="rank-cell">${entry.rank}</td>
         <td>
           <div class="team-name-badge">
-            <span>${entry.team_name}</span>
-            <span class="team-badge">${entry.team_badge || 'Baseline'}</span>
+            <span>${entryLabel}</span>
+            <span class="team-badge">${formatEntryBadge(entry.team_badge)}</span>
           </div>
         </td>
-        <td>${entry.model || '—'}</td>
         <td style="text-align: right; font-family: var(--font-mono);">$${formatLeaderboardNumber(entry.portfolio_value)}</td>
         <td style="text-align: right;" class="${retClass}">
           <span class="metric-value-text">${(ret * 100).toFixed(2)}%</span>
         </td>
         <td style="text-align: right; font-family: var(--font-mono);">${Number(entry.sharpe_ratio || 0).toFixed(2)}</td>
         <td style="text-align: right; font-family: var(--font-mono);">${dd}%</td>
-        <td style="text-align: center;">${rankBadges}</td>
-        <td style="text-align: right; font-weight: 600;">${Number(entry.final_score || 0).toFixed(2)}</td>
       </tr>
     `;
   }).join('');
@@ -368,14 +616,19 @@ function selectLeaderboardTeam(entryId) {
   if (detailPanel) {
     const ret = Number(entry.cumulative_return || 0);
     const retColor = ret >= 0 ? 'var(--success-color)' : 'var(--danger-color)';
+    const entryLabel = entry.model || entry.team_name || '—';
     detailPanel.innerHTML = `
       <div class="team-detail-row">
-        <span class="team-detail-label">Name</span>
-        <span class="team-detail-value">${entry.team_name}</span>
+        <span class="team-detail-label">Entry</span>
+        <span class="team-detail-value">${entryLabel}</span>
       </div>
       <div class="team-detail-row">
-        <span class="team-detail-label">Model</span>
-        <span class="team-detail-value">${entry.model || '—'}</span>
+        <span class="team-detail-label">Type</span>
+        <span class="team-detail-value">${formatEntryBadge(entry.team_badge || (entry.entry_type === 'baseline' ? 'Baseline Strategy' : 'Agent'))}</span>
+      </div>
+      <div class="team-detail-row">
+        <span class="team-detail-label">Value</span>
+        <span class="team-detail-value">$${formatLeaderboardNumber(entry.portfolio_value)}</span>
       </div>
       <div class="team-detail-row">
         <span class="team-detail-label">Return</span>
@@ -392,10 +645,6 @@ function selectLeaderboardTeam(entryId) {
       <div class="team-detail-row">
         <span class="team-detail-label">Rank</span>
         <span class="team-detail-value">${entry.rank} / ${leaderboardPayload?.total_entries || '—'}</span>
-      </div>
-      <div class="team-detail-row">
-        <span class="team-detail-label">Type</span>
-        <span class="team-detail-value">${entry.entry_type === 'baseline' ? 'Baseline' : 'Agent'}</span>
       </div>
     `;
   }
@@ -566,6 +815,10 @@ function buildCustomLegend(chart) {
       const label = el.dataset.label;
       if (hiddenSeries.has(label)) hiddenSeries.delete(label);
       else hiddenSeries.add(label);
+      updateCurvePickerCount();
+      if (document.getElementById('curvePickerTrigger')?.getAttribute('aria-expanded') === 'true') {
+        renderCurvePicker();
+      }
       renderEquityCurvesChart();
     });
   });

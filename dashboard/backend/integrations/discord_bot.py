@@ -67,9 +67,25 @@ def api_base() -> str:
     return os.getenv("ATL_API_BASE", "http://localhost:8000").rstrip("/")
 
 
+# Production SPA (Vercel). The API often lives on Render; Discord deep links must
+# open the frontend, not the API host.
+_DEFAULT_PUBLIC_APP = "https://agentic-trading-lab.vercel.app"
+
+
 def public_app_base() -> str:
-    """Origin (or /app URL) used for dashboard deep links in Discord messages."""
-    raw = (os.getenv("PUBLIC_APP_URL") or api_base()).rstrip("/")
+    """Playground base URL for Discord Dashboard deep links.
+
+    Prefer ``PUBLIC_APP_URL``. If unset and ``ATL_API_BASE`` points at the
+    Render API, fall back to the Vercel app (not the API origin). Locally,
+    fall back to the API host (which also serves ``/app``).
+    """
+    raw = (os.getenv("PUBLIC_APP_URL") or "").rstrip("/")
+    if not raw:
+        api = api_base()
+        if "onrender.com" in api.lower():
+            raw = _DEFAULT_PUBLIC_APP
+        else:
+            raw = api
     if raw.endswith("/app"):
         return raw
     return f"{raw}/app"
@@ -77,20 +93,23 @@ def public_app_base() -> str:
 
 def dashboard_backtest_url(
     *,
-    agent_id: Optional[str],
-    run_id: Optional[str],
-) -> Optional[str]:
-    """Build /app?view=backtest&agent_id=…&run_id=… for Discord result messages."""
-    if not agent_id or not run_id:
-        return None
-    query = urlencode(
-        {
-            "view": "backtest",
-            "agent_id": str(agent_id),
-            "run_id": str(run_id),
-        }
-    )
-    return f"{public_app_base()}?{query}"
+    agent_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+) -> str:
+    """Build a Playground URL for Discord result messages.
+
+    Prefer ``/app?view=backtest&agent_id=…&run_id=…`` when both ids are known;
+    otherwise fall back to agent-only or the bare Playground URL so the reply
+    always includes a clickable dashboard link.
+    """
+    params: dict[str, str] = {"view": "backtest"}
+    if agent_id:
+        params["agent_id"] = str(agent_id)
+    if run_id:
+        params["run_id"] = str(run_id)
+    if len(params) == 1:
+        return public_app_base()
+    return f"{public_app_base()}?{urlencode(params)}"
 
 
 def _parse_id_list(raw: Optional[str]) -> list[int]:
@@ -555,16 +574,14 @@ async def execute_backtest(
     # Key the deep link + "saved to card" line off what was actually sent so we
     # never claim a run landed on an agent's card when it didn't.
     attached_agent_id = payload.get("agent_id")
+    # Always include a clickable Playground URL (Vercel in prod; full deep link when ids exist).
     dash_url = dashboard_backtest_url(agent_id=attached_agent_id, run_id=run_id)
-    if dash_url:
-        summary += f"\nDashboard: {dash_url}"
-    elif share_url:
+    summary += f"\nDashboard: {dash_url}"
+    if share_url:
         summary += f"\nView: {share_url}"
     if attached_agent_id and selected and selected.get("name"):
         summary += (
-            f"\nSaved to **{selected['name']}**'s card"
-            + (" — open the Dashboard link above." if dash_url else
-               " — open *My Agents* on the website to track the details.")
+            f"\nSaved to **{selected['name']}**'s card — open the Dashboard link above."
         )
     await interaction.edit_original_response(content=summary)
 
