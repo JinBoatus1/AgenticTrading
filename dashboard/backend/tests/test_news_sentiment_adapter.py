@@ -12,8 +12,15 @@ from dashboard.backend.tests.test_news_sentiment_fixture import (
 
 
 @pytest.fixture(autouse=True)
-def _clean():
+def _clean(monkeypatch):
     ns.clear_cache()
+    # Default the items endpoint to a fast 404 ("no items yet") so pre-Phase-B
+    # tests that only mock ns._http_get keep exercising Phase-A behavior
+    # (representative feed) instead of silently hitting the real network via
+    # get_latest_panel_payload's new fetch_items() call. Phase-B tests below
+    # override this per-test.
+    monkeypatch.setattr(ns, "_http_get_items",
+                         lambda **kw: _fake_response(status=404, body={"error": "no_items"}))
     yield
     ns.clear_cache()
 
@@ -310,3 +317,121 @@ def test_304_revalidation_serves_cached_body(monkeypatch):
     second = ns.get_latest_panel_payload(["MSFT"])   # 304 -> cached body reused, not refetched
     assert second["staleness_hours"] == body["staleness_hours"]
     assert not responses                             # both queued responses consumed
+
+
+# --- Phase B: panel feed prefers the raw items endpoint --------------------
+# The FinSearch producer now exposes GET /api/news/items/ (raw multi-story
+# batch). The panel feed prefers it and falls back to the Phase-A
+# representative feed (derived from `signals`) on ANY items failure, so the
+# panel can never regress below Phase A. `signals`/status/overview/staleness
+# always come from `fetch_signals` regardless of which feed source wins.
+
+
+def _items_body(items, batch="items-test.jsonl"):
+    return {"items": items, "count": len(items), "batch": batch}
+
+
+def test_items_feed_preferred_and_mapped_correctly(monkeypatch):
+    signals_body = load_signals_fixture()
+    items = [
+        {"guid": "g1", "title": "Fed cuts rates", "link": "https://x/1", "source": "Reuters",
+         "published": 1700000200.0, "description": "d1", "tickers": ["AAPL"], "score": 0.5},
+        {"guid": "g2", "title": "Tech rally continues", "link": "https://x/2", "source": "Bloomberg",
+         "published": 1700000100.0, "description": "d2", "tickers": [], "score": 0.3},
+    ]
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    monkeypatch.setattr(ns, "_http_get_items", lambda **kw: _fake_response(body=_items_body(items)))
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["news_overview"] == signals_body["news_overview"]  # signals side unchanged
+    assert payload["signals"]
+    feed = payload["feed"]
+    assert [entry["headline"] for entry in feed] == ["Fed cuts rates", "Tech rally continues"]  # newest-first
+    assert feed[0] == {
+        "headline": "Fed cuts rates", "source": "Reuters", "url": "https://x/1",
+        "published": 1700000200.0, "ticker": "AAPL",
+    }
+    assert feed[1]["ticker"] is None  # empty tickers list -> None
+
+
+def test_items_404_falls_back_to_representative_feed(monkeypatch):
+    signals_body = load_signals_fixture()
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    monkeypatch.setattr(ns, "_http_get_items",
+                         lambda **kw: _fake_response(status=404, body={"error": "no_items"}))
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["feed"] == ns._representative_feed(signals_body["signals"])
+
+
+def test_items_transport_error_falls_back_to_representative_feed(monkeypatch):
+    signals_body = load_signals_fixture()
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    def _boom(**kw):
+        raise OSError("connection refused")
+    monkeypatch.setattr(ns, "_http_get_items", _boom)
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["feed"] == ns._representative_feed(signals_body["signals"])
+
+
+def test_items_missing_items_list_falls_back(monkeypatch):
+    signals_body = load_signals_fixture()
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    monkeypatch.setattr(ns, "_http_get_items", lambda **kw: _fake_response(body={"count": 0}))
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["feed"] == ns._representative_feed(signals_body["signals"])
+
+
+def test_items_non_dict_body_falls_back(monkeypatch):
+    """A valid-JSON but non-dict items body (e.g. a bare list) must fail closed
+    to None — body.get() on a list would AttributeError — so the panel falls
+    back to the representative feed rather than raising."""
+    signals_body = load_signals_fixture()
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    monkeypatch.setattr(ns, "_http_get_items",
+                         lambda **kw: _fake_response(body=[{"guid": "g1"}]))  # bare list, not a dict
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["feed"] == ns._representative_feed(signals_body["signals"])
+
+
+def test_items_unparseable_body_falls_back(monkeypatch):
+    signals_body = load_signals_fixture()
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    def _raise_value_error():
+        raise ValueError("bad json")
+    monkeypatch.setattr(ns, "_http_get_items",
+                         lambda **kw: SimpleNamespace(status_code=200, headers={}, json=_raise_value_error))
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["feed"] == ns._representative_feed(signals_body["signals"])
+
+
+def test_items_all_malformed_falls_back(monkeypatch):
+    signals_body = load_signals_fixture()
+    malformed_items = [{"guid": "g1", "link": "https://x/1", "source": "Reuters",
+                         "published": 1700000200.0, "tickers": ["AAPL"]}]  # missing "title"
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    monkeypatch.setattr(ns, "_http_get_items", lambda **kw: _fake_response(body=_items_body(malformed_items)))
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["feed"] == ns._representative_feed(signals_body["signals"])
+
+
+def test_signals_down_returns_unavailable_and_skips_items_fetch(monkeypatch):
+    def _boom(**kw):
+        raise OSError("down")
+    monkeypatch.setattr(ns, "_http_get", _boom)
+    def _fetch_items_must_not_be_called(**kw):
+        raise AssertionError("fetch_items must not be called when signals is down")
+    monkeypatch.setattr(ns, "fetch_items", _fetch_items_must_not_be_called)
+    payload = ns.get_latest_panel_payload(["MSFT"])
+    assert payload == ns.UNAVAILABLE_PAYLOAD
+
+
+def test_feed_from_items_maps_exact_five_keys():
+    items = [
+        {"guid": "g1", "title": "Fed cuts rates", "link": "https://x/1", "source": "Reuters",
+         "published": 1700000200.0, "description": "d1", "tickers": ["AAPL", "MSFT"], "score": 0.5},
+    ]
+    feed = ns._feed_from_items(items)
+    assert feed == [{
+        "headline": "Fed cuts rates", "source": "Reuters", "url": "https://x/1",
+        "published": 1700000200.0, "ticker": "AAPL",
+    }]
+    assert set(feed[0].keys()) == {"headline", "source", "url", "published", "ticker"}
