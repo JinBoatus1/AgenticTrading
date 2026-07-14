@@ -105,6 +105,12 @@ def test_engine_llm_run_metadata_snapshot(monkeypatch):
     from dashboard.backend.domain.backtesting.engine import HourlyBacktester
 
     backtester = HourlyBacktester.__new__(HourlyBacktester)  # skip creds init
+    # _llm_run_metadata() also reads the post-trade/pipeline attrs (added in the
+    # post-trade-analysis work); __init__ sets them, but __new__ skips it, so set
+    # the no-pipeline defaults here to keep this a pure llm_max_output_tokens test.
+    backtester.prompt_adaptations = []
+    backtester.initial_pipeline = None
+    backtester.pipeline = None
     monkeypatch.setattr(engine_mod.llm_harness, "DEFAULT_MAX_OUTPUT_TOKENS", 777)
 
     backtester.use_llm = True
