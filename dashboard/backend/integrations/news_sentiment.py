@@ -302,19 +302,21 @@ def fetch_items(*, limit: int = _PANEL_FEED_LIMIT) -> Optional[list]:
 
 
 def _feed_from_items(items) -> list:
-    """Map raw news-items onto the EXISTING panel feed item keys (wire shape
-    unchanged): title->headline, link->url, source->source,
-    published->published, tickers[0]|None->ticker. Drops a malformed item
-    (KeyError/TypeError) with a warning instead of collapsing the feed. Sorted
-    newest-first via _feed_sort_key."""
+    """Project news-story v1 items onto the panel feed keys — a near-
+    passthrough now that AF's items endpoint speaks the shared vocabulary
+    (headline/url on the wire; docs/integrations/finsearch-news-items.md):
+    headline->headline, url->url, source->source, published->published,
+    tickers[0]|None->ticker. Drops a malformed item (KeyError/TypeError)
+    with a warning instead of collapsing the feed. Sorted newest-first via
+    _feed_sort_key."""
     feed = []
     for item in items:
         try:
             tickers = item["tickers"]
             entry = {
-                "headline": item["title"],
+                "headline": item["headline"],
                 "source": item["source"],
-                "url": item["link"],
+                "url": item["url"],
                 "published": item["published"],
                 "ticker": tickers[0] if tickers else None,
             }

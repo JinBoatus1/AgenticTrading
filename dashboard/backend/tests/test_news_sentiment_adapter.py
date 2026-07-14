@@ -328,15 +328,15 @@ def test_304_revalidation_serves_cached_body(monkeypatch):
 
 
 def _items_body(items, batch="items-test.jsonl"):
-    return {"items": items, "count": len(items), "batch": batch}
+    return {"schema_version": 1, "items": items, "count": len(items), "batch": batch}
 
 
 def test_items_feed_preferred_and_mapped_correctly(monkeypatch):
     signals_body = load_signals_fixture()
     items = [
-        {"guid": "g1", "title": "Fed cuts rates", "link": "https://x/1", "source": "Reuters",
+        {"guid": "g1", "headline": "Fed cuts rates", "url": "https://x/1", "source": "Reuters",
          "published": 1700000200.0, "description": "d1", "tickers": ["AAPL"], "score": 0.5},
-        {"guid": "g2", "title": "Tech rally continues", "link": "https://x/2", "source": "Bloomberg",
+        {"guid": "g2", "headline": "Tech rally continues", "url": "https://x/2", "source": "Bloomberg",
          "published": 1700000100.0, "description": "d2", "tickers": [], "score": 0.3},
     ]
     monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
@@ -405,8 +405,8 @@ def test_items_unparseable_body_falls_back(monkeypatch):
 
 def test_items_all_malformed_falls_back(monkeypatch):
     signals_body = load_signals_fixture()
-    malformed_items = [{"guid": "g1", "link": "https://x/1", "source": "Reuters",
-                         "published": 1700000200.0, "tickers": ["AAPL"]}]  # missing "title"
+    malformed_items = [{"guid": "g1", "url": "https://x/1", "source": "Reuters",
+                         "published": 1700000200.0, "tickers": ["AAPL"]}]  # missing "headline"
     monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
     monkeypatch.setattr(ns, "_http_get_items", lambda **kw: _fake_response(body=_items_body(malformed_items)))
     payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
@@ -426,7 +426,7 @@ def test_signals_down_returns_unavailable_and_skips_items_fetch(monkeypatch):
 
 def test_feed_from_items_maps_exact_five_keys():
     items = [
-        {"guid": "g1", "title": "Fed cuts rates", "link": "https://x/1", "source": "Reuters",
+        {"guid": "g1", "headline": "Fed cuts rates", "url": "https://x/1", "source": "Reuters",
          "published": 1700000200.0, "description": "d1", "tickers": ["AAPL", "MSFT"], "score": 0.5},
     ]
     feed = ns._feed_from_items(items)
