@@ -483,11 +483,12 @@
                     </div>
                     <p class="nns-overview" id="nnsOverview"></p>
                     <div class="nns-split">
-                        <!-- Phase A honesty: the left column is the stories BEHIND today's signals
-                             (one representative story per signalled ticker), not the full fetched
-                             feed — Phase B renames this heading to "Latest news" when the
-                             raw-items endpoint powers it. -->
-                        <div class="nns-col" id="nnsFeed"><h3>Today's signal stories</h3><ul class="nns-list" id="nnsFeedList"></ul></div>
+                        <!-- Phase B honesty: the left column is the broad raw-items feed — not
+                             gated by the signals relevance filter; may include non-Dow tickers
+                             and general-market stories (null ticker, rendered without a chip).
+                             When the items endpoint is unavailable it falls back to Phase A's
+                             one-representative-story-per-signal feed (get_latest_panel_payload). -->
+                        <div class="nns-col" id="nnsFeed"><h3>Latest news</h3><ul class="nns-list" id="nnsFeedList"></ul></div>
                         <div class="nns-col" id="nnsSignals"><h3>Signals</h3><ul class="nns-list" id="nnsSignalsList"></ul></div>
                     </div>
                 </section>
