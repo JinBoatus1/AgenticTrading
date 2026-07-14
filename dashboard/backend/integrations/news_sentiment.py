@@ -20,6 +20,8 @@ import requests
 logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "https://agenticfinsearch.org/api/signals/news/"
+DEFAULT_ITEMS_URL = "https://agenticfinsearch.org/api/news/items/"
+_PANEL_FEED_LIMIT = 50   # how many raw items to request for the panel's left column
 _TIMEOUT_SECONDS = 10
 _MAX_CACHE_ENTRIES = 64  # bounded — a long-lived server must not grow monotonically
 # Short throttle window for today/latest *failures* (outage/config errors), so a
@@ -57,6 +59,10 @@ def _base_url() -> str:
     return os.environ.get("FINSEARCH_SIGNALS_URL", DEFAULT_BASE_URL)
 
 
+def _items_url() -> str:
+    return os.environ.get("FINSEARCH_ITEMS_URL", DEFAULT_ITEMS_URL)
+
+
 def _headers() -> Dict[str, str]:
     key = os.environ.get("FINGPT_API_KEY", "")
     return {"Authorization": f"Bearer {key}"} if key else {}
@@ -64,6 +70,11 @@ def _headers() -> Dict[str, str]:
 
 def _http_get(*, params: Dict[str, str], headers: Dict[str, str]):
     return requests.get(_base_url(), params=params, headers=headers,
+                        timeout=_TIMEOUT_SECONDS)
+
+
+def _http_get_items(*, params: Dict[str, str], headers: Dict[str, str]):
+    return requests.get(_items_url(), params=params, headers=headers,
                         timeout=_TIMEOUT_SECONDS)
 
 
@@ -259,20 +270,66 @@ def _feed_sort_key(item: dict) -> float:
         return 0.0
 
 
-def get_latest_panel_payload(tickers) -> dict:
-    """Latest-artifact read for the Home panel (no as_of).
+def fetch_items(*, limit: int = _PANEL_FEED_LIMIT) -> Optional[list]:
+    """Newest raw news-items batch for the panel feed. Returns list[dict], or
+    None on ANY failure (fail closed — the caller falls back to the
+    signals-derived representative feed). Latest-only, no as_of; the
+    /api/news/signals router already caches the panel payload, so no extra
+    memo here."""
+    try:
+        resp = _http_get_items(params={"limit": str(limit)}, headers=_headers())
+    except Exception as exc:  # network/timeout: fail closed
+        logger.warning("news_sentiment: items fetch failed: %s", exc)
+        return None
+    if resp.status_code == 200:
+        try:
+            body = resp.json()
+        except ValueError:
+            logger.error("news_sentiment: unparseable items body")
+            return None
+        items = body.get("items")
+        if not isinstance(items, list):
+            logger.error("news_sentiment: items body missing 'items' list")
+            return None
+        return items
+    if resp.status_code == 401:
+        logger.error("news_sentiment: 401 from producer — missing/wrong FINGPT_API_KEY (items)")
+    elif resp.status_code == 404:
+        pass  # no items batch yet: normal
+    else:
+        logger.warning("news_sentiment: unexpected items status %s", resp.status_code)
+    return None
 
-    `feed` is served backend-side even though Phase A derives it from
-    `signals`, so the wire format (and the frontend) do not change when
-    Phase B swaps the feed source to the raw-items endpoint.
 
-    One malformed signal is dropped (logged) rather than collapsing the whole
-    panel: the producer is the trust boundary, but a single off-spec entry must
-    still degrade to partial rendering, not an outage."""
-    body = fetch_signals(as_of=None, tickers=tuple(sorted(tickers or ())))
-    if not body:
-        return dict(UNAVAILABLE_PAYLOAD)
-    signals = body.get("signals") or {}
+def _feed_from_items(items) -> list:
+    """Map raw news-items onto the EXISTING panel feed item keys (wire shape
+    unchanged): title->headline, link->url, source->source,
+    published->published, tickers[0]|None->ticker. Drops a malformed item
+    (KeyError/TypeError) with a warning instead of collapsing the feed. Sorted
+    newest-first via _feed_sort_key."""
+    feed = []
+    for item in items:
+        try:
+            tickers = item["tickers"]
+            entry = {
+                "headline": item["title"],
+                "source": item["source"],
+                "url": item["link"],
+                "published": item["published"],
+                "ticker": tickers[0] if tickers else None,
+            }
+        except (KeyError, TypeError):
+            logger.warning("news_sentiment: dropping malformed panel item %r",
+                           item.get("guid") if isinstance(item, dict) else item)
+            continue
+        feed.append(entry)
+    feed.sort(key=_feed_sort_key, reverse=True)
+    return feed
+
+
+def _representative_feed(signals: dict) -> list:
+    """Phase-A feed: one representative story per signal. Used as the panel
+    feed's fallback when the raw-items feed is unavailable."""
     feed = []
     for sym, s in signals.items():
         try:
@@ -282,6 +339,33 @@ def get_latest_panel_payload(tickers) -> dict:
             continue
         feed.append({**story, "published": s.get("published"), "ticker": sym})
     feed.sort(key=_feed_sort_key, reverse=True)
+    return feed
+
+
+def get_latest_panel_payload(tickers) -> dict:
+    """Latest-artifact read for the Home panel (no as_of).
+
+    `feed` prefers the richer raw-items endpoint (Phase B: multiple stories
+    per signal) and falls back to the Phase-A representative feed (one story
+    per signal, derived from `signals`) on ANY items failure — so the panel
+    can never regress below Phase A. `signals`/status/overview/staleness
+    always come from `fetch_signals`: it is the gate, so when it fails the
+    panel is unavailable regardless of items, and `fetch_items` is not even
+    called.
+
+    One malformed signal/item is dropped (logged) rather than collapsing the
+    whole panel: the producer is the trust boundary, but a single off-spec
+    entry must still degrade to partial rendering, not an outage."""
+    body = fetch_signals(as_of=None, tickers=tuple(sorted(tickers or ())))
+    if not body:
+        return dict(UNAVAILABLE_PAYLOAD)
+    signals = body.get("signals") or {}
+    feed = None
+    items = fetch_items()
+    if items:
+        feed = _feed_from_items(items)
+    if not feed:  # None, [], or all-malformed -> fall back to Phase A
+        feed = _representative_feed(signals)
     return {
         "status": body.get("status", "ok"),
         "status_reason": body.get("status_reason"),
