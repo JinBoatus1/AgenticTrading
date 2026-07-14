@@ -180,7 +180,7 @@
     </div>
     <div class="ticker-info">
         <span class="ticker-source-label" title="Stock prices and daily % change from Yahoo Finance. Crypto uses CoinGecko when included.">Data: Yahoo Finance</span>
-        <span class="ticker-markets-open"><span class="ticker-markets-dot" aria-hidden="true"></span>Markets open</span>
+        <span id="tickerMarketsStatus" class="ticker-markets-open" role="status" aria-live="polite"><span class="ticker-markets-dot" aria-hidden="true"></span><span class="ticker-markets-label">Markets open</span></span>
     </div>
 
     <!-- Home -->
@@ -440,13 +440,13 @@
                         <h3 class="home-section-title">Current Season</h3>
                         <div class="home-season-head">
                             <div class="home-season-name">SecureFinAI Contest 2026</div>
-                            <span class="status-badge live">Live</span>
+                            <span class="status-badge upcoming">Upcoming</span>
                         </div>
                         <p class="home-season-window">Sep 1 – Oct 30, 2026</p>
-                        <p class="home-season-days tabular-nums">60 Days Left</p>
+                        <p class="home-season-days tabular-nums">Registration not open</p>
                         <div class="home-season-counts">
-                            <div class="home-season-count"><span class="metric-label">Teams</span><span class="metric-value tabular-nums">7 registered</span></div>
-                            <div class="home-season-count"><span class="metric-label">Agents</span><span class="metric-value tabular-nums">9 connected</span></div>
+                            <div class="home-season-count"><span class="metric-label">Phase</span><span class="metric-value">Preseason</span></div>
+                            <div class="home-season-count"><span class="metric-label">Status</span><span class="metric-value">Upcoming</span></div>
                         </div>
                         <div class="home-progress">
                             <div class="home-progress-labels">
@@ -1288,72 +1288,34 @@
     <div id="competitionView" class="page-view competition-view" style="display: none;">
         <div class="subtab-bar competition-subtabs">
             <button class="subtab-btn active" data-competition-tab="leaderboard">Leaderboard</button>
-            <button class="subtab-btn" data-competition-tab="participants">Participants</button>
+            <button class="subtab-btn" data-competition-tab="participants">Participating Teams</button>
             <button class="subtab-btn" data-competition-tab="about">About</button>
         </div>
-        <div id="competitionParticipantsPanel" class="competition-panel" style="display: none;">
-            <div class="participants-grid">
-                <div class="section-card participant-card">
-                    <div class="agent-card-head">
-                        <h3 class="agent-name">AlphaForge</h3>
-                        <span class="status-badge live">Live</span>
-                    </div>
-                    <p class="participant-desc">Claude Sonnet momentum strategy on DJIA universe</p>
-                    <div class="agent-metrics">
-                        <div class="agent-metric">
-                            <span class="metric-label">Return</span>
-                            <span class="metric-value positive">+18.2%</span>
-                        </div>
-                        <div class="agent-metric">
-                            <span class="metric-label">Rank</span>
-                            <span class="metric-value">#1</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="section-card participant-card">
-                    <div class="agent-card-head">
-                        <h3 class="agent-name">QuantPulse</h3>
-                        <span class="status-badge live">Live</span>
-                    </div>
-                    <p class="participant-desc">Multi-signal agent with risk-adjusted position sizing</p>
-                    <div class="agent-metrics">
-                        <div class="agent-metric">
-                            <span class="metric-label">Return</span>
-                            <span class="metric-value positive">+14.7%</span>
-                        </div>
-                        <div class="agent-metric">
-                            <span class="metric-label">Rank</span>
-                            <span class="metric-value">#2</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="section-card participant-card">
-                    <div class="agent-card-head">
-                        <h3 class="agent-name">Momentum Alpha</h3>
-                        <span class="status-badge live">Live</span>
-                    </div>
-                    <p class="participant-desc">Hourly LLM decisions on Magnificent 7 basket</p>
-                    <div class="agent-metrics">
-                        <div class="agent-metric">
-                            <span class="metric-label">Return</span>
-                            <span class="metric-value positive">+12.4%</span>
-                        </div>
-                        <div class="agent-metric">
-                            <span class="metric-label">Rank</span>
-                            <span class="metric-value">#3</span>
-                        </div>
-                    </div>
+        <div id="competitionParticipantsPanel" class="competition-panel participants-panel" style="display: none;">
+            <div class="participants-empty-wrap">
+                <div class="participants-empty" id="participantsEmptyState">
+                    <p class="participants-empty-title">Season hasn't started yet</p>
+                    <p class="participants-empty-text">Participating teams will appear here when the contest season opens. Preseason Standings on the Leaderboard are models and baselines only.</p>
                 </div>
             </div>
+            <div class="participants-grid" id="participantsGrid" hidden></div>
         </div>
         <div id="competitionAboutPanel" class="competition-panel" style="display: none;">
             <div class="about-grid">
                 <div class="section-card">
                     <h3 class="section-title">Competition Overview</h3>
-                    <p class="about-text">SecureFinAI Contest 2026 is a live-market paper trading competition where teams deploy LLM-powered trading agents and compete on standardized performance metrics.</p>
+                    <p class="about-text">SecureFinAI Contest 2026 is a paper-trading competition for LLM-powered agents. The contest is currently in <strong>Preseason</strong>. Participating teams join when the season starts (registration Aug 2026).</p>
+                </div>
+                <div class="section-card">
+                    <h3 class="section-title">Current Leaderboard</h3>
+                    <p class="about-text">Preseason Standings are a <strong>backtest leaderboard</strong>, not live trading. Each entry is an hourly backtest over <strong>2026-04-15 → 2026-05-15</strong> (one-month window), comparing provided LLM models, baseline strategies, and market indices. Official rank is by final portfolio value.</p>
                 </div>
                 <div class="section-card compact">
                     <h3 class="section-title">Schedule</h3>
+                    <div class="metric-row">
+                        <span class="metric-label">Phase</span>
+                        <span class="metric-value">Preseason</span>
+                    </div>
                     <div class="metric-row">
                         <span class="metric-label">Registration</span>
                         <span class="metric-value">Aug 1 – Aug 31</span>
@@ -1379,9 +1341,9 @@
                 <div class="section-card compact">
                     <h3 class="section-title">Evaluation Metrics</h3>
                     <ul class="about-list">
-                        <li>Cumulative return (rCR)</li>
-                        <li>Sharpe ratio (rSR)</li>
-                        <li>Final score = (rCR + rSR) / 2 (baselines omit W/L)</li>
+                        <li>Official rank by final portfolio value (Preseason Standings)</li>
+                        <li>Also reported: cumulative return, Sharpe, max drawdown</li>
+                        <li>Entry types: Model, Baseline Strategy, Market Index</li>
                     </ul>
                 </div>
             </div>
@@ -1396,9 +1358,9 @@
                 <div class="contest-identity">
                     <div class="contest-title-row">
                         <h2 class="contest-title">SecureFinAI Contest 2026</h2>
-                        <span class="status-badge live contest-live-badge">Live</span>
+                        <span class="status-badge upcoming contest-live-badge">Upcoming</span>
                     </div>
-                    <p class="contest-subtitle">Sep 1 – Oct 30, 2026 · 7 teams</p>
+                    <p class="contest-subtitle">Sep 1 – Oct 30, 2026</p>
                 </div>
                 <div class="contest-actions">
                     <button id="competitionRulesBtn" class="agent-action-btn agent-action-secondary contest-action-btn" type="button">Rules</button>
@@ -1410,8 +1372,8 @@
                 <!-- Left: Stats -->
                 <div class="header-stats compact">
                     <div class="stat-item compact">
-                        <span class="stat-label">Teams</span>
-                        <span class="stat-value" id="totalTeams">—</span>
+                        <span class="stat-label">Phase</span>
+                        <span class="stat-value" id="totalTeams">Preseason</span>
                     </div>
                     <div class="stat-item compact">
                         <span class="stat-label">Window</span>
@@ -1429,10 +1391,19 @@
 
                 <!-- Right: Controls -->
                 <div class="header-controls compact">
-                    <div class="filter-tabs compact">
-                        <button class="filter-tab compact active" data-filter="all">All</button>
-                        <button class="filter-tab compact" data-filter="teams">Teams</button>
-                        <button class="filter-tab compact" data-filter="baselines">Baselines</button>
+                    <div class="curve-picker" id="curvePicker">
+                        <button type="button" class="curve-picker-trigger" id="curvePickerTrigger" aria-expanded="false" aria-haspopup="true">
+                            <span class="curve-picker-trigger-label">Show on Chart</span>
+                            <span class="curve-picker-sep" aria-hidden="true">·</span>
+                            <span class="curve-picker-count" id="curvePickerCount">0 selected</span>
+                            <span class="curve-picker-caret" aria-hidden="true">▾</span>
+                        </button>
+                        <div class="curve-picker-menu" id="curvePickerMenu" hidden role="dialog" aria-label="Chart curves">
+                            <div class="curve-picker-menu-head">
+                                <button type="button" class="curve-picker-clear" id="curvePickerClear">Clear</button>
+                            </div>
+                            <div class="curve-picker-body" id="curvePickerBody"></div>
+                        </div>
                     </div>
 
                     <div class="view-toggle compact">
@@ -1459,26 +1430,18 @@
                 <!-- Left: Table -->
                 <section class="leaderboard-table-section compact">
                     <div class="table-header compact">
-                        <h3>Official Rankings</h3>
-                        <div class="sort-toggle compact">
-                            <span class="sort-label">Sort</span>
-                            <button class="sort-btn compact active" data-sort="return">Return</button>
-                            <button class="sort-btn compact" data-sort="sharpe">Sharpe</button>
-                        </div>
+                        <h3>Preseason Standings</h3>
                     </div>
                     <div class="table-wrapper compact">
                         <table class="leaderboard-table compact">
                             <thead>
                                 <tr>
-                                    <th class="rank-col">Rank</th>
-                                    <th class="name-col">Team Name</th>
-                                    <th class="model-col">Model</th>
-                                    <th class="portfolio-col">Value</th>
-                                    <th class="return-col">Return</th>
-                                    <th class="sharpe-col">Sharpe</th>
-                                    <th class="dd-col">Max DD</th>
-                                    <th class="ranks-col">Ranks</th>
-                                    <th class="score-col">Score</th>
+                                    <th class="rank-col sortable" data-sort="rank" aria-sort="ascending">Rank <span class="sort-arrow" aria-hidden="true"></span></th>
+                                    <th class="name-col">Entry</th>
+                                    <th class="portfolio-col sortable" data-sort="value">Value <span class="sort-arrow" aria-hidden="true"></span></th>
+                                    <th class="return-col sortable" data-sort="return">Return <span class="sort-arrow" aria-hidden="true"></span></th>
+                                    <th class="sharpe-col sortable" data-sort="sharpe">Sharpe <span class="sort-arrow" aria-hidden="true"></span></th>
+                                    <th class="dd-col sortable" data-sort="dd">Max DD <span class="sort-arrow" aria-hidden="true"></span></th>
                                 </tr>
                             </thead>
                             <tbody id="leaderboardTableBody">
@@ -1488,26 +1451,26 @@
                     </div>
                 </section>
 
-                <!-- Right: Rules + Team Detail -->
+                <!-- Right: Rules + Entry Detail -->
                 <aside class="leaderboard-table-sidebar compact">
                     <!-- Ranking Rules -->
                     <div class="sidebar-card compact">
                         <h3 class="sidebar-title compact">Rules</h3>
                         <div class="ranking-formula compact">
-                            <p class="formula-compact">Final Score = (rCR + rSR) / 2</p>
+                            <p class="formula-compact">Official rank = final portfolio value</p>
                             <ul class="formula-items compact">
-                                <li>rCR = Return rank</li>
-                                <li>rSR = Sharpe rank</li>
-                                <li>Baselines: no W/L</li>
+                                <li>Higher account value ranks first</li>
+                                <li>Ties break on cumulative return</li>
+                                <li>Click column headers to re-sort</li>
                             </ul>
                         </div>
                     </div>
 
-                    <!-- Team Detail -->
+                    <!-- Entry Detail -->
                     <div class="sidebar-card compact">
-                        <h3 class="sidebar-title compact">Team</h3>
+                        <h3 class="sidebar-title compact">Entry Details</h3>
                         <div id="selectedTeamDetail" class="team-detail compact">
-                            <div class="no-selection">Click team</div>
+                            <div class="no-selection">Click a row</div>
                         </div>
                     </div>
                 </aside>

@@ -23,6 +23,9 @@ services:
         value: 3.13.5
       - key: ATL_API_BASE
         value: https://agentictrading.onrender.com
+      # Discord deep links must open the Vercel SPA, not the Render API host.
+      - key: PUBLIC_APP_URL
+        value: https://agentic-trading-lab.vercel.app
       - key: DISCORD_BOT_TOKEN
         sync: false
       - key: DISCORD_GUILD_ID
