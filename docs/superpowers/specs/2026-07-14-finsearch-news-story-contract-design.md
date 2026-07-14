@@ -171,9 +171,11 @@ gap is the useful part of this record:
    Phase-A feed. **That is also why nobody noticed.** It was found by manually
    A/B-ing the adapter against live prod, not by any alarm.
 4. **PR #110** lands the adapter fix, plus the two things this design lacked: an
-   `ERROR` when a non-empty batch projects to zero entries (drift is now loud), and
-   a recorded `items-wire-fixture.json` so the assumed wire shape is one reviewable
-   artifact rather than dicts inlined per test.
+   `ERROR` when a non-empty batch projects to zero entries (drift is now loud —
+   on *both* projections, the Phase-A fallback included, since alarming only the
+   path that happened to break this time would leave the worse outage the quieter
+   one), and a recorded `items-wire-fixture.json` so the assumed wire shape is one
+   reviewable artifact rather than dicts inlined per test.
 
 **Lesson for the next cross-repo contract change.** "Fail closed" and "fail visibly"
 are different properties, and this design bought only the first. A silent fallback is

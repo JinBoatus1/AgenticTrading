@@ -72,7 +72,7 @@ powers ATL's Home-panel "Latest news" column.
 - Read stories **by key**; ignore unknown keys (additive evolution).
 - Fail closed: a malformed **item** is dropped (logged), a malformed **body** falls back to the Phase-A representative feed — the panel never regresses below Phase A and never errors out.
 - `tickers[]` stays a list on the wire; ATL's panel currently collapses it to `tickers[0] | null` for its single chip (multi-chip display deferred). A `[]` general-market story therefore renders with **no ticker chip** — the meta line is joined from non-empty segments, so the separator collapses with it.
-- **Alarm on wholesale drift.** Because the fallback is silent by design, a consumer must distinguish *one* bad story from *the contract moved*. ATL logs `ERROR` when a non-empty batch projects to zero usable entries; an empty batch is "no news", not drift. This is the safety net the 2026-07-14 rename slipped past.
+- **Alarm on wholesale drift.** Because the fallback is silent by design, a consumer must distinguish *one* bad story from *the contract moved*. ATL logs `ERROR` when a non-empty batch projects to zero usable entries; an empty batch is "no news", not drift. This is the safety net the 2026-07-14 rename slipped past. The check (`_alarm_if_all_dropped`) is a property of *projection*, not of the items endpoint, so it guards the Phase-A fallback too — that path needs it at least as much, since when the signals vocabulary drifts there is nothing left to fall back to and the feed goes blank rather than merely stale.
 - **Pin the wire shape in a fixture, not in inline test dicts.** ATL records it once in `dashboard/backend/tests/fixtures/items-wire-fixture.json` (key set verified against prod) and drives the adapter's happy path from it, so a rename must visibly edit that file. Fixtures written inline beside the code they test drift *with* the code and stay green.
 
 ## Known gap
@@ -88,4 +88,6 @@ Nothing in ATL's test suite can *catch* a producer rename — the producer is mo
 | Broad feed, no `?tickers=` | design spec §"Deliberately settled / deferred" |
 | Fallback/fail-closed consumer behavior | ATL `news_sentiment.py` `get_latest_panel_payload` docstring |
 | Drift `ERROR` vs. per-item warning | ATL `test_items_all_dropped_logs_drift_error` / `test_partial_malformed_items_does_not_log_drift_error` |
+| Drift alarm covers the fallback, not just items | ATL `_alarm_if_all_dropped`; `test_representative_fallback_all_dropped_logs_drift_error` |
+| "Non-empty raw" half of the predicate (no crying wolf on a quiet news day) | ATL `test_items_empty_list_does_not_log_drift_error` / `test_empty_signals_artifact_does_not_log_drift_error` |
 | Recorded wire shape + its coherence with the signals fixtures | ATL `items-wire-fixture.json`; `test_news_sentiment_fixture.py` |

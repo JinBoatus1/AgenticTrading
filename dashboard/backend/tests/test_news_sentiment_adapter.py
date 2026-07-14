@@ -465,6 +465,42 @@ def test_items_empty_list_does_not_log_drift_error(monkeypatch, caplog):
     assert not [r for r in caplog.records if r.levelname == "ERROR"]
 
 
+def test_representative_fallback_all_dropped_logs_drift_error(monkeypatch, caplog):
+    """The fallback earns the same alarm as the path it backstops — arguably more:
+    a signals-side rename leaves nothing to fall back TO, so the feed goes blank
+    rather than merely stale. Alarming only the items path would mean the *worse*
+    outage is the quieter one. (Items 404s here via the autouse default, so this
+    is the last-resort path.)"""
+    signals_body = load_signals_fixture()
+    drifted = {sym: {k: v for k, v in sig.items() if k != "headline"}
+               for sym, sig in signals_body["signals"].items()}
+    monkeypatch.setattr(ns, "_http_get",
+                        lambda **kw: _fake_response(body={**signals_body, "signals": drifted}))
+    with caplog.at_level("ERROR"):
+        payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["feed"] == []          # nothing left to serve
+    assert payload["signals"] == drifted  # signals still pass through untouched
+    drift = [r for r in caplog.records
+             if r.levelname == "ERROR" and "0 usable entries" in r.getMessage()]
+    assert len(drift) == 1
+
+
+def test_empty_signals_artifact_does_not_log_drift_error(monkeypatch, caplog):
+    """A quiet news day — an artifact carrying zero signals — legitimately
+    projects to an empty feed. Nothing was dropped, so nothing drifted. This is
+    the signals-side twin of the empty-batch case: it pins the "non-empty raw"
+    half of the alarm's predicate, which is the half that keeps it from firing
+    on the most ordinary state there is."""
+    signals_body = load_signals_fixture()
+    monkeypatch.setattr(ns, "_http_get",
+                        lambda **kw: _fake_response(body={**signals_body, "signals": {}}))
+    with caplog.at_level("ERROR"):
+        payload = ns.get_latest_panel_payload([])
+    assert payload["feed"] == []
+    assert payload["signals"] == {}
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+
 def test_signals_down_returns_unavailable_and_skips_items_fetch(monkeypatch):
     def _boom(**kw):
         raise OSError("down")
