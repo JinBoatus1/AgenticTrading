@@ -31,12 +31,14 @@ fields are added additively; a breaking change bumps the version.
 
 > **It is a producer-side convention only — no consumer reads it today.** ATL
 > parses stories by key and ignores `schema_version` entirely. So a v2 that
-> renamed a field would not be *detected*; every story would simply fail to
-> project and the panel would fall back to Phase A. That is fail-closed, which
-> is why it is tolerable, but the version number does no work in preventing it —
-> the thing that actually surfaces such a break is the drift `ERROR` in
-> `get_latest_panel_payload` (0 usable entries from a non-empty batch). Don't
-> mistake the presence of this field for a consumer that gates on it.
+> renamed a field would not be *detected* by the version number; every story
+> would simply fail to project and the panel would fall back to Phase A. That is
+> fail-closed, which is why it is tolerable, but the version number does no work
+> in preventing it — what actually surfaces such a break is the drift check in
+> `get_latest_panel_payload` (0 usable entries from a non-empty batch), which
+> logs an `ERROR` **and** escalates the payload to `degraded` so the panel badge
+> says so. Don't mistake the presence of this field for a consumer that gates on
+> it.
 
 **Disk vs. wire:** on-disk batches (`items-*.jsonl`) stay RSS-native
 (`title`/`link` — the scraper's format, validated by the ported
@@ -72,7 +74,8 @@ powers ATL's Home-panel "Latest news" column.
 - Read stories **by key**; ignore unknown keys (additive evolution).
 - Fail closed: a malformed **item** is dropped (logged), a malformed **body** falls back to the Phase-A representative feed — the panel never regresses below Phase A and never errors out.
 - `tickers[]` stays a list on the wire; ATL's panel currently collapses it to `tickers[0] | null` for its single chip (multi-chip display deferred). A `[]` general-market story therefore renders with **no ticker chip** — the meta line is joined from non-empty segments, so the separator collapses with it.
-- **Alarm on wholesale drift.** Because the fallback is silent by design, a consumer must distinguish *one* bad story from *the contract moved*. ATL logs `ERROR` when a non-empty batch projects to zero usable entries; an empty batch is "no news", not drift. This is the safety net the 2026-07-14 rename slipped past. The check (`_alarm_if_all_dropped`) is a property of *projection*, not of the items endpoint, so it guards the Phase-A fallback too — that path needs it at least as much, since when the signals vocabulary drifts there is nothing left to fall back to and the feed goes blank rather than merely stale.
+- **Alarm on wholesale drift, in the logs *and* in the UI.** Because the fallback is silent by design, a consumer must distinguish *one* bad story from *the contract moved*. ATL logs `ERROR` when a non-empty batch projects to zero usable entries; an empty batch is "no news", not drift. This is the safety net the 2026-07-14 rename slipped past. The check (`_alarm_if_all_dropped`) is a property of *projection*, not of the items endpoint, so it guards the Phase-A fallback too — that path needs it at least as much, since when the signals vocabulary drifts there is nothing left to fall back to and the feed goes blank rather than merely stale.
+- **Drift escalates `status` to `degraded`.** A log line only reaches whoever is reading logs, and in 2026-07-14 nobody was — the panel looked healthy, because the fallback made it look healthy. So drift also sets `status: "degraded"` and appends a reader-facing `status_reason` (`news feed incomplete — upstream story format changed`), which the Home panel already renders as a badge. Two rules keep the badge worth reading: it stays dark on a quiet news day (an empty artifact drops nothing, so it isn't drift), and a drift reason is *appended to* the producer's own `status_reason` rather than replacing it — "a source timed out" and "the wire shape moved" are independent failures and the badge should not let the later one erase the earlier.
 - **Pin the wire shape in a fixture, not in inline test dicts.** ATL records it once in `dashboard/backend/tests/fixtures/items-wire-fixture.json` (key set verified against prod) and drives the adapter's happy path from it, so a rename must visibly edit that file. Fixtures written inline beside the code they test drift *with* the code and stay green.
 
 ## Known gap

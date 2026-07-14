@@ -170,15 +170,28 @@ gap is the useful part of this record:
    design worked as designed: no error, no outage, the panel just quietly served the
    Phase-A feed. **That is also why nobody noticed.** It was found by manually
    A/B-ing the adapter against live prod, not by any alarm.
-4. **PR #110** lands the adapter fix, plus the two things this design lacked: an
-   `ERROR` when a non-empty batch projects to zero entries (drift is now loud —
-   on *both* projections, the Phase-A fallback included, since alarming only the
-   path that happened to break this time would leave the worse outage the quieter
-   one), and a recorded `items-wire-fixture.json` so the assumed wire shape is one
-   reviewable artifact rather than dicts inlined per test.
+4. **PR #110** lands the adapter fix, plus the three things this design lacked:
+   - an `ERROR` when a non-empty batch projects to zero entries (drift is now loud
+     — on *both* projections, the Phase-A fallback included, since alarming only
+     the path that happened to break this time would leave the worse outage the
+     quieter one);
+   - an escalation of that same condition to `status: degraded`, so drift reaches
+     the **panel badge** and not just the log. Point 3 is the whole argument for
+     it: the break was invisible precisely because the fallback kept the panel
+     looking healthy, and a log line is only read by someone already looking;
+   - a recorded `items-wire-fixture.json` so the assumed wire shape is one
+     reviewable artifact rather than dicts inlined per test.
 
 **Lesson for the next cross-repo contract change.** "Fail closed" and "fail visibly"
 are different properties, and this design bought only the first. A silent fallback is
 the correct *behavior* and a terrible *signal* — any degradation path that hides a
 contract break from the UI needs a paired alarm, decided at design time, or the
 system will sit in the degraded state for as long as nobody happens to look.
+
+The corollary, learned the same day: **the alarm has to land where someone is
+already looking.** #110's first cut logged an ERROR and stopped there, which is the
+same mistake one layer up — a signal nobody subscribes to. The badge works because
+the panel is the thing people actually have open. The test that matters most for
+keeping it that way is the one asserting it stays *dark* on a quiet news day
+(`test_healthy_panel_is_not_marked_degraded`); an indicator that cries wolf gets
+tuned out, and then we are back to point 3 with extra steps.

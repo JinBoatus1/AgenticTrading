@@ -34,6 +34,10 @@ UNAVAILABLE_PAYLOAD = {
     "status": "unavailable", "status_reason": None, "generated_at": None,
     "staleness_hours": None, "news_overview": None, "signals": {}, "feed": [],
 }
+# Rendered to the reader by the panel badge as `degraded: <this>`, so it names
+# what they lost rather than the mechanism that lost it ("wire-shape drift" is
+# for the log line and the on-call reader, not the person reading the news).
+_DRIFT_STATUS_REASON = "news feed incomplete — upstream story format changed"
 
 _lock = threading.Lock()
 # key: (as_of or "", tickers_key) -> {"etag": str|None, "body": dict|None,
@@ -332,19 +336,24 @@ def _feed_from_items(items) -> list:
     return feed
 
 
-def _alarm_if_all_dropped(raw, projected: list, *, source: str, consequence: str) -> None:
-    """Failing closed is not the same as failing visibly, and every projection
-    here only buys the first: a malformed entry is dropped with a per-entry
-    warning and the panel carries on, so a producer renaming a field looks
-    exactly like routine noise. Non-empty raw input projecting to NOTHING is the
-    tell that the wire contract moved rather than that one story was off-spec,
-    and it is the one case worth an ERROR — on 2026-07-14 AF renamed
-    title/link -> headline/url and this adapter served the Phase-A feed for hours
-    on warnings alone. An empty batch is "no news", not drift."""
-    if raw and not projected:
-        logger.error("news_sentiment: %s produced 0 usable entries from %d raw "
-                     "item(s) — producer wire-shape drift? %s",
-                     source, len(raw), consequence)
+def _alarm_if_all_dropped(raw, projected: list, *, source: str, consequence: str) -> bool:
+    """Whether `raw` projected to NOTHING — i.e. the wire contract moved rather
+    than one story being off-spec — logging an ERROR if so. An empty batch is
+    "no news", not drift.
+
+    Failing closed is not the same as failing visibly, and every projection here
+    only buys the first: a malformed entry is dropped with a per-entry warning
+    and the panel carries on, so a producer renaming a field looks exactly like
+    routine noise. On 2026-07-14 AF renamed title/link -> headline/url and this
+    adapter served the Phase-A feed for hours on warnings alone. The caller
+    escalates a True to `degraded` so the break reaches the panel too — a log
+    line only ever reaches whoever happens to be reading logs, and nobody was."""
+    if not (raw and not projected):
+        return False
+    logger.error("news_sentiment: %s produced 0 usable entries from %d raw "
+                 "item(s) — producer wire-shape drift? %s",
+                 source, len(raw), consequence)
+    return True
 
 
 def _representative_feed(signals: dict) -> list:
@@ -378,24 +387,38 @@ def get_latest_panel_payload(tickers) -> dict:
     entry must still degrade to partial rendering, not an outage. Wholesale
     drift is the other story — see _alarm_if_all_dropped, applied to BOTH
     projections: the fallback needs the alarm at least as much as the path it
-    backstops, because when IT drifts there is nothing left to fall back to."""
+    backstops, because when IT drifts there is nothing left to fall back to.
+
+    Drift also escalates the payload to `degraded`, which the panel renders as a
+    badge. The fallback is what makes this necessary rather than redundant: it
+    keeps the panel looking healthy, so without the badge the only symptom is a
+    quieter feed that nobody can distinguish from a slow news day."""
     body = fetch_signals(as_of=None, tickers=tuple(sorted(tickers or ())))
     if not body:
         return dict(UNAVAILABLE_PAYLOAD)
     signals = body.get("signals") or {}
     feed = None
     items = fetch_items()
+    drifted = False
     if items:
         feed = _feed_from_items(items)
-        _alarm_if_all_dropped(items, feed, source="items feed",
-                              consequence="falling back to the Phase-A feed")
+        drifted = _alarm_if_all_dropped(items, feed, source="items feed",
+                                        consequence="falling back to the Phase-A feed")
     if not feed:  # None, [], or all-malformed -> fall back to Phase A
         feed = _representative_feed(signals)
-        _alarm_if_all_dropped(signals, feed, source="Phase-A signals feed",
-                              consequence="the panel feed is now empty")
+        drifted = _alarm_if_all_dropped(signals, feed, source="Phase-A signals feed",
+                                        consequence="the panel feed is now empty") or drifted
+    status = body.get("status", "ok")
+    status_reason = body.get("status_reason")
+    if drifted:
+        # The producer's own reason (a source timed out) and ours (the wire shape
+        # moved) are independent failures; keep both rather than let whichever
+        # ran last win the badge.
+        status = "degraded"
+        status_reason = "; ".join(filter(None, (status_reason, _DRIFT_STATUS_REASON)))
     return {
-        "status": body.get("status", "ok"),
-        "status_reason": body.get("status_reason"),
+        "status": status,
+        "status_reason": status_reason,
         "generated_at": body.get("generated_at"),
         "staleness_hours": body.get("staleness_hours"),
         "news_overview": body.get("news_overview"),

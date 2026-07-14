@@ -501,6 +501,71 @@ def test_empty_signals_artifact_does_not_log_drift_error(monkeypatch, caplog):
     assert not [r for r in caplog.records if r.levelname == "ERROR"]
 
 
+# --- Drift is visible in the UI, not just in the logs -------------------------
+# A log line only reaches whoever is reading logs. The 2026-07-14 rename proved
+# nobody was: the panel looked fine, so the break sat there for hours. These pin
+# drift to the `degraded` badge the panel already renders.
+
+def test_items_drift_surfaces_as_degraded_in_the_panel_badge(monkeypatch):
+    """The panel keeps working off the Phase-A fallback — which is exactly why it
+    has to say so. A silently-narrower feed is indistinguishable from a quiet
+    news day to the person looking at it."""
+    signals_body = load_signals_fixture()
+    drifted_items = [{"guid": "g1", "title": "Fed cuts rates", "link": "https://x/1",
+                      "source": "Reuters", "published": 1700000200.0, "tickers": ["AAPL"]}]
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    monkeypatch.setattr(ns, "_http_get_items",
+                        lambda **kw: _fake_response(body=_items_body(drifted_items)))
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["status"] == "degraded"
+    assert ns._DRIFT_STATUS_REASON in payload["status_reason"]
+    assert payload["feed"] == ns._representative_feed(signals_body["signals"])  # still serving
+
+
+def test_signals_drift_surfaces_as_degraded(monkeypatch):
+    """The fallback drifting is the worse case — the feed is empty, not merely
+    narrower — so it must reach the badge too."""
+    signals_body = load_signals_fixture()
+    drifted = {sym: {k: v for k, v in sig.items() if k != "headline"}
+               for sym, sig in signals_body["signals"].items()}
+    monkeypatch.setattr(ns, "_http_get",
+                        lambda **kw: _fake_response(body={**signals_body, "signals": drifted}))
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["status"] == "degraded"
+    assert ns._DRIFT_STATUS_REASON in payload["status_reason"]
+    assert payload["feed"] == []
+
+
+def test_healthy_panel_is_not_marked_degraded(monkeypatch):
+    """The badge must stay dark on the happy path. A warning light that is always
+    on is a warning light nobody reads — this is the assertion that keeps the
+    new escalation from devaluing the badge it hangs on."""
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=load_signals_fixture()))
+    monkeypatch.setattr(ns, "_http_get_items",
+                        lambda **kw: _fake_response(body=load_items_wire_fixture()))
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["status"] == "ok"
+    assert payload["status_reason"] is None
+
+
+def test_drift_does_not_swallow_the_producers_own_degraded_reason(monkeypatch):
+    """Two independent things can be wrong at once: a source can time out (the
+    producer's own `degraded`) while the wire shape ALSO moved. Ours must not
+    overwrite theirs — the badge should report both, not the last one to run."""
+    signals_body = load_signals_fixture()
+    body = {**signals_body, "status": "degraded",
+            "status_reason": "1 of 3 sources timed out"}
+    drifted_items = [{"guid": "g1", "title": "t", "link": "https://x/1",
+                      "source": "Reuters", "published": 1700000200.0, "tickers": []}]
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    monkeypatch.setattr(ns, "_http_get_items",
+                        lambda **kw: _fake_response(body=_items_body(drifted_items)))
+    payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["status"] == "degraded"
+    assert "1 of 3 sources timed out" in payload["status_reason"]  # theirs survives
+    assert ns._DRIFT_STATUS_REASON in payload["status_reason"]     # ours is added
+
+
 def test_signals_down_returns_unavailable_and_skips_items_fetch(monkeypatch):
     def _boom(**kw):
         raise OSError("down")
