@@ -885,6 +885,26 @@ a.header-brand:hover .title-section h1 {
     box-shadow: 0 0 4px rgba(77, 171, 247, 0.2);
 }
 
+.control-select:disabled {
+    cursor: not-allowed;
+    color: var(--text-muted);
+    opacity: 0.62;
+}
+
+.market-data-notice {
+    margin: 6px 0 0;
+    padding: 6px 8px;
+    border-left: 2px solid var(--warning-color);
+    background: rgba(245, 158, 11, 0.08);
+    color: var(--text-secondary);
+    font-size: 10px;
+    line-height: 1.45;
+}
+
+.market-data-notice[hidden] {
+    display: none;
+}
+
 .date-separator {
     color: var(--text-secondary);
     font-size: 12px;
@@ -1447,6 +1467,49 @@ a.header-brand:hover .title-section h1 {
     display: flex;
     flex-direction: column;
     gap: 2px;
+}
+
+.performance-title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+    min-height: 24px;
+}
+
+.section-card .performance-title-row h2 {
+    margin: 0;
+    padding: 0;
+    border-bottom: 0;
+}
+
+.data-source-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 20px;
+    padding: 2px 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    font-size: 9px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.data-source-badge.is-simulated {
+    border-color: rgba(245, 158, 11, 0.42);
+    background: rgba(245, 158, 11, 0.08);
+    color: #fbbf24;
+}
+
+.data-source-badge.is-alpaca {
+    border-color: rgba(34, 197, 94, 0.32);
+    color: #86efac;
+}
+
+.data-source-badge[hidden] {
+    display: none;
 }
 
 .chart-controls {

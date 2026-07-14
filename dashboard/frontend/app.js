@@ -893,6 +893,59 @@ async function loadDefaults() {
   }
 }
 
+async function loadMarketDataFeatures() {
+  const select = document.getElementById('marketDataSourceSelect');
+  if (!select) return;
+
+  try {
+    const features = await API.get(`${API_BASE}/config/features`);
+    window.VNPY_SIMULATION_ENABLED = features.vnpy_simulation_enabled === true;
+  } catch (error) {
+    window.VNPY_SIMULATION_ENABLED = false;
+    console.warn('Could not load optional market-data features:', error.message);
+  }
+
+  const existing = select.querySelector('option[value="vnpy_simulation"]');
+  if (window.VNPY_SIMULATION_ENABLED && !existing) {
+    const option = document.createElement('option');
+    option.value = 'vnpy_simulation';
+    option.textContent = 'vn.py simulated data';
+    select.appendChild(option);
+  } else if (!window.VNPY_SIMULATION_ENABLED && existing) {
+    existing.remove();
+    select.value = 'alpaca';
+  }
+
+  syncMarketDataSourceUI();
+}
+
+function syncMarketDataSourceUI() {
+  const select = document.getElementById('marketDataSourceSelect');
+  const modelSelect = document.getElementById('modelSelect');
+  const notice = document.getElementById('vnpySimulationNotice');
+  const isSimulation = select?.value === 'vnpy_simulation';
+
+  if (modelSelect) {
+    modelSelect.disabled = isSimulation;
+    modelSelect.setAttribute('aria-disabled', String(isSimulation));
+  }
+  if (notice) notice.hidden = !isSimulation;
+}
+
+function renderBacktestDataSourceBadge(run) {
+  const badge = document.getElementById('backtestDataSourceBadge');
+  if (!badge) return;
+  if (!run) {
+    badge.hidden = true;
+    return;
+  }
+
+  const isSimulation = run.data_source === 'vnpy_simulation';
+  badge.textContent = isSimulation ? 'vn.py simulated data' : 'Alpaca data';
+  badge.className = `data-source-badge ${isSimulation ? 'is-simulated' : 'is-alpaca'}`;
+  badge.hidden = false;
+}
+
 // Parse URL config for TensorFlow Playground-style sharing
 function loadConfigFromURL() {
   const params = new URLSearchParams(window.location.search);
@@ -1492,6 +1545,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    const marketDataSourceSelect = document.getElementById('marketDataSourceSelect');
+    if (marketDataSourceSelect) {
+        marketDataSourceSelect.addEventListener('change', syncMarketDataSourceUI);
+    }
+
     // Setup collapsible advanced settings
     const advancedToggle = document.getElementById('advancedToggle');
     const advancedContent = document.getElementById('advancedContent');
@@ -1537,6 +1595,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (error) {
       console.warn('Failed to load defaults:', error);
     }
+    await loadMarketDataFeatures();
 
     initNavigation();
 
@@ -2684,6 +2743,9 @@ async function runBacktest() {
 
     const assets = getSelectedAssets();
     const modelSelect = document.getElementById('modelSelect');
+    const marketDataSourceSelect = document.getElementById('marketDataSourceSelect');
+    const dataSource = marketDataSourceSelect?.value || 'alpaca';
+    const isSimulation = dataSource === 'vnpy_simulation';
     const activeAgent = getSelectedBacktestAgent();
     if (!activeAgent) {
         alert('Please create or select an agent first.');
@@ -2693,12 +2755,14 @@ async function runBacktest() {
     await activateAgent(activeAgent);
     syncModelSelectFromAgent(activeAgent);
     const pipeline = loadAgentPipelineForBacktest(activeAgent);
-    const model = activeAgent?.model_name
-        || (modelSelect ? modelSelect.value : 'claude-haiku-4.5');
+    const model = isSimulation
+        ? null
+        : activeAgent?.model_name || (modelSelect ? modelSelect.value : 'claude-haiku-4.5');
     
     console.log(`Running backtest: ${startDate} to ${endDate}`);
     console.log(`Assets: ${assets.join(', ')}`);
-    console.log(`Model: ${model}`);
+    console.log(`Market data: ${dataSource}`);
+    console.log(`Model: ${model || 'disabled for simulation'}`);
     if (activeAgent?.agent_id) {
         console.log(`Agent: ${activeAgent.name} (${activeAgent.agent_id})`);
     }
@@ -2725,13 +2789,17 @@ async function runBacktest() {
             start_date: startDate,
             end_date: endDate,
             assets: assets.join(','),
-            model: model
+            data_source: dataSource,
         });
         const payload = {
             start_date: startDate,
             end_date: endDate,
-            model,
+            data_source: dataSource,
         };
+        if (model) {
+            params.set('model', model);
+            payload.model = model;
+        }
         if (activeAgent?.agent_id && !String(activeAgent.agent_id).startsWith('mock-')) {
             payload.agent_id = activeAgent.agent_id;
         }
@@ -3348,7 +3416,8 @@ function formatBacktestRunSecondary(run) {
     const when = run.created_at ? new Date(run.created_at).toLocaleString() : '';
     const cost = formatUsd(run.est_cost_usd);
     const costLabel = cost && Number(run.est_cost_usd) > 0 ? cost : '';
-    return [costLabel, when].filter(Boolean).join(' · ');
+    const sourceLabel = run.data_source === 'vnpy_simulation' ? 'vn.py simulated' : '';
+    return [sourceLabel, costLabel, when].filter(Boolean).join(' · ');
 }
 
 function formatBacktestRunLabel(run) {
@@ -3519,6 +3588,7 @@ async function loadData() {
             window.SELECTED_RUN = selectedRun;
             window.MY_ALGO_RUN_ID = isMyAlgoRun(selectedRun) ? selectedRun.run_id : null;
             window.EXTERNAL_AGENT_RUN_ID = isExternalAgentRun(selectedRun) ? selectedRun.run_id : null;
+            renderBacktestDataSourceBadge(selectedRun);
 
             if (!selectedRun) {
                 console.warn('No backtest runs for this session');
