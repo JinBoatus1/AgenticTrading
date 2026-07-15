@@ -133,6 +133,7 @@ EXPECTED_FULL_CONTRACT = {
     ("GET", "/health"),
     ("GET", "/favicon.ico"),
     ("GET", "/favicon.svg"),
+    ("GET", "/home-news-signals.js"),
     ("GET", "/home-page.js"),
     ("GET", "/images/{file_name}"),
     ("GET", "/js/{file_name}"),

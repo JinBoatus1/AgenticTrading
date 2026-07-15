@@ -68,7 +68,7 @@
     sigList.innerHTML = Object.entries(payload.signals || {}).map(([sym, s]) => `
       <li class="nns-item nns-signal nns-${escapeHtml(s.sentiment)}">
         <span class="nns-chip">${escapeHtml(s.sentiment)}</span>
-        <strong>${escapeHtml(sym)}</strong> <span class="nns-score">${Number(s.score).toFixed(2)}</span>
+        <strong>${escapeHtml(sym)}</strong> <span class="nns-score">${Number(s.sentiment_score ?? s.score).toFixed(2)}</span>
         <span class="nns-rationale">${escapeHtml(s.rationale || '')}</span>
         <a class="nns-src" href="${escapeHtml(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.source)}</a>
       </li>`).join('') || '<li class="nns-empty">No directional reads.</li>';

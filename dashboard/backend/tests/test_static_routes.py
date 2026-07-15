@@ -55,3 +55,15 @@ def test_favicon_ico_still_serves_png():
     resp = client.get("/favicon.ico")
     assert resp.status_code == 200
     assert "image/png" in resp.headers.get("content-type", "")
+
+
+def test_home_news_signals_js_is_served():
+    """The Home news & signals panel script must be routed. app.html loads
+    ``home-news-signals.js``, but app.py never registered a route for it
+    (every sibling asset has one), so the request 404ed and the panel's five
+    containers rendered permanently empty since the panel shipped."""
+    client = TestClient(app)
+    resp = client.get("/home-news-signals.js")
+    assert resp.status_code == 200
+    assert "text/javascript" in resp.headers.get("content-type", "")
+    assert b"newsSignalsPanel" in resp.content
