@@ -208,6 +208,41 @@ def test_panel_signal_missing_sentiment_score_is_dropped_not_rendered_nan(monkey
     assert any(item["ticker"] == "NVDA" for item in payload["feed"])
 
 
+@pytest.mark.parametrize("missing_key", ["sentiment", "sentiment_score", "url", "source"])
+def test_panel_signal_missing_any_rendering_key_is_dropped(monkeypatch, missing_key):
+    """Pins every key in _PANEL_SIGNAL_KEYS individually, one case each.
+
+    Without this, only `sentiment_score` was actually pinned: deleting
+    `sentiment`, `url` or `source` from the guard left the whole suite green.
+    A guard for renamed fields whose own key set is unpinned against renaming
+    is the same bug one level up — so each key gets its own failing case."""
+    body = load_signals_fixture()
+    del body["signals"]["NVDA"][missing_key]
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    payload = ns.get_latest_panel_payload(["MSFT", "NVDA"])
+    assert "NVDA" not in payload["signals"]
+    assert "MSFT" in payload["signals"]
+
+
+# `None`/`42` specifically, NOT a str or list: those are containers, so
+# `"sentiment" not in "not-a-dict"` quietly substring-matches and the entry is
+# dropped by the missing-key branch whether or not the isinstance guard exists
+# — a test using one passes with the guard deleted and proves nothing.
+@pytest.mark.parametrize("bad_entry", [None, 42])
+def test_panel_signal_that_is_not_an_object_is_dropped_not_fatal(monkeypatch, bad_entry):
+    """A non-dict entry must degrade to a per-entry drop, not a TypeError out
+    of the `k not in s` membership test that takes the whole panel down with
+    it. Unreachable while the producer honours its schema — which is exactly
+    why it needs a test rather than trust."""
+    body = load_signals_fixture()
+    body["signals"]["WEIRD"] = bad_entry
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    payload = ns.get_latest_panel_payload(["MSFT", "NVDA", "WEIRD"])
+    assert "WEIRD" not in payload["signals"]
+    assert {"MSFT", "NVDA"} <= set(payload["signals"])
+    assert payload["status"] != "unavailable"   # one bad entry != an outage
+
+
 def test_panel_signals_all_missing_sentiment_score_surfaces_as_degraded(monkeypatch):
     """Wholesale drift, i.e. a producer rename rather than one off-spec entry.
     The feed is unaffected (it reads headline/url/source), so without an alarm

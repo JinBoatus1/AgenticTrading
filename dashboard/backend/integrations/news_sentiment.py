@@ -342,7 +342,8 @@ def _feed_from_items(items) -> list:
     return feed
 
 
-def _alarm_if_all_dropped(raw, projected: list, *, source: str, consequence: str) -> bool:
+def _alarm_if_all_dropped(raw, projected: Union[list, dict], *, source: str,
+                          consequence: str) -> bool:
     """Whether `raw` projected to NOTHING — i.e. the wire contract moved rather
     than one story being off-spec — logging an ERROR if so. An empty batch is
     "no news", not drift.
