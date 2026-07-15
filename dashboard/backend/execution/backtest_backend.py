@@ -37,10 +37,10 @@ def load_news_sentiment(universe: List[str], timestamp: Any) -> Tuple[Dict[str, 
 
     Exception level rather than warning is deliberate: the adapter handles its
     own expected misses quietly (404, network, bad key) AND reports its own
-    wire-shape drift (dropping the unreadable entry, ERROR-ing if that empties
-    the step), so anything still escaping it is genuinely unexpected. Don't
-    reach back across the boundary to interpret what escaped — an except here
-    that explains the adapter's internals goes stale the moment they move.
+    wire-shape drift (see get_news_sentiment), so anything still escaping it is
+    genuinely unexpected. Don't reach back across the boundary to interpret what
+    escaped — an except here that explains the adapter's internals goes stale the
+    moment they move.
     """
     try:
         from dashboard.backend.integrations.news_sentiment import get_news_sentiment  # type: ignore
