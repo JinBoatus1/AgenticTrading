@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -21,22 +22,41 @@ from dashboard.backend.domain.backtesting import external_run_service as ext
 # run_store singleton cover this module too.
 from dashboard.backend.domain.runs import repository as run_repo
 
+logger = logging.getLogger(__name__)
+
 
 def load_news_sentiment(universe: List[str], timestamp: Any) -> Tuple[Dict[str, Any], Optional[str]]:
-    """Populate the news_sentiment slot from Plan 1's adapter, fail-closed.
+    """Populate the news_sentiment slot from the news_sentiment adapter, fail-closed.
 
-    Plan 1 (dashboard/backend/integrations/news_sentiment.py) is expected to expose
+    dashboard/backend/integrations/news_sentiment.py exposes
     get_news_sentiment(universe, timestamp) -> {"news_sentiment": {...}, "news_overview": str|None}.
-    Until it lands, the slot is guaranteed present and empty.
+    A backtest must not die because news is unavailable, so both failure modes
+    below degrade to an empty slot — but they LOG, because fail-closed and
+    fail-silent are different things. The adapter already handles its own
+    expected misses quietly (404, network, bad key) and returns empty rather
+    than raising; anything that actually escapes it is unexpected, which is why
+    these log at exception level rather than warning.
+
+    Without the log, a producer contract break (e.g. the 2026-07-14 FinSearch
+    score -> sentiment_score rename raising KeyError out of _project_entry) is
+    indistinguishable from a quiet news day: sentiment silently empties out of
+    every step with no exception, no log, and no failing test.
     """
     try:
         from dashboard.backend.integrations.news_sentiment import get_news_sentiment  # type: ignore
     except Exception:
+        logger.exception(
+            "load_news_sentiment: news_sentiment adapter is unimportable; "
+            "sentiment slot left empty for this step")
         return {}, None
     try:
         data = get_news_sentiment(universe, timestamp) or {}
         return data.get("news_sentiment", {}) or {}, data.get("news_overview")
-    except Exception:
+    except Exception as exc:
+        logger.exception(
+            "load_news_sentiment: adapter raised %r; sentiment slot left empty "
+            "for this step (a KeyError here usually means the producer's "
+            "payload shape changed)", exc)
         return {}, None
 
 
