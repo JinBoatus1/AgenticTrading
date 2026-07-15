@@ -341,7 +341,8 @@ def _feed_from_items(items) -> list:
     return feed
 
 
-def _alarm_if_all_dropped(raw, projected: list, *, source: str, consequence: str) -> bool:
+def _alarm_if_all_dropped(raw, projected: Union[list, dict], *, source: str,
+                          consequence: str) -> bool:
     """Whether `raw` projected to NOTHING — i.e. the wire contract moved rather
     than one story being off-spec — logging an ERROR if so. An empty batch is
     "no news", not drift.
@@ -376,6 +377,42 @@ def _representative_feed(signals: dict) -> list:
     return feed
 
 
+# The keys home-news-signals.js reads off each `signals` entry to render a row.
+# `rationale` is deliberately absent — the panel null-coalesces it (`|| ''`) —
+# and so are headline/published/guid/n_articles, which only the feed projection
+# needs. Coupling the two projections' requirements would drop a usable story
+# from the feed because its sentiment read was broken, or vice versa.
+_PANEL_SIGNAL_KEYS = ("sentiment", "sentiment_score", "url", "source")
+
+
+def _project_panel_signals(signals: dict) -> dict:
+    """Panel `signals` projected to the entries the UI can actually render.
+
+    Projecting is what makes the path watchable at all: `_alarm_if_all_dropped`
+    only ever sees what a projection dropped, so while this dict reached the
+    browser raw from the wire no alarm could cover it. Nothing reads
+    `sentiment_score` server-side — the browser does, where
+    `Number(undefined).toFixed(2)` renders the *string* "NaN", so a rename would
+    paint "NVDA NaN" into every chip with no drop, no exception and no log.
+
+    Naming the missing key in the log is the point: "missing sentiment_score"
+    on every ticker at once reads as a rename, where a bare "malformed signal"
+    reads as routine noise.
+    """
+    projected = {}
+    for sym, s in signals.items():
+        if not isinstance(s, dict):
+            logger.warning("news_sentiment: dropping panel signal %r — not an object", sym)
+            continue
+        missing = [k for k in _PANEL_SIGNAL_KEYS if k not in s]
+        if missing:
+            logger.warning("news_sentiment: dropping panel signal %r — missing %s",
+                           sym, ", ".join(missing))
+            continue
+        projected[sym] = s
+    return projected
+
+
 def get_latest_panel_payload(tickers) -> dict:
     """Latest-artifact read for the Home panel (no as_of).
 
@@ -390,9 +427,14 @@ def get_latest_panel_payload(tickers) -> dict:
     One malformed signal/item is dropped (logged) rather than collapsing the
     whole panel: the producer is the trust boundary, but a single off-spec
     entry must still degrade to partial rendering, not an outage. Wholesale
-    drift is the other story — see _alarm_if_all_dropped, applied to BOTH
+    drift is the other story — see _alarm_if_all_dropped, applied to ALL THREE
     projections: the fallback needs the alarm at least as much as the path it
-    backstops, because when IT drifts there is nothing left to fall back to.
+    backstops, because when IT drifts there is nothing left to fall back to,
+    and `signals` needs one because it is what the panel is actually for.
+
+    `signals` and `feed` are each projected from the raw wire dict, never from
+    each other — see _PANEL_SIGNAL_KEYS for why their required keys have to stay
+    independent.
 
     Drift also escalates the payload to `degraded`, which the panel renders as a
     badge. The fallback is what makes this necessary rather than redundant: it
@@ -402,13 +444,19 @@ def get_latest_panel_payload(tickers) -> dict:
     if not body:
         return dict(UNAVAILABLE_PAYLOAD)
     signals = body.get("signals") or {}
+    panel_signals = _project_panel_signals(signals)
+    # Call the alarm BEFORE the `or`, never after it: `drifted or _alarm(...)`
+    # short-circuits once anything has drifted, swallowing the ERROR the alarm
+    # exists to emit. Every alarm ORs, so their order carries no other meaning.
+    drifted = _alarm_if_all_dropped(
+        signals, panel_signals, source="panel signals list",
+        consequence="the panel's directional reads are now empty")
     feed = None
     items = fetch_items()
-    drifted = False
     if items:
         feed = _feed_from_items(items)
         drifted = _alarm_if_all_dropped(items, feed, source="items feed",
-                                        consequence="falling back to the Phase-A feed")
+                                        consequence="falling back to the Phase-A feed") or drifted
     if not feed:  # None, [], or all-malformed -> fall back to Phase A
         feed = _representative_feed(signals)
         drifted = _alarm_if_all_dropped(signals, feed, source="Phase-A signals feed",
@@ -427,6 +475,6 @@ def get_latest_panel_payload(tickers) -> dict:
         "generated_at": body.get("generated_at"),
         "staleness_hours": body.get("staleness_hours"),
         "news_overview": body.get("news_overview"),
-        "signals": signals,
+        "signals": panel_signals,
         "feed": feed,
     }
