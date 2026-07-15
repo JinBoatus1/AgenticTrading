@@ -96,6 +96,44 @@ def test_news_sentiment_fail_closed_when_loader_raises(monkeypatch):
     assert sentiment == {} and overview is None
 
 
+def test_news_sentiment_loader_failure_is_logged(monkeypatch, caplog):
+    """Fail-closed must not mean fail-silent. A producer field rename reaches
+    here as a KeyError escaping the adapter; swallowed without a log it is
+    indistinguishable from a quiet news day or a producer outage, so the
+    sentiment slot empties with no exception, no log and no red test. That is
+    exactly how the 2026-07-14 score -> sentiment_score rename could have
+    zeroed sentiment out of every backtest unnoticed."""
+    import types
+
+    fake = types.ModuleType("dashboard.backend.integrations.news_sentiment")
+
+    def _boom(universe, timestamp):
+        raise KeyError("sentiment_score")
+
+    fake.get_news_sentiment = _boom
+    monkeypatch.setitem(sys.modules, "dashboard.backend.integrations.news_sentiment", fake)
+
+    with caplog.at_level("ERROR"):
+        sentiment, overview = load_news_sentiment(["AAPL"], "2026-04-15T10:30:00+00:00")
+
+    assert sentiment == {} and overview is None
+    assert any("sentiment_score" in r.getMessage() for r in caplog.records)
+
+
+def test_news_sentiment_import_failure_is_logged(monkeypatch, caplog):
+    """The adapter shipped long ago, so an ImportError here is a real packaging
+    or deployment fault — not the pre-Plan-1 'not landed yet' state this
+    fallback was originally written for. Say so rather than degrading mutely."""
+    monkeypatch.setitem(sys.modules,
+                        "dashboard.backend.integrations.news_sentiment", None)
+
+    with caplog.at_level("ERROR"):
+        sentiment, overview = load_news_sentiment(["AAPL"], "2026-04-15T10:30:00+00:00")
+
+    assert sentiment == {} and overview is None
+    assert any("news_sentiment" in r.getMessage() for r in caplog.records)
+
+
 def test_apply_decisions_executes_pre_validated_actions():
     # Per-action validation now happens at the v2 boundary (validate_actions);
     # the backend receives only valid actions and reports execution results.
