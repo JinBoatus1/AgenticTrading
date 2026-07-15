@@ -15,39 +15,56 @@
 - **Branch:** create `feat/agent-db-persistence` from current local `main` before Task 1 (`git checkout -b feat/agent-db-persistence`). NEVER push to `main` — merging `main` auto-deploys prod.
 - **Dependency freeze:** `psycopg[binary]==3.3.4` is already at `requirements.txt:49`. Do NOT add any dependency.
 - **Test command:** run from the repo root. `pytest` lives in `~/atl-venv`; if `pytest` is not on PATH use `~/atl-venv/bin/python -m pytest`.
-- **Task 1 must land first.** It stops the test suite from ever reaching a real Postgres via an ambient `DATABASE_URL`. Do not reorder.
+- **Tasks 1–3 must land first, in order.** Task 1 stops the test suite from ever reaching a real Postgres via an ambient `DATABASE_URL`; Task 2 makes CI able to execute Postgres code at all (without it, every `@pg_only` test written in Tasks 5–7 silently skips and the whole Postgres half ships unrun); Task 3 defines the logging helper Tasks 4–7 all import. Do not reorder.
 - **Singleton names unchanged:** `agent_store`, `agent_version_store`, `strategy_store`, `user_store` remain module-level names with the same import paths.
 - **Postgres dialect conventions** (from `dashboard/backend/users_postgres.py`): per-call connections via `psycopg.connect(self.database_url, row_factory=dict_row)`; timestamps stored as `TEXT` ISO-8601 strings (the code always supplies values — never rely on DB-side defaults for timestamps); JSON stored as `TEXT` (not JSONB); SQLite `REAL` → `DOUBLE PRECISION`; `?` placeholders → `%s`.
 - **Deliberate schema deviation:** `external_agents.owner_user_id` is a plain `INTEGER` with **no** FK — SQLite never enforced the declared FK (no `PRAGMA foreign_keys` anywhere), and a FK would break the split-database config (see spec).
-- **Fail loud:** a set-but-unreachable `DATABASE_URL` must raise at import time (the twin's `__init__` runs `_init_schema()`). No try/except fallback to SQLite anywhere.
-- **Fail visible:** every factory logs exactly one line stating the chosen backend (exact strings defined per task; tests assert on them).
-- **Log the backend, never the URL:** `DATABASE_URL` contains credentials — no factory or twin may ever log it.
+- **Fail loud:** a set-but-unreachable `DATABASE_URL` must raise at import time (the twin's `__init__` runs `_init_schema()`). No try/except fallback to SQLite anywhere. Each twin gets a test pinning this (no live Postgres needed — a closed port refuses instantly); they are also the only tests that execute a twin's real `__init__`, since the dispatch tests monkeypatch the class away.
+- **Fail visible:** every factory emits exactly one line stating the chosen backend (exact strings defined per task; tests assert on them). For the Postgres branch that line **must name the resolved host and database** — `postgres (ep-x.neon.tech/atl)`, never a bare `postgres`. A line that can't distinguish the intended database from the wrong one is not visibility; see the spec's naming discussion and CLAUDE.md's "Fail-closed is not fail-visible".
+- **Emit with `print()`, never `logger.info()`.** This is not a style preference. Nothing under `dashboard/backend/` configures logging, no launch path passes `--log-level`, and uvicorn's `LOGGING_CONFIG` has no `root` key — so `dashboard.backend.*` loggers inherit root's default `WARNING` and **`logger.info()` emits nothing in prod** (verified: `isEnabledFor(INFO)` → `False`). Worse, a `caplog`-based test cannot catch that, because `caplog.at_level(logging.INFO, ...)` force-sets the level for the test: green suite, silent prod — the exact failure this feature exists to kill. `print()` is also the codebase's convention for operational diagnostics (~25 modules, incl. `app.py`'s startup block and `domain/leaderboard/service.py`). Tests assert on **`capsys`**, not `caplog`. Do not "tidy" these into a logger.
+- **Log the target, never the credentials:** `DATABASE_URL` contains a password — no factory or twin may print the raw URL. Host/dbname comes from `describe_database_url()` (Task 3), which is defined **once** precisely so there is one place for that scrubbing to be right.
 - **Commit style:** `feat:` / `test:` / `docs:` prefixes, short subject (repo convention).
 
 ## File Structure
 
-| File | Action | Responsibility |
-|---|---|---|
-| `dashboard/backend/tests/conftest.py` | Modify | Strip `DATABASE_URL` at import time (suite always SQLite) |
-| `dashboard/backend/tests/test_env_isolation.py` | Create | Pin the import-time env stripping |
-| `dashboard/backend/users.py` | Modify | Factory fallback `USERS_DATABASE_URL or DATABASE_URL` + backend log line |
-| `dashboard/backend/tests/test_users_postgres.py` | Modify | Precedence + log-line dispatch tests |
-| `dashboard/backend/domain/agents/repository_postgres.py` | Create | `PostgresAgentStore` (twin of `AgentStore`) |
-| `dashboard/backend/domain/agents/repository.py` | Modify | `_build_agent_store()` factory + log |
-| `dashboard/backend/tests/test_agent_store_postgres.py` | Create | Agent + version store dispatch tests and `@pg_only` behavioral tests |
-| `dashboard/backend/domain/agents/version_repository_postgres.py` | Create | `PostgresAgentVersionStore` (twin of `AgentVersionStore`) |
-| `dashboard/backend/domain/agents/version_repository.py` | Modify | `_build_agent_version_store()` factory + log |
-| `dashboard/backend/domain/strategies/repository_postgres.py` | Create | `PostgresStrategyStore` (twin of `StrategyStore`, ON CONFLICT retry) |
-| `dashboard/backend/domain/strategies/repository.py` | Modify | `_build_strategy_store()` factory + log |
-| `dashboard/backend/tests/test_strategy_store.py` | Create | SQLite forced-collision tests (new coverage for the existing backend) |
-| `dashboard/backend/tests/test_strategy_store_postgres.py` | Create | Strategy dispatch tests + `@pg_only` collision tests |
-| `.env.example` | Modify | Document `DATABASE_URL` |
-| `render.yaml` | Modify | `DATABASE_URL` with `sync: false` (documentation only) |
-| `CLAUDE.md` | Modify | Env/credentials section + persistence gotcha |
+| File | Action | Task | Responsibility |
+|---|---|---|---|
+| `dashboard/backend/tests/conftest.py` | Modify | 1 | Strip `DATABASE_URL` at import time (suite always SQLite) |
+| `dashboard/backend/tests/test_env_isolation.py` | Create | 1 | Pin that the suite never sees the backend-selecting env vars |
+| `.github/workflows/ci.yml` | Modify | 2 | `postgres:16-alpine` service + `TEST_POSTGRES_URL` → the `@pg_only` tier becomes a real gate |
+| `dashboard/backend/tests/test_ci_postgres_wired.py` | Create | 2 | Make CI red (not silently all-skip) if the postgres service is ever dropped |
+| `dashboard/backend/db_url.py` | Create | 3 | `describe_database_url()` — credential-free host/dbname for logs (shared by all 4 factories) |
+| `dashboard/backend/tests/test_db_url.py` | Create | 3 | Pin that the password never survives the transformation |
+| `dashboard/backend/users.py` | Modify | 4 | Factory fallback `USERS_DATABASE_URL or DATABASE_URL` + backend log line |
+| `dashboard/backend/tests/test_users_postgres.py` | Modify | 4 | Precedence + log-line dispatch tests + fail-loud test |
+| `dashboard/backend/domain/agents/repository_postgres.py` | Create | 5 | `PostgresAgentStore` (twin of `AgentStore`) |
+| `dashboard/backend/domain/agents/repository.py` | Modify | 5 | `_build_agent_store()` factory + log |
+| `dashboard/backend/tests/test_agent_store_postgres.py` | Create | 5, 6 | Agent + version store dispatch, fail-loud, and `@pg_only` behavioral tests |
+| `dashboard/backend/domain/agents/version_repository_postgres.py` | Create | 6 | `PostgresAgentVersionStore` (twin of `AgentVersionStore`) |
+| `dashboard/backend/domain/agents/version_repository.py` | Modify | 6 | `_build_agent_version_store()` factory + log |
+| `dashboard/backend/domain/strategies/repository_postgres.py` | Create | 7 | `PostgresStrategyStore` (twin of `StrategyStore`, ON CONFLICT retry) |
+| `dashboard/backend/domain/strategies/repository.py` | Modify | 7 | `_build_strategy_store()` factory + log |
+| `dashboard/backend/tests/domain/strategies/test_strategy_store.py` | **Modify** | 7 | Append SQLite forced-collision tests (new coverage for the existing backend) |
+| `dashboard/backend/tests/test_strategy_store_postgres.py` | Create | 7 | Strategy dispatch, fail-loud, + `@pg_only` collision tests |
+| `.env.example` | Modify | 8 | Document `DATABASE_URL` |
+| `render.yaml` | Modify | 8 | `DATABASE_URL` with `sync: false` (documentation only) |
+| `CLAUDE.md` | Modify | 8 | Env/credentials section + persistence gotcha |
+
+> **`test_strategy_store.py` already exists — Modify, do not Create.** It lives at
+> `dashboard/backend/tests/domain/strategies/test_strategy_store.py` (8 tests,
+> including the `test_codes_are_unique` random-code check at lines 79-82 and a
+> `_store(tmp_path)` helper at lines 18-19 the new tests should reuse). Creating a
+> second file of the same basename under `dashboard/backend/tests/` would not raise a
+> pytest import error — the tests tree is a package (`__init__.py` throughout), so
+> both would import under distinct dotted names — it would just silently split one
+> store's tests across two identically-named files. The other new test files
+> (`test_agent_store_postgres.py`, `test_strategy_store_postgres.py`,
+> `test_db_url.py`, `test_env_isolation.py`) have unique basenames and sit flat under
+> `dashboard/backend/tests/`, mirroring the existing `test_users_postgres.py`.
 
 **Import-cycle note (why the factories are safe):** each `repository_postgres.py` imports pure helpers from its SQLite sibling, and the sibling's factory imports the Postgres module *inside the factory function*, which runs at the bottom of the module — by then the helpers are already bound. This is exactly how `users.py` ↔ `users_postgres.py` already work.
 
-**Live-Postgres testing (optional, applies to every `@pg_only` test in this plan):** without `TEST_POSTGRES_URL` those tests skip — that is the expected green state. To run them for real:
+**Live-Postgres testing (applies to every `@pg_only` test in this plan).** Locally, without `TEST_POSTGRES_URL` these tests skip. That is fine for fast iteration but it is **not** the definition of done: skipping locally *and* in CI is how ~450 lines of new SQL would reach prod unexecuted, and prod's first execution is `_init_schema()` at import time with fail-loud semantics. Task 2 therefore makes CI run them on every PR — that is the gate. Running them locally as well is the fast feedback loop:
 
 ```bash
 docker run --rm -d --name atl-pg-test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=atl_test -p 5433:5432 postgres:16-alpine
@@ -56,11 +73,17 @@ export TEST_POSTGRES_URL=postgresql://postgres:test@localhost:5433/atl_test
 docker stop atl-pg-test
 ```
 
+Note the port differs by environment: **5433** locally (avoids clashing with a host Postgres on 5432) and **5432** in CI (the service container's own network). Only `TEST_POSTGRES_URL` encodes this — no test hardcodes a port.
+
+**Not `@pg_only`, and deliberately so:** the fail-loud tests (an unreachable URL must raise) and `test_db_url.py`. Both need no server and must run in every environment, including a contributor's laptop with no docker.
+
 ---
 
 ### Task 1: Test-suite isolation — strip `DATABASE_URL` in conftest
 
-Without this, a developer whose shell exports the prod `DATABASE_URL` would run the entire test suite against the production Neon database the moment the factories (Tasks 3–5) exist. It lands first so that can never happen, even mid-implementation.
+Without this, a developer whose shell exports the prod `DATABASE_URL` would run the entire test suite against the production Neon database the moment the factories (Tasks 4–7) exist. It lands first so that can never happen, even mid-implementation.
+
+It is also load-bearing for tests that *already* exist: once the factories are in, an ambient `DATABASE_URL` swaps the singletons for Postgres twins that have no `.db_path`, so `tests/domain/agents/test_repository_move.py:39-40` and `tests/domain/strategies/test_strategy_store.py:42-43` would fail with `AttributeError` rather than merely writing somewhere unexpected. (Tests that build a store directly rather than using the singleton are unaffected — `AgentStore.__init__` never reads the environment.)
 
 **Files:**
 - Modify: `dashboard/backend/tests/conftest.py:44-47`
@@ -77,9 +100,22 @@ Create `dashboard/backend/tests/test_env_isolation.py`:
 ```python
 """The suite must never see backend-selecting env vars from the developer's shell.
 
-conftest.py strips them at import time, before any backend module is imported;
-these tests pin that so a future conftest refactor can't silently drop it and
-send the suite to a real Postgres.
+conftest.py pops them at import time -- before any backend module is imported,
+which is the only moment that works, since the store singletons are built during
+that import.
+
+Scope, honestly: these tests assert the vars are absent *while the suite runs*.
+They cannot prove the pop happens at conftest import time rather than in a
+fixture, so they would stay green under a refactor that moved it somewhere
+too late to matter. What they do catch is the pop being dropped outright, which
+is the realistic regression. The import-time placement is guarded by the comment
+at the pop itself.
+
+Why this matters beyond "don't touch prod data": once the store factories exist,
+an ambient DATABASE_URL doesn't merely redirect writes -- it swaps the singletons
+for Postgres twins that have no .db_path, breaking the existing tests that assert
+on it (tests/domain/agents/test_repository_move.py:39-40 and
+tests/domain/strategies/test_strategy_store.py:42-43).
 """
 
 import os
@@ -140,22 +176,284 @@ git commit -m "test: strip DATABASE_URL from the suite environment"
 
 ---
 
-### Task 2: Users factory — `DATABASE_URL` fallback + backend log line
+### Task 2: CI runs a real Postgres — and the draft PR opens
+
+Without this, every `@pg_only` test written in Tasks 5–7 skips in CI, and the three Postgres modules reach prod having never executed a single statement. Prod's first execution is `_init_schema()` at **import time** under fail-loud semantics, on a free-tier host with no zero-downtime deploys — so a DDL typo doesn't cause a bug, it causes an outage. This is the single highest-value task in the plan and it lands early, before any Postgres code exists, so the wiring is proven on its own commit.
+
+It also switches on the shipped-but-never-CI-run `test_users_postgres.py` live tier. Expect that to be the first thing this task actually exercises; if it's red, that is a pre-existing defect in the users store surfacing for the first time, **not** something this branch broke. Fix it here (or open a separate issue) before continuing — do not proceed on a red baseline.
+
+**Files:**
+- Modify: `.github/workflows/ci.yml` (the `backend-tests` job)
+- Test: `dashboard/backend/tests/test_ci_postgres_wired.py` (create)
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: `TEST_POSTGRES_URL` set in CI → the `@pg_only` marker in Tasks 5–7 resolves to "run", not "skip".
+
+- [ ] **Step 1: Write the guard test that makes the wiring self-enforcing**
+
+A `services:` block someone deletes later fails *silently* — every `@pg_only` test just goes back to skipping and CI stays green. That is the same class of invisible-degradation this whole feature is about, so pin it. Create `dashboard/backend/tests/test_ci_postgres_wired.py`:
+
+```python
+"""CI must actually provide the live Postgres the @pg_only tier needs.
+
+If the postgres service block is ever dropped from .github/workflows/ci.yml,
+every @pg_only test silently reverts to skipping and CI stays green -- the
+Postgres backends would then ship unexecuted, which is the exact failure this
+tier exists to prevent. So the absence of the wiring is made loud, here.
+
+Locally this test skips: a contributor without docker is expected, and their
+@pg_only tests skipping is fine. It is only CI that must not skip them.
+"""
+
+import os
+
+import pytest
+
+
+@pytest.mark.skipif(
+    not os.getenv("CI"), reason="asserts the CI wiring; local runs may skip @pg_only"
+)
+def test_ci_provides_a_live_postgres():
+    assert os.getenv("TEST_POSTGRES_URL"), (
+        "TEST_POSTGRES_URL is unset in CI, so every @pg_only test is silently "
+        "skipping and the Postgres backends are untested. Restore the postgres "
+        "service block in .github/workflows/ci.yml (backend-tests job)."
+    )
+```
+
+(GitHub Actions sets `CI=true` on every runner; no workflow change is needed to make that check fire.)
+
+- [ ] **Step 2: Run it locally to confirm it skips (not fails)**
+
+```bash
+pytest dashboard/backend/tests/test_ci_postgres_wired.py -v
+CI=true pytest dashboard/backend/tests/test_ci_postgres_wired.py -v
+```
+
+Expected: 1 skipped for the first command; 1 **failed** for the second (simulating CI without the wiring) — that failure is the red this task turns green.
+
+- [ ] **Step 3: Add the Postgres service to the `backend-tests` job**
+
+In `.github/workflows/ci.yml`, add a `services:` key to the `backend-tests` job (a sibling of `steps:`, after `runs-on:`):
+
+```yaml
+    # A real Postgres for the @pg_only tier. Without it those tests skip and the
+    # Postgres store backends would reach prod never having executed -- where the
+    # first run is _init_schema() at import time, and a DDL error means the app
+    # does not boot. Cheap insurance: the container starts in a couple of seconds.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: atl_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+```
+
+and add `TEST_POSTGRES_URL` to the existing `Run backend tests` step's `env:` block, alongside `DATABASE_PATH`:
+
+```yaml
+          # Selects the live tier of the *_postgres.py tests. Note this is NOT
+          # DATABASE_URL: conftest.py strips that so the suite's own stores stay
+          # on SQLite. This URL is only ever passed explicitly to a twin's
+          # constructor by a @pg_only fixture.
+          TEST_POSTGRES_URL: postgresql://postgres:test@localhost:5432/atl_test
+```
+
+The health-check options matter: without them the steps can start before Postgres accepts connections and the first `@pg_only` test fails on a race.
+
+- [ ] **Step 4: Push and open the PR — as a DRAFT**
+
+CI triggers on `pull_request` to `main` and on pushes to `main` only (see the `on:` block) — **pushing this branch alone runs nothing**, so the PR is how this task gets verified at all. And per CLAUDE.md's merge discipline, the PR must publish its own merge gate from the moment it opens, because this repo has no branch protection and open PRs get merged unreviewed:
+
+```bash
+git add .github/workflows/ci.yml dashboard/backend/tests/test_ci_postgres_wired.py
+git commit -m "ci: run the @pg_only tier against a real Postgres"
+git push -u origin feat/agent-db-persistence
+gh pr create --draft \
+  --title "feat: agent & strategy persistence via DATABASE_URL" \
+  --body "$(cat <<'EOF'
+DO NOT MERGE until `DATABASE_URL` is set in the Render dashboard — an unset var silently selects ephemeral SQLite, so merging first ships a feature that quietly does nothing. See `docs/superpowers/specs/2026-07-15-agent-strategy-persistence-design.md` (Rollout).
+
+Optional Postgres backends for `external_agents`, `agent_versions`, and `strategies`, cloning the shipped `USERS_DATABASE_URL` users fix. Plan: `docs/superpowers/plans/2026-07-15-agent-strategy-persistence.md`.
+EOF
+)"
+```
+
+Keep it a draft for the rest of the plan. Task 9, Step 7 re-confirms it stays one — marking it ready is a **human** decision made after `DATABASE_URL` is set in Render, never a step this plan performs.
+
+- [ ] **Step 5: Confirm CI actually ran the live tier**
+
+```bash
+gh run list --branch feat/agent-db-persistence --limit 1
+gh run view <run-id> --log | grep -E "test_users_postgres|passed|skipped" | tail -20
+```
+
+Expected: green, and `test_users_postgres.py`'s two live tests now **pass rather than skip** (the run's skip count should drop by 2 versus a run without the service). `test_ci_provides_a_live_postgres` passing is the durable proof — it is the check that stays true for the life of the repo.
+
+---
+
+### Task 3: `describe_database_url()` — say *which* Postgres, without leaking the password
+
+Every factory in Tasks 4–7 announces its chosen backend. For the Postgres branch, `backend: postgres` alone is not visibility: it reads identically whether the store bound to the intended Neon database or to a stray `DATABASE_URL` from someone's shell — and `DATABASE_URL` is the most collision-prone name in the ecosystem. So the line names the host and database. That string comes from here.
+
+Defined once, not cloned per store (which is otherwise this feature's pattern), for one reason: this is credential-scrubbing code, and four hand-copied scrubbers is four chances for one to leak the password into a log.
+
+**Two traps this task exists to avoid, both of which produce a green suite and a silent prod:**
+
+1. **The line must be `print()`, not `logger.info()`.** See the Global Constraints bullet: `dashboard.backend.*` loggers sit at `WARNING` in every real deployment, so `logger.info()` is dead code there — and `caplog.at_level(logging.INFO, ...)` in a test papers straight over it. `print()` has no level to suppress, so its visibility is structural rather than something a test has to defend.
+2. **The helper must never echo unparseable input.** `urlsplit` dumps a psycopg keyword/DSN string (`host=… password=…`) wholesale into `.path` — so a "safe" fallback that reads `.path` would print the password verbatim, in exactly the branch nobody thinks to test. Key off `hostname` and return a constant instead.
+
+**Files:**
+- Create: `dashboard/backend/db_url.py`
+- Test: `dashboard/backend/tests/test_db_url.py` (create)
+
+**Interfaces:**
+- Consumes: stdlib only (`urllib.parse.urlsplit`). Deliberately **not** psycopg: this must be importable from the SQLite path too, and a log helper should not drag in a driver.
+- Produces: `describe_database_url(database_url: str) -> str` returning `host[:port]/dbname`. Imported by all four factories.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `dashboard/backend/tests/test_db_url.py`:
+
+```python
+"""describe_database_url must name the target and never leak the credential.
+
+It runs inside every store factory at import time, so it must also never raise:
+a helper that explodes on an odd URL would take the app down to log a line.
+"""
+
+from dashboard.backend.db_url import describe_database_url
+
+
+def test_describes_host_port_and_dbname():
+    described = describe_database_url(
+        "postgresql://u:pw@ep-x-pooler.eu-central-1.aws.neon.tech:5432/atl?sslmode=require"
+    )
+    assert described == "ep-x-pooler.eu-central-1.aws.neon.tech:5432/atl"
+
+
+def test_omits_port_when_the_url_has_none():
+    assert describe_database_url("postgresql://fake/db") == "fake/db"
+
+
+def test_never_leaks_the_password():
+    described = describe_database_url("postgresql://admin:sup3r-s3cret@host/db")
+    assert described == "host/db"
+    assert "sup3r-s3cret" not in described
+
+
+def test_keyword_dsn_degrades_without_echoing_its_input():
+    # psycopg also accepts keyword/DSN strings, which urlsplit cannot read: it
+    # dumps the whole string into .path. Echoing that back would put the
+    # password straight into the log -- so unparseable input returns a constant.
+    dsn = "host=ep-x.neon.tech dbname=atl password=sup3r-s3cret"
+    described = describe_database_url(dsn)
+    assert described == "?/?"
+    assert "sup3r-s3cret" not in described
+
+
+def test_empty_and_junk_inputs_do_not_raise():
+    assert describe_database_url("") == "?/?"
+    assert describe_database_url("postgresql://host:notaport/db") == "?/?"
+```
+
+- [ ] **Step 2: Run to verify they fail**
+
+```bash
+pytest dashboard/backend/tests/test_db_url.py -v
+```
+
+Expected: all 5 fail with `ModuleNotFoundError: dashboard.backend.db_url`.
+
+- [ ] **Step 3: Create `dashboard/backend/db_url.py`**
+
+```python
+"""Describe a database URL for logging, without leaking its credentials.
+
+Used by every store factory (users, agents, agent versions, strategies) to log
+*which* Postgres it bound to rather than merely that it bound to "postgres". A
+bare backend name cannot distinguish the intended Neon database from a stray
+DATABASE_URL in a developer's shell -- the two produce byte-identical startup
+logs, which is the failure shape CLAUDE.md's "Fail-closed is not fail-visible"
+section exists to warn about.
+
+Defined once rather than cloned into each store module (this feature's pattern
+everywhere else) because it is credential-scrubbing code: four hand-copied
+scrubbers is four chances for one of them to leak a password into a log.
+"""
+
+from __future__ import annotations
+
+from urllib.parse import urlsplit
+
+
+def describe_database_url(database_url: str) -> str:
+    """Return ``host[:port]/dbname`` for ``database_url``, never its credentials.
+
+    Returns ``"?/?"`` for anything not parseable as a URL. That constant is
+    deliberate: psycopg also accepts keyword/DSN strings (``host=... dbname=...
+    password=...``), and urlsplit puts the *entire* such string -- password
+    included -- in ``.path``. Echoing any part of unparseable input back into a
+    log is exactly the leak this helper exists to prevent, so it echoes nothing.
+    Prod uses a URL, so the degraded case costs only log detail.
+
+    Never raises: this runs inside a factory at import time, and a log helper
+    that explodes on an odd URL would take the whole app down with it.
+    """
+    try:
+        parts = urlsplit(database_url)
+        host = parts.hostname
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        # urlsplit, or .port on a non-integer port, rejected the input.
+        return "?/?"
+    if not host:
+        return "?/?"
+    dbname = parts.path.lstrip("/") or "?"
+    return f"{host}{port}/{dbname}"
+```
+
+- [ ] **Step 4: Run to verify they pass**
+
+```bash
+pytest dashboard/backend/tests/test_db_url.py -v
+```
+
+Expected: 5 PASSED.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add dashboard/backend/db_url.py dashboard/backend/tests/test_db_url.py
+git commit -m "feat: describe_database_url for credential-free backend logging"
+```
+
+---
+
+### Task 4: Users factory — `DATABASE_URL` fallback + backend log line
 
 **Files:**
 - Modify: `dashboard/backend/users.py` (imports at top; `_build_user_store()` at lines 312-321)
 - Test: `dashboard/backend/tests/test_users_postgres.py` (append)
 
 **Interfaces:**
-- Consumes: existing `UserStore`, `PostgresUserStore` (unchanged).
-- Produces: `_build_user_store()` resolving `os.getenv("USERS_DATABASE_URL") or os.getenv("DATABASE_URL")`; log lines `"user_store backend: postgres"` / `"user_store backend: sqlite (ephemeral on Render)"`. Later tasks copy this exact factory shape.
+- Consumes: existing `UserStore`, `PostgresUserStore` (unchanged); `describe_database_url()` from Task 3.
+- Produces: `_build_user_store()` resolving `os.getenv("USERS_DATABASE_URL") or os.getenv("DATABASE_URL")`; log lines `"user_store backend: postgres (<host>/<db>)"` / `"user_store backend: sqlite (ephemeral on Render)"`. **Tasks 5–7 copy this exact factory shape** — get it right here.
 
 - [ ] **Step 1: Write the failing tests**
 
 Append to `dashboard/backend/tests/test_users_postgres.py`:
 
 ```python
-def test_build_user_store_falls_back_to_database_url(monkeypatch):
+def test_build_user_store_falls_back_to_database_url(monkeypatch, capsys):
     import dashboard.backend.users as users_module
     import dashboard.backend.users_postgres as users_postgres_module
 
@@ -173,6 +471,11 @@ def test_build_user_store_falls_back_to_database_url(monkeypatch):
 
     assert isinstance(store, FakePostgresUserStore)
     assert created["database_url"] == "postgresql://fake/shared"
+    # capsys, not caplog: the factory print()s. A caplog test would pass even if
+    # the line were invisible in prod -- see the plan's Global Constraints.
+    # The line must name the target, not just say "postgres", or it cannot tell
+    # the intended database from a stray DATABASE_URL.
+    assert "user_store backend: postgres (fake/shared)" in capsys.readouterr().out
 
 
 def test_build_user_store_users_url_wins_over_database_url(monkeypatch):
@@ -194,18 +497,51 @@ def test_build_user_store_users_url_wins_over_database_url(monkeypatch):
     assert created["database_url"] == "postgresql://fake/users"
 
 
-def test_build_user_store_logs_sqlite_backend(monkeypatch, caplog):
-    import logging
-
+def test_build_user_store_announces_sqlite_backend(monkeypatch, capsys):
     import dashboard.backend.users as users_module
 
     monkeypatch.delenv("USERS_DATABASE_URL", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    with caplog.at_level(logging.INFO, logger="dashboard.backend.users"):
-        store = users_module._build_user_store()
+    store = users_module._build_user_store()
     assert isinstance(store, users_module.UserStore)
-    assert "user_store backend: sqlite (ephemeral on Render)" in caplog.text
+    assert "user_store backend: sqlite (ephemeral on Render)" in capsys.readouterr().out
+
+
+def test_build_user_store_never_prints_the_credentials(monkeypatch, capsys):
+    import dashboard.backend.users as users_module
+    import dashboard.backend.users_postgres as users_postgres_module
+
+    class FakePostgresUserStore:
+        def __init__(self, database_url):
+            pass
+
+    monkeypatch.setattr(users_postgres_module, "PostgresUserStore", FakePostgresUserStore)
+    monkeypatch.setenv("USERS_DATABASE_URL", "postgresql://admin:sup3r-s3cret@host/db")
+
+    users_module._build_user_store()
+
+    out = capsys.readouterr().out
+    assert "sup3r-s3cret" not in out
+    assert "user_store backend: postgres (host/db)" in out
+
+
+def test_unreachable_postgres_raises_instead_of_falling_back():
+    """Fail loud: a set-but-unreachable URL must not silently degrade to SQLite.
+
+    This is the tier that exercises PostgresUserStore.__init__ for real -- the
+    dispatch tests above monkeypatch the class away, so nothing else does. Needs
+    no live Postgres: a closed port refuses instantly. connect_timeout keeps a
+    firewall that DROPs rather than REJECTs from hanging the suite.
+    """
+    import psycopg
+
+    from dashboard.backend.users_postgres import PostgresUserStore
+
+    with pytest.raises(psycopg.OperationalError):
+        PostgresUserStore("postgresql://u:p@127.0.0.1:1/nope?connect_timeout=2")
 ```
+
+`test_users_postgres.py` already imports `pytest`; no new imports are needed at module level.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -213,17 +549,19 @@ def test_build_user_store_logs_sqlite_backend(monkeypatch, caplog):
 pytest dashboard/backend/tests/test_users_postgres.py -v
 ```
 
-Expected: the 3 new tests FAIL (`test_build_user_store_falls_back_to_database_url` gets a `UserStore`, the precedence test never constructs the fake, the log test finds no log line). The 2 pre-existing dispatch tests still PASS; `@pg_only` tests skip.
+Expected: 4 of the 5 new tests FAIL — `test_build_user_store_falls_back_to_database_url` gets a `UserStore`, the precedence test never constructs the fake, and both announcement tests find no output (no factory prints anything yet).
+
+`test_unreachable_postgres_raises_instead_of_falling_back` **passes immediately**, and that is correct, not a mistake: `PostgresUserStore` already fails loud today. It is a characterization test — it pins behavior this task must not regress and that Tasks 5–7 must copy. The 2 pre-existing dispatch tests still PASS. `@pg_only` tests run in CI (Task 2) and skip locally without `TEST_POSTGRES_URL`.
 
 - [ ] **Step 3: Implement**
 
-In `dashboard/backend/users.py`, add `import logging` to the stdlib import block at the top (alphabetical — between `import hashlib` and `import os`), and add a module logger right after the imports, before `SESSION_TTL_DAYS`:
+In `dashboard/backend/users.py`, add the helper import alongside the existing `from dashboard.backend.database import DB_PATH`:
 
 ```python
-logger = logging.getLogger(__name__)
+from dashboard.backend.db_url import describe_database_url
 ```
 
-Replace `_build_user_store()` (lines 312-318) with:
+No `import logging` and no module logger — see below. Replace `_build_user_store()` (lines 312-318) with:
 
 ```python
 def _build_user_store():
@@ -231,11 +569,18 @@ def _build_user_store():
     if database_url:
         from dashboard.backend.users_postgres import PostgresUserStore
 
-        logger.info("user_store backend: postgres")
+        # print(), not logger.info(): dashboard.backend.* loggers sit at WARNING
+        # in every real deployment (nothing here configures logging; uvicorn's
+        # LOGGING_CONFIG has no 'root' key), so an info() line would be invisible
+        # exactly where it matters. Name the target too -- "postgres" alone reads
+        # the same whether this is the intended Neon DB or a stray DATABASE_URL.
+        print(f"user_store backend: postgres ({describe_database_url(database_url)})")
         return PostgresUserStore(database_url)
-    logger.info("user_store backend: sqlite (ephemeral on Render)")
+    print("user_store backend: sqlite (ephemeral on Render)")
     return UserStore()
 ```
+
+Two deliberate details: the line is emitted *before* the constructor, so a fail-loud crash still leaves a record of which target was being reached for — the first thing anyone debugging a boot failure wants. And `print` matches `app.py`'s startup diagnostics, which is what already reaches Render's logs today.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -254,7 +599,7 @@ git commit -m "feat: users store falls back to DATABASE_URL, logs backend choice
 
 ---
 
-### Task 3: `PostgresAgentStore` + agent-store factory
+### Task 5: `PostgresAgentStore` + agent-store factory
 
 The heart of the change: the twin of `AgentStore` (14 public methods) and the factory that selects it. `resolve_api_key()` is the sole auth path for `/api/v1` and `/api/v2` — port with care.
 
@@ -265,7 +610,7 @@ The heart of the change: the twin of `AgentStore` (14 public methods) and the fa
 
 **Interfaces:**
 - Consumes: pure helpers from the SQLite module — `DEFAULT_SCOPES`, `_UNSET`, `_utcnow_iso()`, `_hash_api_key(api_key: str) -> str`, `_new_api_key() -> str`, `_public_agent(row) -> Dict[str, Any]` (all defined at `repository.py:22-71`, before the factory runs — no import cycle).
-- Produces: `PostgresAgentStore(database_url: str)` with methods signature-identical to `AgentStore`: `create_agent`, `register_or_get_agent`, `list_agents`, `list_builtin_agents`, `get_agent`, `get_agent_by_session`, `resolve_api_key`, `claim_browser_agents_to_user`, `claim_agent`, `reclaim_agent`, `rotate_api_key`, `update_agent`, `delete_agent`, `owns_agent`; plus `_get_connection()` (test fixtures call it). Factory `_build_agent_store()`; log lines `"agent_store backend: postgres"` / `"agent_store backend: sqlite (ephemeral on Render)"`.
+- Produces: `PostgresAgentStore(database_url: str)` with methods signature-identical to `AgentStore`: `create_agent`, `register_or_get_agent`, `list_agents`, `list_builtin_agents`, `get_agent`, `get_agent_by_session`, `resolve_api_key`, `claim_browser_agents_to_user`, `claim_agent`, `reclaim_agent`, `rotate_api_key`, `update_agent`, `delete_agent`, `owns_agent`; plus `_get_connection()` (test fixtures call it). Factory `_build_agent_store()`; log lines `"agent_store backend: postgres (<host>/<db>)"` / `"agent_store backend: sqlite (ephemeral on Render)"`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -287,7 +632,6 @@ Do NOT copy the raw-SQL fixture pattern from test_v2_http_runs.py /
 test_v2_auth.py (SQLite-only `?` placeholders); use public store methods.
 """
 
-import logging
 import os
 
 import pytest
@@ -302,17 +646,16 @@ pg_only = pytest.mark.skipif(
 
 # --- dispatch tests (agent store) -------------------------------------------
 
-def test_build_agent_store_defaults_to_sqlite(monkeypatch, caplog):
+def test_build_agent_store_defaults_to_sqlite(monkeypatch, capsys):
     import dashboard.backend.domain.agents.repository as repo_module
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    with caplog.at_level(logging.INFO, logger="dashboard.backend.domain.agents.repository"):
-        store = repo_module._build_agent_store()
+    store = repo_module._build_agent_store()
     assert isinstance(store, repo_module.AgentStore)
-    assert "agent_store backend: sqlite (ephemeral on Render)" in caplog.text
+    assert "agent_store backend: sqlite (ephemeral on Render)" in capsys.readouterr().out
 
 
-def test_build_agent_store_picks_postgres_when_url_set(monkeypatch, caplog):
+def test_build_agent_store_picks_postgres_when_url_set(monkeypatch, capsys):
     import dashboard.backend.domain.agents.repository as repo_module
     import dashboard.backend.domain.agents.repository_postgres as repo_pg_module
 
@@ -325,12 +668,46 @@ def test_build_agent_store_picks_postgres_when_url_set(monkeypatch, caplog):
     monkeypatch.setattr(repo_pg_module, "PostgresAgentStore", FakePostgresAgentStore)
     monkeypatch.setenv("DATABASE_URL", "postgresql://fake/db")
 
-    with caplog.at_level(logging.INFO, logger="dashboard.backend.domain.agents.repository"):
-        store = repo_module._build_agent_store()
+    store = repo_module._build_agent_store()
 
     assert isinstance(store, FakePostgresAgentStore)
     assert created["database_url"] == "postgresql://fake/db"
-    assert "agent_store backend: postgres" in caplog.text
+    # capsys (the factory print()s) and the target is named -- see Task 3.
+    assert "agent_store backend: postgres (fake/db)" in capsys.readouterr().out
+
+
+def test_build_agent_store_never_prints_the_credentials(monkeypatch, capsys):
+    import dashboard.backend.domain.agents.repository as repo_module
+    import dashboard.backend.domain.agents.repository_postgres as repo_pg_module
+
+    class FakePostgresAgentStore:
+        def __init__(self, database_url):
+            pass
+
+    monkeypatch.setattr(repo_pg_module, "PostgresAgentStore", FakePostgresAgentStore)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://admin:sup3r-s3cret@host/db")
+
+    repo_module._build_agent_store()
+
+    out = capsys.readouterr().out
+    assert "sup3r-s3cret" not in out
+    assert "agent_store backend: postgres (host/db)" in out
+
+
+def test_unreachable_postgres_agent_store_raises_instead_of_falling_back():
+    """Fail loud: a set-but-unreachable URL must not silently degrade to SQLite.
+
+    The only tier that runs PostgresAgentStore.__init__ (and therefore its
+    _init_schema DDL path) without a live server -- the dispatch tests above
+    monkeypatch the class away. A closed port refuses instantly; connect_timeout
+    stops a DROP-style firewall from hanging the suite.
+    """
+    import psycopg
+
+    from dashboard.backend.domain.agents.repository_postgres import PostgresAgentStore
+
+    with pytest.raises(psycopg.OperationalError):
+        PostgresAgentStore("postgresql://u:p@127.0.0.1:1/nope?connect_timeout=2")
 
 
 # --- live-Postgres behavioral tests (agent store) ---------------------------
@@ -439,7 +816,7 @@ def test_builtin_listing_and_delete_postgres(pg_agent_store):
 pytest dashboard/backend/tests/test_agent_store_postgres.py -v
 ```
 
-Expected: the two dispatch tests FAIL — `test_build_agent_store_defaults_to_sqlite` with `AttributeError: module ... has no attribute '_build_agent_store'`, the other with `ModuleNotFoundError` for `repository_postgres`. `@pg_only` tests skip (or ERROR on missing module if `TEST_POSTGRES_URL` is set — either is an acceptable red).
+Expected: all 4 non-`@pg_only` tests FAIL — `test_build_agent_store_defaults_to_sqlite` with `AttributeError: module ... has no attribute '_build_agent_store'`; the other three with `ModuleNotFoundError` for `repository_postgres`. `@pg_only` tests skip locally (or ERROR on the missing module in CI, where `TEST_POSTGRES_URL` is now set — either is an acceptable red for this step).
 
 - [ ] **Step 3: Create `dashboard/backend/domain/agents/repository_postgres.py`**
 
@@ -910,13 +1287,13 @@ class PostgresAgentStore:
 
 - [ ] **Step 4: Add the factory to `dashboard/backend/domain/agents/repository.py`**
 
-Add `import logging` and `import os` to the stdlib import block at the top (alphabetical order within the block), and a module logger after the imports (before `DEFAULT_SCOPES`):
+Add `import os` to the stdlib import block at the top (alphabetical order within the block — the module currently imports `hashlib, json, secrets, sqlite3, uuid`, so it isn't present yet), and add the helper import next to the existing `from dashboard.backend.database import DB_PATH`:
 
 ```python
-logger = logging.getLogger(__name__)
+from dashboard.backend.db_url import describe_database_url
 ```
 
-Replace the final line (`agent_store = AgentStore()`, line 551) with:
+No `import logging`, no module logger — the announcement is a `print()` (see Global Constraints). Replace the final line (`agent_store = AgentStore()`, line 551) with:
 
 ```python
 def _build_agent_store():
@@ -924,14 +1301,18 @@ def _build_agent_store():
     if database_url:
         from dashboard.backend.domain.agents.repository_postgres import PostgresAgentStore
 
-        logger.info("agent_store backend: postgres")
+        # print(), not logger.info() -- info is invisible under the prod logging
+        # config. See users.py's _build_user_store for the full rationale.
+        print(f"agent_store backend: postgres ({describe_database_url(database_url)})")
         return PostgresAgentStore(database_url)
-    logger.info("agent_store backend: sqlite (ephemeral on Render)")
+    print("agent_store backend: sqlite (ephemeral on Render)")
     return AgentStore()
 
 
 agent_store = _build_agent_store()
 ```
+
+(`domain/` → backend-root imports are already the norm here — this module imports `dashboard.backend.database` on line 20 — so `db_url` adds no new architectural edge and `test_architecture_boundaries.py` stays green. `print()` from a `domain/` module is likewise established: `domain/leaderboard/service.py`, `domain/runs/service.py`, and `domain/backtesting/*` all do it.)
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -939,7 +1320,7 @@ agent_store = _build_agent_store()
 pytest dashboard/backend/tests/test_agent_store_postgres.py -v
 ```
 
-Expected: 2 dispatch tests PASS, 5 `@pg_only` tests skip (or PASS with `TEST_POSTGRES_URL` set — see the docker recipe in the header).
+Expected: the 4 non-`@pg_only` tests PASS; the 5 `@pg_only` tests skip locally and **PASS in CI** (Task 2 wired the service). Do not treat a local all-skip as done for this task — push and check the CI run, since that is the only place the twin's SQL executes.
 
 - [ ] **Step 6: Run the whole suite (the factory touched a module every agent route imports)**
 
@@ -958,7 +1339,7 @@ git commit -m "feat: Postgres agent store behind DATABASE_URL"
 
 ---
 
-### Task 4: `PostgresAgentVersionStore` + version-store factory
+### Task 6: `PostgresAgentVersionStore` + version-store factory
 
 **Files:**
 - Create: `dashboard/backend/domain/agents/version_repository_postgres.py`
@@ -967,7 +1348,7 @@ git commit -m "feat: Postgres agent store behind DATABASE_URL"
 
 **Interfaces:**
 - Consumes: pure helpers from `version_repository.py` — `_utcnow_iso()`, `_new_version_id()`, `_short_hash(value) -> Optional[str]`, `_public_version(row) -> Dict[str, Any]` (defined at `version_repository.py:30-67`, before the factory runs). NOTE: this module's `_utcnow_iso` is its own copy — import from `version_repository`, not from `repository`.
-- Produces: `PostgresAgentVersionStore(database_url: str)` with `create_version`, `get_version`, `list_versions` signature-identical to `AgentVersionStore`, plus `_get_connection()`. Factory `_build_agent_version_store()`; log lines `"agent_version_store backend: postgres"` / `"agent_version_store backend: sqlite (ephemeral on Render)"`.
+- Produces: `PostgresAgentVersionStore(database_url: str)` with `create_version`, `get_version`, `list_versions` signature-identical to `AgentVersionStore`, plus `_get_connection()`. Factory `_build_agent_version_store()`; log lines `"agent_version_store backend: postgres (<host>/<db>)"` / `"agent_version_store backend: sqlite (ephemeral on Render)"`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -976,19 +1357,19 @@ Append to `dashboard/backend/tests/test_agent_store_postgres.py`:
 ```python
 # --- dispatch tests (agent version store) ------------------------------------
 
-def test_build_agent_version_store_defaults_to_sqlite(monkeypatch, caplog):
+def test_build_agent_version_store_defaults_to_sqlite(monkeypatch, capsys):
     import dashboard.backend.domain.agents.version_repository as vrepo_module
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    with caplog.at_level(
-        logging.INFO, logger="dashboard.backend.domain.agents.version_repository"
-    ):
-        store = vrepo_module._build_agent_version_store()
+    store = vrepo_module._build_agent_version_store()
     assert isinstance(store, vrepo_module.AgentVersionStore)
-    assert "agent_version_store backend: sqlite (ephemeral on Render)" in caplog.text
+    assert (
+        "agent_version_store backend: sqlite (ephemeral on Render)"
+        in capsys.readouterr().out
+    )
 
 
-def test_build_agent_version_store_picks_postgres_when_url_set(monkeypatch):
+def test_build_agent_version_store_picks_postgres_when_url_set(monkeypatch, capsys):
     import dashboard.backend.domain.agents.version_repository as vrepo_module
     import dashboard.backend.domain.agents.version_repository_postgres as vrepo_pg_module
 
@@ -1007,6 +1388,19 @@ def test_build_agent_version_store_picks_postgres_when_url_set(monkeypatch):
 
     assert isinstance(store, FakePostgresAgentVersionStore)
     assert created["database_url"] == "postgresql://fake/db"
+    assert "agent_version_store backend: postgres (fake/db)" in capsys.readouterr().out
+
+
+def test_unreachable_postgres_version_store_raises_instead_of_falling_back():
+    """Fail loud — see the agent-store twin of this test above."""
+    import psycopg
+
+    from dashboard.backend.domain.agents.version_repository_postgres import (
+        PostgresAgentVersionStore,
+    )
+
+    with pytest.raises(psycopg.OperationalError):
+        PostgresAgentVersionStore("postgresql://u:p@127.0.0.1:1/nope?connect_timeout=2")
 
 
 # --- live-Postgres behavioral tests (agent version store) --------------------
@@ -1062,7 +1456,7 @@ def test_version_create_get_list_postgres(pg_version_store):
 pytest dashboard/backend/tests/test_agent_store_postgres.py -v
 ```
 
-Expected: `test_build_agent_version_store_defaults_to_sqlite` FAILS with `AttributeError` (no `_build_agent_version_store`); the picks-postgres test FAILS with `ModuleNotFoundError`. Task 3's tests still PASS.
+Expected: `test_build_agent_version_store_defaults_to_sqlite` FAILS with `AttributeError` (no `_build_agent_version_store`); the picks-postgres and fail-loud tests FAIL with `ModuleNotFoundError` for `version_repository_postgres`. Task 5's agent-store tests, which live in this same file, still PASS.
 
 - [ ] **Step 3: Create `dashboard/backend/domain/agents/version_repository_postgres.py`**
 
@@ -1211,11 +1605,7 @@ class PostgresAgentVersionStore:
 
 - [ ] **Step 4: Add the factory to `dashboard/backend/domain/agents/version_repository.py`**
 
-Add `import logging` and `import os` to the stdlib import block at the top, and a module logger after the imports (before `VALID_EXECUTION_MODES`):
-
-```python
-logger = logging.getLogger(__name__)
-```
+Add `import os` to the stdlib import block at the top and `from dashboard.backend.db_url import describe_database_url` next to the existing `from dashboard.backend.database import DB_PATH`. No logger — the announcement is a `print()` (see Global Constraints).
 
 Replace the final line (`agent_version_store = AgentVersionStore()`, line 198) with:
 
@@ -1227,9 +1617,13 @@ def _build_agent_version_store():
             PostgresAgentVersionStore,
         )
 
-        logger.info("agent_version_store backend: postgres")
+        # print(), not logger.info() -- see users.py's _build_user_store.
+        print(
+            "agent_version_store backend: postgres "
+            f"({describe_database_url(database_url)})"
+        )
         return PostgresAgentVersionStore(database_url)
-    logger.info("agent_version_store backend: sqlite (ephemeral on Render)")
+    print("agent_version_store backend: sqlite (ephemeral on Render)")
     return AgentVersionStore()
 
 
@@ -1253,7 +1647,7 @@ git commit -m "feat: Postgres agent version store behind DATABASE_URL"
 
 ---
 
-### Task 5: `PostgresStrategyStore` (restructured share-code retry) + strategy factory + collision tests
+### Task 7: `PostgresStrategyStore` (restructured share-code retry) + strategy factory + collision tests
 
 The one non-mechanical port. `StrategyStore.create()` (`domain/strategies/repository.py:95-128`) catches `sqlite3.IntegrityError` per attempt and retries **on the same connection**. In Postgres the first `UniqueViolation` aborts the transaction and every later statement on that connection raises `InFailedSqlTransaction` — a literal port 500s on the first real collision. The Postgres twin instead uses `INSERT ... ON CONFLICT (code) DO NOTHING` and treats `cursor.rowcount == 0` as the collision signal. Retry count (20), the widened 16-char fallback, and the final `RuntimeError` are preserved exactly.
 
@@ -1262,89 +1656,98 @@ No existing test forces a collision on *either* backend, so this task also adds 
 **Files:**
 - Create: `dashboard/backend/domain/strategies/repository_postgres.py`
 - Modify: `dashboard/backend/domain/strategies/repository.py` (imports; replace line 156 `strategy_store = StrategyStore()`)
-- Test: `dashboard/backend/tests/test_strategy_store.py` (create — SQLite collision tests)
-- Test: `dashboard/backend/tests/test_strategy_store_postgres.py` (create — dispatch + `@pg_only`)
+- **Modify:** `dashboard/backend/tests/domain/strategies/test_strategy_store.py` (append SQLite collision tests — this file **already exists**; do not create a second one, see the File Structure note)
+- Test: `dashboard/backend/tests/test_strategy_store_postgres.py` (create — dispatch + fail-loud + `@pg_only`)
 
 **Interfaces:**
 - Consumes: from `domain/strategies/repository.py` — `_CODE_LENGTH` (int, = 8), `_now_iso()` (NOTE: this module's timestamp helper keeps microseconds and is named `_now_iso`, unlike the agent modules' `_utcnow_iso`), `_public(row) -> dict`.
-- Produces: `PostgresStrategyStore(database_url: str)` with `create`, `get`, `set_last_run` signature-identical to `StrategyStore`, plus `_get_connection()`. Factory `_build_strategy_store()`; log lines `"strategy_store backend: postgres"` / `"strategy_store backend: sqlite (ephemeral on Render)"`. The module-level wrappers `create_strategy`/`get_strategy`/`set_last_run` keep delegating to the `strategy_store` singleton unchanged.
+- Produces: `PostgresStrategyStore(database_url: str)` with `create`, `get`, `set_last_run` signature-identical to `StrategyStore`, plus `_get_connection()`. Factory `_build_strategy_store()`; log lines `"strategy_store backend: postgres (<host>/<db>)"` / `"strategy_store backend: sqlite (ephemeral on Render)"`. The module-level wrappers `create_strategy`/`get_strategy`/`set_last_run` keep delegating to the `strategy_store` singleton unchanged.
 
-- [ ] **Step 1: Write the failing SQLite collision tests**
+- [ ] **Step 1: Append the SQLite collision tests to the existing test file**
 
-Create `dashboard/backend/tests/test_strategy_store.py`:
+⚠️ **`dashboard/backend/tests/domain/strategies/test_strategy_store.py` already exists** (8 tests). Append to it; do not create a second `test_strategy_store.py` under `dashboard/backend/tests/`.
+
+Add to its import block (which currently has `import uuid`, `import pytest`, `from fastapi.testclient import TestClient`, `from dashboard.backend.app import app`, `from dashboard.backend.domain.strategies.repository import StrategyStore`):
 
 ```python
-"""StrategyStore share-code collision behavior (SQLite backend).
-
-create() retries up to 20 times on a code collision, then widens the code
-space (16 hex chars) and tries once more before raising. No prior test forced
-a real collision (random 8-hex codes essentially never collide by chance), so
-this pins the retry loop for the first time. The Postgres twin has the same
-tests in test_strategy_store_postgres.py -- its retry loop is structurally
-different (ON CONFLICT DO NOTHING instead of catching IntegrityError) and must
-behave identically.
-"""
-
-import pytest
-
 import dashboard.backend.domain.strategies.repository as strategies_module
+```
+
+Then append after `test_codes_are_unique` (line 82) and **before** the `Router integration` section, reusing the file's existing `_store(tmp_path)` helper rather than adding a fixture:
+
+```python
+# ----------------------------------------------------------------------
+# Share-code collision retry.
+#
+# test_codes_are_unique above can't reach this: random 8-hex codes never
+# collide by chance, so the retry loop has been dead code to the suite until
+# now. These force the collision instead of mocking the insert. The Postgres
+# twin mirrors them exactly (test_strategy_store_postgres.py) -- its loop is
+# structurally different (ON CONFLICT DO NOTHING + rowcount rather than
+# catching IntegrityError, since a UniqueViolation would abort the whole
+# transaction) and must behave identically.
+# ----------------------------------------------------------------------
 
 
-@pytest.fixture
-def sqlite_store(tmp_path):
-    return strategies_module.StrategyStore(tmp_path / "strategies_test.db")
-
-
-def test_create_retries_past_a_code_collision(sqlite_store, monkeypatch):
-    first = sqlite_store.create(prompt="first strategy")
+def test_create_retries_past_a_code_collision(tmp_path, monkeypatch):
+    store = _store(tmp_path)
+    first = store.create(prompt="first strategy")
 
     codes = iter([first["code"], "fresh456"])
+    # NB: strategies_module.secrets IS the stdlib secrets module, so this
+    # patches token_hex process-wide rather than just this module's view of
+    # it. Harmless -- monkeypatch restores it and nothing else in this test
+    # calls token_hex -- but don't read it as module-scoped.
     monkeypatch.setattr(
         strategies_module.secrets, "token_hex", lambda nbytes: next(codes)
     )
 
-    second = sqlite_store.create(prompt="second strategy")
+    second = store.create(prompt="second strategy")
     assert second["code"] == "fresh456"
-    assert sqlite_store.get(first["code"])["prompt"] == "first strategy"
-    assert sqlite_store.get("fresh456")["prompt"] == "second strategy"
+    assert store.get(first["code"])["prompt"] == "first strategy"
+    assert store.get("fresh456")["prompt"] == "second strategy"
 
 
-def test_create_widens_code_space_after_20_collisions(sqlite_store, monkeypatch):
-    first = sqlite_store.create(prompt="first strategy")
+def test_create_widens_code_space_after_20_collisions(tmp_path, monkeypatch):
+    store = _store(tmp_path)
+    first = store.create(prompt="first strategy")
 
     calls = {"n": 0}
 
     def fake_token_hex(nbytes):
         calls["n"] += 1
         if calls["n"] <= 20:
-            return first["code"]  # narrow attempts all collide
-        return "w" * 16  # widened attempt succeeds
+            return first["code"]  # every narrow attempt collides
+        return "w" * 16  # the widened attempt succeeds
 
     monkeypatch.setattr(strategies_module.secrets, "token_hex", fake_token_hex)
 
-    second = sqlite_store.create(prompt="second strategy")
+    second = store.create(prompt="second strategy")
     assert second["code"] == "w" * 16
+    # 20 narrow attempts (token_hex(_CODE_LENGTH // 2) -> 8 chars) + 1 widened
+    # (token_hex(_CODE_LENGTH) -> 16 chars). See repository.py:112-124.
     assert calls["n"] == 21
 
 
-def test_create_raises_when_even_widened_code_collides(sqlite_store, monkeypatch):
-    first = sqlite_store.create(prompt="first strategy")
+def test_create_raises_when_even_widened_code_collides(tmp_path, monkeypatch):
+    store = _store(tmp_path)
+    first = store.create(prompt="first strategy")
 
     monkeypatch.setattr(
         strategies_module.secrets, "token_hex", lambda nbytes: first["code"]
     )
 
     with pytest.raises(RuntimeError):
-        sqlite_store.create(prompt="second strategy")
+        store.create(prompt="second strategy")
 ```
 
 - [ ] **Step 2: Run the SQLite collision tests**
 
 ```bash
-pytest dashboard/backend/tests/test_strategy_store.py -v
+pytest dashboard/backend/tests/domain/strategies/test_strategy_store.py -v
 ```
 
-Expected: 3 PASSED. (These pin *existing* SQLite behavior — they must be green before the Postgres twin is written; a failure here means the retry loop was misread, stop and re-check `repository.py:95-128`.)
+Expected: **11 PASSED** (8 pre-existing + 3 new). Unlike every other task here, these are green on arrival by design — they characterize *existing* SQLite behavior and must be proven correct before the Postgres twin is written against them. A failure means the retry loop was misread: stop and re-read `repository.py:95-128` rather than adjusting the test.
 
 - [ ] **Step 3: Write the failing dispatch + Postgres tests**
 
@@ -1361,7 +1764,6 @@ rowcount, because a UniqueViolation would abort the transaction) and must
 behave identically to SQLite's catch-and-retry.
 """
 
-import logging
 import os
 
 import pytest
@@ -1376,19 +1778,16 @@ pg_only = pytest.mark.skipif(
 
 # --- dispatch tests ----------------------------------------------------------
 
-def test_build_strategy_store_defaults_to_sqlite(monkeypatch, caplog):
+def test_build_strategy_store_defaults_to_sqlite(monkeypatch, capsys):
     import dashboard.backend.domain.strategies.repository as strategies_module
 
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    with caplog.at_level(
-        logging.INFO, logger="dashboard.backend.domain.strategies.repository"
-    ):
-        store = strategies_module._build_strategy_store()
+    store = strategies_module._build_strategy_store()
     assert isinstance(store, strategies_module.StrategyStore)
-    assert "strategy_store backend: sqlite (ephemeral on Render)" in caplog.text
+    assert "strategy_store backend: sqlite (ephemeral on Render)" in capsys.readouterr().out
 
 
-def test_build_strategy_store_picks_postgres_when_url_set(monkeypatch):
+def test_build_strategy_store_picks_postgres_when_url_set(monkeypatch, capsys):
     import dashboard.backend.domain.strategies.repository as strategies_module
     import dashboard.backend.domain.strategies.repository_postgres as strategies_pg_module
 
@@ -1407,6 +1806,19 @@ def test_build_strategy_store_picks_postgres_when_url_set(monkeypatch):
 
     assert isinstance(store, FakePostgresStrategyStore)
     assert created["database_url"] == "postgresql://fake/db"
+    assert "strategy_store backend: postgres (fake/db)" in capsys.readouterr().out
+
+
+def test_unreachable_postgres_strategy_store_raises_instead_of_falling_back():
+    """Fail loud — see the agent-store twin of this test."""
+    import psycopg
+
+    from dashboard.backend.domain.strategies.repository_postgres import (
+        PostgresStrategyStore,
+    )
+
+    with pytest.raises(psycopg.OperationalError):
+        PostgresStrategyStore("postgresql://u:p@127.0.0.1:1/nope?connect_timeout=2")
 
 
 # --- live-Postgres behavioral tests ------------------------------------------
@@ -1508,7 +1920,7 @@ def test_create_raises_when_even_widened_code_collides_postgres(
 pytest dashboard/backend/tests/test_strategy_store_postgres.py -v
 ```
 
-Expected: `test_build_strategy_store_defaults_to_sqlite` FAILS with `AttributeError` (no `_build_strategy_store`); the picks-postgres test FAILS with `ModuleNotFoundError`; `@pg_only` skip.
+Expected: `test_build_strategy_store_defaults_to_sqlite` FAILS with `AttributeError` (no `_build_strategy_store`); the picks-postgres and fail-loud tests FAIL with `ModuleNotFoundError` for `repository_postgres`; `@pg_only` skip locally (error in CI, which is an acceptable red for this step).
 
 - [ ] **Step 5: Create `dashboard/backend/domain/strategies/repository_postgres.py`**
 
@@ -1640,11 +2052,7 @@ class PostgresStrategyStore:
 
 - [ ] **Step 6: Add the factory to `dashboard/backend/domain/strategies/repository.py`**
 
-Add `import logging` and `import os` to the stdlib import block at the top, and a module logger after the imports (before `_CODE_LENGTH`):
-
-```python
-logger = logging.getLogger(__name__)
-```
+Add `import os` to the stdlib import block at the top and `from dashboard.backend.db_url import describe_database_url` next to the existing `from dashboard.backend.database import DB_PATH`. No logger — the announcement is a `print()` (see Global Constraints).
 
 Replace `strategy_store = StrategyStore()` (line 156) with:
 
@@ -1656,9 +2064,10 @@ def _build_strategy_store():
             PostgresStrategyStore,
         )
 
-        logger.info("strategy_store backend: postgres")
+        # print(), not logger.info() -- see users.py's _build_user_store.
+        print(f"strategy_store backend: postgres ({describe_database_url(database_url)})")
         return PostgresStrategyStore(database_url)
-    logger.info("strategy_store backend: sqlite (ephemeral on Render)")
+    print("strategy_store backend: sqlite (ephemeral on Render)")
     return StrategyStore()
 
 
@@ -1670,21 +2079,23 @@ Leave the module-level `create_strategy` / `get_strategy` / `set_last_run` wrapp
 - [ ] **Step 7: Run tests to verify they pass**
 
 ```bash
-pytest dashboard/backend/tests/test_strategy_store.py dashboard/backend/tests/test_strategy_store_postgres.py dashboard/backend/tests/test_strategies_api.py -v
+pytest dashboard/backend/tests/domain/strategies/test_strategy_store.py \
+       dashboard/backend/tests/test_strategy_store_postgres.py \
+       dashboard/backend/tests/test_strategies_api.py -v
 ```
 
-Expected: SQLite collision tests + dispatch tests + existing strategies API tests all PASS; `@pg_only` skip (or PASS with live Postgres).
+Expected: SQLite collision tests + dispatch tests + fail-loud test + existing strategies API tests all PASS; `@pg_only` skip locally, PASS in CI.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add dashboard/backend/domain/strategies/repository_postgres.py dashboard/backend/domain/strategies/repository.py dashboard/backend/tests/test_strategy_store.py dashboard/backend/tests/test_strategy_store_postgres.py
+git add dashboard/backend/domain/strategies/repository_postgres.py dashboard/backend/domain/strategies/repository.py dashboard/backend/tests/domain/strategies/test_strategy_store.py dashboard/backend/tests/test_strategy_store_postgres.py
 git commit -m "feat: Postgres strategy store behind DATABASE_URL"
 ```
 
 ---
 
-### Task 6: Config & developer-docs surface
+### Task 8: Config & developer-docs surface
 
 No code, no tests — documentation the deploy depends on. (User-facing hosted docs are explicitly out of scope for this branch; see the spec's follow-ups section.)
 
@@ -1694,7 +2105,7 @@ No code, no tests — documentation the deploy depends on. (User-facing hosted d
 - Modify: `CLAUDE.md` ("Environment & credentials" section and the account-persistence gotcha)
 
 **Interfaces:**
-- Consumes: the factory behavior from Tasks 2-5 (must describe it accurately).
+- Consumes: the factory behavior from Tasks 4-7 (must describe it accurately, including the host/db log format from Task 3).
 - Produces: nothing programmatic.
 
 - [ ] **Step 1: Document `DATABASE_URL` in `.env.example`**
@@ -1732,7 +2143,7 @@ In the `envVars` list, after the `DATABASE_PATH` entry, add:
 In the **Environment & credentials** section, after the `USERS_DATABASE_URL` bullet, add:
 
 ```markdown
-- `DATABASE_URL` (optional): when set, agents (`external_agents`), agent versions, and strategies are stored in this Postgres database instead of `DATABASE_PATH` SQLite (factories in each store module, cloned from `_build_user_store()`; Postgres twins in `*_postgres.py` siblings). It is also the users-store fallback when `USERS_DATABASE_URL` is unset. Set it in the **Render dashboard before merging** anything that depends on it (unset silently selects ephemeral SQLite; each factory logs `<store> backend: ...` at startup). Point it at the same Neon DB as `USERS_DATABASE_URL`, pooled (`-pooler`) URL. Leave unset for local dev/tests.
+- `DATABASE_URL` (optional): when set, agents (`external_agents`), agent versions, and strategies are stored in this Postgres database instead of `DATABASE_PATH` SQLite (factories in each store module, cloned from `_build_user_store()`; Postgres twins in `*_postgres.py` siblings). It is also the users-store fallback when `USERS_DATABASE_URL` is unset. Set it in the **Render dashboard before merging** anything that depends on it — unset silently selects ephemeral SQLite, which is why each factory logs its choice at startup: `<store> backend: postgres (<host>/<db>)` or `<store> backend: sqlite (ephemeral on Render)`. The line names the host/db on purpose: `DATABASE_URL` is a name half the ecosystem uses, so "postgres" alone can't tell the intended Neon database from a stray one (`db_url.py::describe_database_url`, which never emits credentials). Point it at the same Neon DB as `USERS_DATABASE_URL`, pooled (`-pooler`) URL. Leave unset for local dev/tests — `tests/conftest.py` strips it so the suite always runs on SQLite.
 ```
 
 In the **Gotchas** section, extend the user-accounts bullet (the one starting "**User accounts were silently lost on every prod redeploy until 2026-07**") by appending to it:
@@ -1758,13 +2169,13 @@ git commit -m "docs: document DATABASE_URL config surface"
 
 ---
 
-### Task 7: Full-suite verification
+### Task 9: Full-suite verification
 
 **Files:** none (verification only).
 
 **Interfaces:**
 - Consumes: everything above.
-- Produces: a green branch ready for PR + review.
+- Produces: a green **draft** PR, ready for human review — and explicitly *not* ready to merge (see Step 7).
 
 - [ ] **Step 1: Clear stale bytecode (known phantom-failure source)**
 
@@ -1779,11 +2190,9 @@ find dashboard -name __pycache__ -type d -prune -exec rm -rf {} +
 pytest dashboard/backend/tests/ -v 2>&1 | tail -30
 ```
 
-Expected: everything passes; the only skips are the `@pg_only` tests (+ any pre-existing `importorskip('discord')` skips). Any failure is a real regression — fix before proceeding.
+Expected: everything passes locally; the only skips are the `@pg_only` tests, `test_ci_provides_a_live_postgres` (skips off-CI by design), and any pre-existing `importorskip('discord')` skips. Any failure is a real regression — fix before proceeding.
 
-- [ ] **Step 3 (optional but recommended): Run the `@pg_only` tier against a throwaway Postgres**
-
-If docker is available:
+- [ ] **Step 3: Run the `@pg_only` tier against a throwaway Postgres**
 
 ```bash
 docker run --rm -d --name atl-pg-test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=atl_test -p 5433:5432 postgres:16-alpine
@@ -1795,7 +2204,7 @@ TEST_POSTGRES_URL=postgresql://postgres:test@localhost:5433/atl_test pytest \
 docker stop atl-pg-test
 ```
 
-Expected: all `@pg_only` tests PASS (none skipped). If docker is unavailable, note it in the PR body — the live tier then runs at rollout verification instead.
+Expected: all `@pg_only` tests PASS, **none skipped**. If docker isn't available locally that's survivable — unlike in the original plan, this is no longer the only place the live tier runs (Task 2 put it in CI, and Step 5 below is the real gate). Local docker is the fast feedback loop, not the proof.
 
 - [ ] **Step 4: Confirm the committed seed DB was not mutated**
 
@@ -1805,14 +2214,44 @@ git status --short dashboard/storage/data/backtest.db
 
 Expected: no output (conftest isolates `DATABASE_PATH`; if the file shows as modified, a test imported a store before conftest ran — investigate, `git checkout -- dashboard/storage/data/backtest.db`, and fix before PR).
 
+- [ ] **Step 5: Confirm the backend line is visible in a REAL uvicorn process**
+
+`capsys` proves the factory emitted something; it does not prove prod will show it. Prove that against the real server, since the whole fail-visible mitigation rests on it:
+
+```bash
+timeout 10 ~/atl-venv/bin/python -m uvicorn dashboard.backend.app:app --port 8123 2>&1 | grep "backend:"
+```
+
+Expected: four `<store> backend: sqlite (ephemeral on Render)` lines in the output (SQLite locally, since `DATABASE_URL` is unset). If nothing matches, someone converted a `print()` back into `logger.info()` and the mitigation is dead — that is a blocking regression, not a nit. (This is a manual check, not a test: a pytest that reconfigures global logging to simulate uvicorn would corrupt the rest of the session.)
+
+- [ ] **Step 6: Confirm CI is green *with the live tier actually running* — this is the gate**
+
+```bash
+git push
+gh run list --branch feat/agent-db-persistence --limit 1
+gh run view <run-id> --log | grep -E "pg_only|skipped|passed|failed" | tail -20
+```
+
+Expected: green, and the `@pg_only` tests **ran rather than skipped**. A green run in which they all skipped is a *failed* verification — it means the postgres service regressed and the Postgres backends are once again untested. `test_ci_provides_a_live_postgres` exists to make that loud, so check it passed rather than trusting the overall green.
+
+- [ ] **Step 7: Leave the PR as a draft — do not mark it ready, do not merge**
+
+The PR from Task 2 stays a draft with its `DO NOT MERGE until DATABASE_URL is set in the Render dashboard` first line intact. Marking it ready-for-review is a **human decision that follows setting the env var**, not a step this plan performs:
+
+- This repo has no branch protection and open PRs get merged unreviewed (CLAUDE.md, "Merge & branch discipline"). A ready-for-review PR here is a merge-able PR.
+- Merging with `DATABASE_URL` unset silently selects ephemeral SQLite: the feature ships, appears fine, and does nothing. Only *set-but-unreachable* fails loud.
+- Report to the human: the branch is green, the live tier ran in CI, and the PR is held in draft pending the Render env var. Do not volunteer to set it, mark it ready, or merge.
+
 ---
 
 ## Deploy-time steps (NOT part of this branch — from the spec's Rollout section)
 
-Recorded here so the PR body can reference them; they happen in the Render dashboard and GitHub, not in code:
+Recorded here so the PR body can reference them; they happen in the Render dashboard and GitHub, not in code. **This ordering is the whole reason the PR opens as a draft** (Task 2) and stays one (Task 9, Step 7) — a gate that lives only in a plan file is not a gate, which is precisely how PR #107 shipped.
 
 1. Set `DATABASE_URL` in the **Render dashboard** (same Neon database as `USERS_DATABASE_URL`, pooled `-pooler` URL) — **before** merging.
-2. Merge the PR; CI auto-deploys on green main.
-3. Confirm the four `... backend: postgres` startup log lines in Render logs.
+2. Only now: drop the `DO NOT MERGE` line, mark the PR ready for review, and merge. CI auto-deploys on green main.
+3. Confirm all four `... backend: postgres (<host>/<db>)` startup log lines in Render logs — and read the host/db, don't just grep for "postgres". A line naming the wrong database is the failure this format exists to expose.
 4. Live verification: create an agent → trigger a redeploy → agent still lists and its API key still resolves.
 5. Recreate the built-in agents once via the normal API; they persist thereafter.
+
+If step 3 shows `sqlite (ephemeral on Render)`, the env var didn't take — the feature is inert and agents are still being lost. That is a rollback-or-fix-now signal, not a warning.

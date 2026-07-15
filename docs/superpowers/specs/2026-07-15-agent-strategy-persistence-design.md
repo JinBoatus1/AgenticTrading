@@ -42,6 +42,23 @@ only option that makes that relationship joinable again.
    factories. The users factory gains a fallback (`USERS_DATABASE_URL or
    DATABASE_URL`) so future deployments need only one var; prod already sets
    `USERS_DATABASE_URL`, so users-store behavior does not change.
+
+   **Naming — considered and kept, with a mitigation.** `DATABASE_URL` is the most
+   collision-prone name in the ecosystem: it is the Heroku-style de-facto standard,
+   it is what anyone attaching a managed Postgres would reach for by default, and it
+   is plausibly already exported in a developer's shell for an unrelated project. A
+   wrong-database binding is the failure this design must not have — so the risk is
+   answered by making the *target* visible rather than by renaming: every factory
+   logs the resolved host and database name, not a bare `postgres` (see "Failure
+   semantics" below). Note the asymmetry that motivates this: the conftest strip
+   (Testing tier 1) protects the *test process* from an ambient `DATABASE_URL`;
+   nothing protects a local `uvicorn dashboard.backend.app:app` run, and nothing
+   can — reading the ambient var *is* the feature. The log line is what turns
+   "silently bound to the wrong database" into "visibly bound to the wrong
+   database". Escape hatch if this ever bites in practice: rename to
+   `CONTENT_DATABASE_URL`, which is both immune to the convention and consistent
+   with the existing `USERS_DATABASE_URL` precedent, at the cost of this decision's
+   one-var goal.
 3. **Approach:** literal copy of the proven `users.py` dual-backend pattern —
    hand-written Postgres twin class per store with an identical public method
    surface, per-store factory, no base class, no SQL-translation layer, no ORM.
@@ -62,7 +79,10 @@ def _build_agent_store():
     database_url = os.getenv("DATABASE_URL")
     if database_url:
         from dashboard.backend.domain.agents.repository_postgres import PostgresAgentStore
+
+        print(f"agent_store backend: postgres ({describe_database_url(database_url)})")
         return PostgresAgentStore(database_url)
+    print("agent_store backend: sqlite (ephemeral on Render)")
     return AgentStore()
 
 agent_store = _build_agent_store()
@@ -93,6 +113,13 @@ database_url = os.getenv("USERS_DATABASE_URL") or os.getenv("DATABASE_URL")
 | `domain/agents/repository_postgres.py` | `PostgresAgentStore` | `AgentStore` |
 | `domain/agents/version_repository_postgres.py` | `PostgresAgentVersionStore` | `AgentVersionStore` |
 | `domain/strategies/repository_postgres.py` | `PostgresStrategyStore` | `StrategyStore` |
+| `db_url.py` | — (`describe_database_url()`) | — (new shared helper) |
+
+`db_url.py` sits at the backend root, not under `domain/`, because all four factories
+(the three above plus users) import it; `domain/` → backend-root imports are already
+the established pattern (`from dashboard.backend.database import DB_PATH` in both
+agent modules today), and it introduces no `domain/` → `api/` edge, so
+`test_architecture_boundaries.py` is unaffected.
 
 Each twin defines its own `_get_connection()` inline —
 `psycopg.connect(self.database_url, row_factory=dict_row)` — exactly like
@@ -140,20 +167,75 @@ module the import graph reaches first. Accepted as-is — it exactly matches the
 recreate the account-loss failure mode this pattern was built to kill (see CLAUDE.md,
 "Fail-closed is not fail-visible").
 
+"Fail loud" is a claim, so it gets a test: each twin has a unit test asserting that an
+unreachable URL raises `psycopg.OperationalError` out of `__init__` rather than
+falling back. It needs no live Postgres (a closed port refuses instantly), so it runs
+everywhere, and it is what stops a later contributor from "helpfully" wrapping a
+factory in a `try/except` — which would silently restore the exact failure mode this
+pattern exists to kill.
+
 The dangerous case is the *other* branch: `DATABASE_URL` simply **unset** silently
 selects ephemeral SQLite, and nothing in the app today logs which backend won (true
-even for the shipped users store). Each new factory therefore emits one startup log
-line — e.g. `agent_store backend: postgres` / `agent_store backend: sqlite (ephemeral
-on Render)` — so a misconfigured deploy is visible in logs instead of byte-identical
-to a healthy one.
+even for the shipped users store). Each factory (including the users one) therefore
+emits exactly one startup log line naming the chosen backend.
+
+**The log line must identify *which* Postgres, not just "postgres".** A bare
+`agent_store backend: postgres` is byte-identical whether the store bound to the
+intended Neon database or to something else entirely — the same
+indistinguishable-success shape CLAUDE.md's "Fail-closed is not fail-visible" section
+was written about. So the line carries the resolved host and database name:
+
+```
+agent_store backend: postgres (ep-xyz-pooler.eu-central-1.aws.neon.tech/atl)
+agent_store backend: sqlite (ephemeral on Render)
+```
+
+The target string is produced by one shared stdlib-only helper,
+`dashboard/backend/db_url.py::describe_database_url()` (`urllib.parse.urlsplit` →
+`hostname[:port]/dbname`). It is defined **once**, not cloned per store, for a
+deliberate reason that overrides this design's otherwise-strict copy-the-precedent
+rule: it is credential-scrubbing code, and four hand-copied scrubbers is four chances
+for one of them to leak the password into a log. It is a pure string helper, not a
+connection layer, so it does not reintroduce the shared `pg.py` that was rejected
+above. A unit test asserts the password never survives the transformation.
+
+**Emit with `print()`, not `logger.info()` — this is load-bearing, not style.** Under
+the configuration prod actually runs, `logger.info()` from a `dashboard.backend.*`
+module **emits nothing**. Verified, not assumed: nothing under `dashboard/backend/`
+calls `basicConfig`/`dictConfig`/`setLevel`; no launch path passes `--log-level`
+(`render.yaml:13`, `Dockerfile:26`, `app.py`'s `__main__`); and uvicorn's
+`LOGGING_CONFIG` defines no `root` key, so these loggers inherit root's default
+`WARNING`. Reproduced directly: `getEffectiveLevel()` → `WARNING`,
+`isEnabledFor(INFO)` → `False`, `logger.info(...)` → silence.
+
+A `caplog`-based test cannot catch this, because `caplog.at_level(logging.INFO, ...)`
+force-sets the level for the duration of the test: the suite goes green while prod
+stays silent. That is precisely the green-tests/invisible-prod shape this whole design
+is meant to eliminate — the fail-visible mitigation would itself have failed
+invisibly. `print()` is also the codebase's overwhelming convention for operational
+diagnostics (~25 modules, including `app.py`'s startup `DATABASE DEBUG` block and
+`domain/leaderboard/service.py`), so it is idiomatic here rather than a new pattern,
+it lands in Render's logs next to the existing startup output, and — unlike a level —
+there is nothing about it a later cleanup can silently suppress. Tests assert on
+`capsys`, not `caplog`.
 
 ## Postgres schema
 
 Dialect conventions follow `users_postgres.py`: `TEXT` ISO-8601 timestamps (the SQLite
 stores already write `_utcnow_iso()` strings, so ordering/comparison parity is exact),
 JSON kept as `TEXT` (not JSONB), `DOUBLE PRECISION` for `cash_allocation`, idempotent
-`CREATE TABLE IF NOT EXISTS` plus lazy `ALTER TABLE ADD COLUMN IF NOT EXISTS`
-migrations in `_init_schema()`. All unique constraints and indexes carry over:
+`CREATE TABLE IF NOT EXISTS` in `_init_schema()`.
+
+**No lazy `ALTER TABLE ADD COLUMN` migrations, unlike `users_postgres.py`** — and the
+difference is not an oversight. That module needs its `ADD COLUMN IF NOT EXISTS
+discord_user_id` because its `users` table already exists in prod Neon from before
+Discord linking shipped. All three tables here are created *fresh* on first Postgres
+startup (there is no data to migrate — see Migration below), so `CREATE TABLE` alone
+already declares every column and there is nothing an `ALTER` could add. Columns added
+in *future* work use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, the Postgres analogue
+of the SQLite stores' `PRAGMA table_info` probing.
+
+All unique constraints and indexes carry over:
 `api_key_hash` UNIQUE, `session_id` UNIQUE, indexes on `owner_user_id`,
 `owner_browser_session`, `agent_type`, `agent_versions(agent_id, created_at)`.
 
@@ -172,8 +254,11 @@ clarity: `agent_versions` declares no FK to `external_agents` in SQLite either �
 ### Dialect-sensitive idioms (verified against the three modules)
 
 - `?` placeholders → `%s` (everywhere).
-- `PRAGMA table_info` column probing (AgentStore's lazy migrations) →
-  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+- `PRAGMA table_info` column probing (AgentStore's lazy migrations,
+  `repository.py:123-146`) → `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. This is the
+  mapping to reach for when a *future* column is added; do **not** port the existing
+  probes, whose only job is to retrofit columns onto SQLite databases that predate
+  them. The Postgres tables are born with every column (see above).
 - **`INSERT OR IGNORE` / `INSERT OR REPLACE` do not appear in any of the three
   in-scope modules** — every insert is a plain `INSERT`. (Both idioms exist only in
   `database.py`'s out-of-scope run tables.) Do not spend implementation time hunting
@@ -221,30 +306,83 @@ clarity: `agent_versions` declares no FK to `external_agents` in SQLite either �
   database as `USERS_DATABASE_URL` — which itself lives only in the dashboard, not in
   `render.yaml`; the yaml is known-drifted from prod and editing it alone does
   nothing) → (2) merge; CI auto-deploys on green main → (3) confirm the new
-  `agent_store backend: postgres` startup log line → (4) **live verification:**
-  create an agent, trigger a redeploy, confirm the agent still lists and its API key
-  still resolves. Optionally add `DATABASE_URL` to `render.yaml` with `sync: false`
-  as documentation, clearly not as the mechanism.
+  `agent_store backend: postgres (<host>/<db>)` startup log lines — all four of them,
+  and check the host/db actually matches the intended Neon database rather than just
+  that the word "postgres" appears → (4) **live verification:** create an agent,
+  trigger a redeploy, confirm the agent still lists and its API key still resolves.
+  Optionally add `DATABASE_URL` to `render.yaml` with `sync: false` as documentation,
+  clearly not as the mechanism.
 
-## Testing (mirrors the users fix's three tiers)
+- **Publish the merge gate where GitHub enforces it, from the moment the PR opens.**
+  "Set the env var before merging" is an ordering constraint that exists only in this
+  document — and this repo has no branch protection, no required checks, and a
+  demonstrated norm of merging open PRs unreviewed (see CLAUDE.md, "Merge & branch
+  discipline"; PR #107 is the case study, where a gate posted as a comment arrived 41
+  minutes after someone had already merged). So the implementation PR **opens as a
+  draft**, with `DO NOT MERGE until DATABASE_URL is set in the Render dashboard` as
+  the literal first line of its body, and is marked ready-for-review only once the
+  var is set. A gate recorded in a plan file, a session's memory, or a comment is not
+  a gate.
 
+## Testing
+
+The users fix established three tiers. Cloning them as-is would ship this change's
+entire Postgres half **unexecuted**, so a fourth (tier 0) is added first and is the
+most important item in this section.
+
+0. **CI must run a real Postgres — the `@pg_only` tier has to be a gate, not a
+   courtesy.** `.github/workflows/ci.yml` today has no `services:` block, so
+   `TEST_POSTGRES_URL` is never set and every `@pg_only` test skips on every PR. That
+   was survivable for the users fix (one store, already shipped and since proven in
+   prod); here it would mean ~450 lines of new SQL across three modules reaching prod
+   having never executed once. And the blast radius is not "a bug": `_init_schema()`
+   runs at **import time** and this design mandates fail-loud, so a single DDL typo
+   means the app raises on boot. Merging `main` auto-deploys, and the free tier has
+   no zero-downtime deploys — so a typo plausibly takes prod down rather than merely
+   failing a deploy. Add a `postgres:16-alpine` service to the `backend-tests` job
+   and set `TEST_POSTGRES_URL` (~8 lines of YAML). This lands *early* in the plan, not
+   at the end: it also switches on the shipped-but-never-CI-run
+   `test_users_postgres.py` live tier, and that wants to shake out on its own commit
+   rather than tangled with new code.
 1. **Whole suite stays on SQLite:** `dashboard/backend/tests/conftest.py` must strip
    `DATABASE_URL` at import time, alongside the existing `USERS_DATABASE_URL` strip
    (`conftest.py:44-47`). Without this, a dev with prod env vars set would run the
-   test suite against the production Neon database.
+   test suite against the production Neon database. Note this strip is **load-bearing
+   for tests that already exist**, not just a new safety net: two of them assert the
+   *singleton* is a SQLite store by reaching for `.db_path`
+   (`tests/domain/agents/test_repository_move.py:39-40` and
+   `tests/domain/strategies/test_strategy_store.py:42-43`). Once the factories exist,
+   an ambient `DATABASE_URL` would break those with an `AttributeError`, not just
+   redirect their writes. (Tests that construct a store directly — e.g.
+   `test_agent_repository_compatibility.py`'s `repos` fixture — are indifferent to the
+   env var, since `__init__` never reads it.)
 2. **Dispatch tests** per factory: `DATABASE_URL` set → Postgres twin selected;
    unset → SQLite; users factory precedence (`USERS_DATABASE_URL` wins over
    `DATABASE_URL`). No live Postgres needed (mirror
-   `test_users_postgres.py:29-53`).
-3. **`@pg_only` behavioral tests** per store, gated on `TEST_POSTGRES_URL` (mirror
-   `test_users_postgres.py:76-124`): agent create/claim/rotate/resolve lifecycle
+   `test_users_postgres.py`'s dispatch pair). Each asserts the backend log line,
+   including the resolved host/dbname target.
+3. **Fail-loud tests** per twin: an unreachable URL must raise
+   `psycopg.OperationalError` out of `__init__` rather than falling back. No live
+   Postgres needed (a closed port refuses instantly), so these run in every
+   environment — and unlike the dispatch tests (which monkeypatch the twin class
+   away) they are the only tier that executes the twins' real `__init__`.
+4. **`@pg_only` behavioral tests** per store, gated on `TEST_POSTGRES_URL` (mirror
+   `test_users_postgres.py`'s live tier): agent create/claim/rotate/resolve lifecycle
    including browser-session→user claim; `update_agent` partial updates (`_UNSET`
    sentinel); version immutability; `last_used_at` update on resolve; and the
    strategy share-code collision path — which must **force a real collision**
    (monkeypatch `secrets.token_hex` to return a duplicate before a fresh value), not
-   mock the insert. No existing SQLite test exercises a forced collision
-   (`test_strategy_store.py` only checks 25 random codes don't collide by chance), so
-   this test is new for both backends and should run against SQLite too.
+   mock the insert.
+
+**Where the strategy collision tests go.** No existing test forces a collision on
+either backend, so this coverage is new for SQLite too — but it belongs in the
+**existing** `dashboard/backend/tests/domain/strategies/test_strategy_store.py`
+(whose `test_codes_are_unique`, lines 79-82, only checks that 25 random codes don't
+collide by chance, and whose `_store(tmp_path)` helper at lines 18-19 the new tests
+should reuse). Do **not** create a second `test_strategy_store.py` at
+`dashboard/backend/tests/` — the tests tree is a package (`__init__.py` throughout),
+so a duplicate basename would not error, it would just quietly split one store's
+tests across two identically-named files.
 
 ## Config & docs surface
 
@@ -253,6 +391,9 @@ clarity: `agent_versions` declares no FK to `external_agents` in SQLite either �
   durable Postgres for user-created content).
 - `render.yaml`: optionally add `DATABASE_URL` with `sync: false` as documentation —
   the real mechanism is the Render dashboard (see Rollout).
+- `.github/workflows/ci.yml`: add a `postgres:16-alpine` service + `TEST_POSTGRES_URL`
+  to the `backend-tests` job, so the `@pg_only` tier runs (Testing tier 0). Not
+  cosmetic — this is the only thing that executes the new SQL before prod does.
 - CLAUDE.md: extend the env/credentials section and the user-account-persistence
   gotcha to cover agents/strategies.
 
