@@ -236,9 +236,13 @@ def _story_fields(sig: dict) -> dict:
 def _project_entry(sig: dict, reference_ts: float) -> dict:
     return {
         "sentiment": sig["sentiment"],
-        # v2 sentiment_score with transitional v1 fallback — PR-2 of the
-        # FinSearch score-field disambiguation deletes the fallback.
-        "score": sig["sentiment_score"] if "sentiment_score" in sig else sig["score"],
+        # Reads the wire's v2 key; emits the INTERNAL key `score`, which
+        # api/v2/models.py's NewsSentimentEntry validates. The two vocabularies
+        # are decoupled by design — this is not a half-finished rename.
+        # No v1 fallback: signals v2 is a hard rename and FinSearch normalizes
+        # at its boundary, so `score` cannot reach us. A KeyError here means the
+        # producer contract broke and should be seen, not smoothed over.
+        "score": sig["sentiment_score"],
         **_story_fields(sig),
         "n_articles": sig["n_articles"],
         "age_hours": max(0.0, (reference_ts - float(sig["published"])) / 3600.0),

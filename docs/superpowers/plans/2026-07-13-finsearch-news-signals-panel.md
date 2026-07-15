@@ -82,14 +82,14 @@ git commit -m "feat(v2): additive optional rationale on NewsSentimentEntry"
 ### Task 2: Vendor the producer fixture + schema for offline tests
 
 **Files:**
-- Create: `dashboard/backend/tests/fixtures/signals-v1.schema.json` (copy from FinSearch `Heartbeat/schemas/signals-v1.schema.json`)
+- Create: `dashboard/backend/tests/fixtures/signals-v2.schema.json` (copy from FinSearch `Heartbeat/schemas/signals-v2.schema.json`; vendored at v1 originally — the producer moved to v2 on 2026-07-14 and ATL re-vendored in PR-2b)
 - Create: `dashboard/backend/tests/fixtures/signals-fixture.json` (copy from FinSearch `Heartbeat/tests/fixtures/signals-fixture.json`)
 - Test: `dashboard/backend/tests/test_news_sentiment_fixture.py`
 
 **Interfaces:**
 - Produces: fixture paths used by Tasks 3–6's tests; helper `load_signals_fixture() -> dict`.
 
-- [ ] **Step 1: Copy both files verbatim** from `/mnt/d/FinGPT/Github/fingpt_rcos/Heartbeat/{schemas/signals-v1.schema.json,tests/fixtures/signals-fixture.json}` (or the FinSearch repo's current main). Do not edit them — they are the producer's contract artifacts.
+- [ ] **Step 1: Copy both files verbatim** from `/mnt/d/FinGPT/Github/fingpt_rcos/Heartbeat/{schemas/signals-v2.schema.json,tests/fixtures/signals-fixture.json}` (or the FinSearch repo's current main). Do not edit them — they are the producer's contract artifacts.
 
 - [ ] **Step 2: Write a fixture sanity test**
 
@@ -124,7 +124,7 @@ Expected: PASS.
 
 ```bash
 git add dashboard/backend/tests/fixtures/ dashboard/backend/tests/test_news_sentiment_fixture.py
-git commit -m "test: vendor signals-v1 schema + fixture for offline adapter tests"
+git commit -m "test: vendor signals-v2 schema + fixture for offline adapter tests"
 ```
 
 ---
@@ -710,8 +710,11 @@ git commit -m "feat(api): /api/news/signals panel proxy with TTL cache + contrac
 **Files:**
 - Modify: `dashboard/frontend/app.html` (new section inside `#homeView`, after the `.home-dashboard-grid` section that ends near `app.html:472`; new `<script src="home-news-signals.js">` **after** `app.js` (`:1513`) and `home-page.js` (`:1515`) — **not** beside the `market-events/*` block at `1507-1510`, which loads *before* `app.js`. The panel script depends on `app.js` globals `API` / `API_BASE` / `escapeHtml`, so it must come after them, exactly as its own load-order comment in Step 2 requires)
 - Create: `dashboard/frontend/home-news-signals.js`
+- **Modify: `dashboard/backend/app.py` (register a `FileResponse` route for `/home-news-signals.js`, mirroring the `/home-page.js` route).** The backend serves the frontend with one explicit route per asset and has **no `StaticFiles` mount and no catch-all** — so creating a file under `dashboard/frontend/` does *not* make it reachable. A referenced-but-unrouted script 404s at the origin and the panel renders as empty boxes.
 - Modify: `dashboard/frontend/home-page.js` (call `newsSignalsPanel.onShow()` / `.onHide()` from `onHomePageShow`/`onHomePageHide`, `home-page.js:648-656`)
 - Modify: `dashboard/frontend/styles.css` (panel styles, following `.home-dash-card` family at `styles.css:4359-4368`)
+
+> **Correction (2026-07-15, after the fact).** The `app.py` line above was **missing from this plan as executed**, and that omission is the direct cause of a live bug: `home-news-signals.js` was created and referenced by `app.html` but never routed, so it 404'd from the panel's first day (`5d29d51`, 2026-07-13) until ATL #115 (`4052d90`) added the route two days later. The panel was five permanently empty boxes for that entire window, which is why PRs #110/#112/#359 kept repairing an adapter feeding a UI nobody could see. Task 7's smoke test did not catch it because it asserted the *payload*, never the *asset*. If you add a frontend file in this repo, routing it is part of the task — and the acceptance check is a `curl` for a 200, not a page that looks plausible.
 
 **Interfaces:**
 - Consumes: `GET {API_BASE}/api/news/signals` (Task 5 payload), `API_BASE` + `API.get` conventions (`app.js:920-989`).
@@ -818,9 +821,20 @@ git commit -m "feat(api): /api/news/signals panel proxy with TTL cache + contrac
 })();
 ```
 
+- [ ] **Step 2b: Route the script in the backend.** In `dashboard/backend/app.py`, beside the `/home-page.js` route, add:
+
+```python
+@app.get("/home-news-signals.js", include_in_schema=False)
+async def serve_home_news_signals_js():
+    """Serve home-news-signals.js for the Home tab news & signals panel."""
+    return FileResponse(frontend_path / "home-news-signals.js", media_type="text/javascript")
+```
+
+There is no `StaticFiles` mount — every asset `app.html` references is routed by hand, so this step is not optional. Add the path to `EXPECTED_FULL_CONTRACT` in `tests/test_app_composition.py` (the frozen route contract) and assert a 200 in `tests/test_static_routes.py`; the contract test is what makes a future missing route fail in CI rather than in prod.
+
 - [ ] **Step 3: Wire lifecycle + styles.** In `home-page.js` `onHomePageShow`/`onHomePageHide` add `window.newsSignalsPanel && window.newsSignalsPanel.onShow()` / `.onHide()`. Add `.home-news-signals` styles: card chrome matching `.home-dash-card`, `.nns-split { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }` collapsing to one column at the same breakpoint the dash grid uses (`styles.css:4633`), sentiment chip colors for `.nns-bullish/.nns-bearish/.nns-neutral` consistent with existing badge styling.
 
-- [ ] **Step 4: Verify in the running app.** `uvicorn dashboard.backend.app:app --reload`; open `http://localhost:8000/app`. With no `FINGPT_API_KEY` set the panel must show the unavailable state (not an error). Then set `FINSEARCH_SIGNALS_URL` to a local fixture server (`python3 -m http.server` serving the fixture — or temporarily monkeypatch) OR set the real key, and confirm: feed rows link out, signals show chips + rationale, staleness renders, hiding the Home tab stops polling (no network entries in devtools).
+- [ ] **Step 4: Verify in the running app.** `uvicorn dashboard.backend.app:app --reload`. **First assert the asset, not the page:** `curl -sSf -o /dev/null -w '%{http_code}' http://localhost:8000/home-news-signals.js` must print `200`. A missing route renders as an *empty panel*, which is visually indistinguishable from "no news today" — so eyeballing `/app` cannot tell you the script loaded (this is exactly how the 2026-07-13 → 07-15 outage survived review). Then open `http://localhost:8000/app`. With no `FINGPT_API_KEY` set the panel must show the unavailable state (not an error). Then set `FINSEARCH_SIGNALS_URL` to a local fixture server (`python3 -m http.server` serving the fixture — or temporarily monkeypatch) OR set the real key, and confirm: feed rows link out, signals show chips + rationale, staleness renders, hiding the Home tab stops polling (no network entries in devtools).
 
 - [ ] **Step 5: Commit**
 
