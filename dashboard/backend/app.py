@@ -294,6 +294,11 @@ async def serve_home_page_js():
     """Serve home-page.js for the Home tab mock live UI."""
     return FileResponse(frontend_path / "home-page.js", media_type="text/javascript")
 
+@app.get("/home-news-signals.js", include_in_schema=False)
+async def serve_home_news_signals_js():
+    """Serve home-news-signals.js for the Home tab news & signals panel."""
+    return FileResponse(frontend_path / "home-news-signals.js", media_type="text/javascript")
+
 @app.get("/js/{file_name}", include_in_schema=False)
 async def serve_js_module(file_name: str):
     """Serve js/*.js modules (e.g. leaderboard.js)."""
