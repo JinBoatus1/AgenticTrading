@@ -35,8 +35,8 @@ Turn trading ideas into traceable experiments: prototype agents, run backtests a
 - [Overview](#overview)
 - [Key Features](#key-features)
 - [File Structure](#file-structure)
-- [Architecture](#architecture)
-- [Future Roadmap](#future-roadmap)
+- [User Workflow](#user-workflow)
+- [Roadmap](#roadmap)
 - [Citation](#citation)
 - [License](#license)
 - [Contributing](#contributing)
@@ -47,72 +47,69 @@ Agentic Trading Lab is an interactive research and educational platform for expl
 
 ## Key Features
 
-- **Build and customize LLM-powered trading agents**  
- Prototype trading agents with configurable models, prompts, asset universes, and decision logic.
-- **Interactive backtests**  
-Test performance on historical market data and compare results against baselines.
-- **Live-market paper trading**  
-Test agents beyond historical replay by deploying to paper trading accounts that interact with real-time market data.
-- **Inspect decision logs and reasoning traces**  
-Review each BUY, SELL, and HOLD decision with timestamps, prices, portfolio state, and reasoning.
-- **Evaluate risk and performance**  
-Analyze cumulative return, Sharpe ratio, volatility, maximum drawdown, win/loss behavior, and benchmark comparisons.
-- **Compete on agent leaderboards**  
-Join agentic trading competitions where teams and users compete against others in a live-market paper trading setting.
+***Talk to agents. Test trading ideas.***
+Start with a market question or trading idea, then turn it into an agent you can run, observe, and improve.
+
+- **Create trading agents your way**  
+Choose a model, data source, and trading prompt, or connect your own agent through our API.
+- **Build an agent-powered portfolio**  
+Give multiple agents simulated capital and manage them as your own virtual trading team.
+- **Test before using real capital**  
+Move from historical backtests to live-market paper trading in one workflow.
+- **See every run, decision, and reason**  
+Monitor positions, trades, portfolio changes, and the reasoning behind each action.
+- **Measure more than returns**  
+Evaluate performance, risk, drawdown, and trading behavior using standardized metrics.
+- **Compare agents in the open**  
+Benchmark LLM models, baseline strategies, and market indices on an open leaderboard under the same market window.
 
 ## File Structure
 
-The main folders are **backend**, **frontend**, and **orchestration**. The lab uses a **backtest → API → dashboard** pipeline.
-
 ```
 AgenticTrading/
-├── backend/              # FastAPI app, SQLite layer, paper trading, LLM validator
-├── frontend/             # Dashboard (served by backend at http://localhost:8000)
-├── scripts/              # CLI backtest (backtest_hourly_agent.py, etc.)
-├── config/               # Default run IDs and date range (defaults.json)
-├── data/                 # SQLite backtest results (backtest.db)
-├── credentials/          # Local only — not in git (see alpaca.json.example)
-├── backups/              # Database backups
-├── docs/                 # Sphinx docs (see docs/README.md for local preview)
-├── readthedocs.yml       # Read the Docs build config
-└── orchestration/        # FinAgent multi-agent framework (separate subsystem)
+├── dashboard/                 # Shipping product
+│   ├── backend/               # FastAPI package (dashboard.backend.*)
+│   │   ├── api/               # /api routers + Agent API v2 (/api/v2)
+│   │   ├── domain/            # Business logic (runs, backtesting, leaderboard, trading, …)
+│   │   ├── execution/         # v2 execution backends (backtest live; paper stub)
+│   │   ├── infrastructure/    # LLM validator, market data, Alpaca broker
+│   │   └── integrations/      # Discord bot, etc.
+│   ├── frontend/              # Static assets: landing (/) + dashboard (/app)
+│   ├── landing/               # Vite/React landing source (builds into frontend/)
+│   ├── scripts/               # CLI backtests (backtest_hourly_agent.py, …)
+│   ├── config/                # defaults.json, leaderboard.json
+│   └── storage/               # data/backtest.db + backups/
+├── packaging/agentictrading/  # PyPI SDK (AgentRunner + HTTP client)
+├── credentials/               # Local only — not in git (see alpaca.json.example)
+├── docs/                      # Sphinx docs + architecture notes
+├── orchestration/             # FinAgent multi-agent framework (separate)
+├── requirements.txt           # Dashboard deps (not root pyproject.toml)
+├── Dockerfile / render.yaml   # Backend deploy
+└── vercel.json                # Frontend static deploy
 ```
 
-## Architecture
+## User Workflow
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Backtest Engine (scripts/backtest_hourly_agent.py)          │
-│ ├─ Fetch Alpaca hourly bars                                 │
-│ ├─ Run agent + baseline logic                               │
-│ ├─ Write 3 runs (agent, buy-and-hold, DJIA)                 │
-│ └─ Store in data/backtest.db (SQLite)                        │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼─────────────────────────────────────────────┐
-│ REST API (backend/app.py)                                    │
-│ ├─ GET  /health                                              │
-│ ├─ GET  /runs, /runs/{id}/equity, /compare                   │
-│ ├─ POST /backtest/run, GET /backtest/status                  │
-│ ├─ GET  /ticker                                              │
-│ ├─ GET  /paper/account, /paper/positions, …                  │
-│ └─ GET  /config/defaults                                     │
-│     (LLM example: backend/llm_integration_example.py only)   │
-└────────────────┬────────────────────────────────────────────┘
-                 │
-┌────────────────▼─────────────────────────────────────────────┐
-│ Web Dashboard (frontend/)                                    │
-│ ├─ index.html, app.js, styles.css                            │
-│ └─ images/                                                   │
-└──────────────────────────────────────────────────────────────┘
-```
+![User Workflow](docs/images/user_workflow.png)
 
-## Future Roadmap
+## Roadmap
 
-- Leaderboard backed by real multi-agent runs (replace mock data)
-- News sentiment is live via Agentic FinSearch (Home panel + v2 agent context); Reddit/social sentiment still planned
-- Monte Carlo simulation baselines
-- Production-ready Docker image (frontend + data included)
+Agentic Trading Lab is evolving from an experimental playground into an open platform where trading agents, models, data, and tools can be connected, managed, evaluated, and reused.
+
+- **Standardized agent integration**  
+Define reusable Agent Cards, manifests, runners, trace schemas, and evaluator hooks for connecting agents to the Lab.
+- **Broader agent and tool connectivity**  
+Connect popular open-source trading projects, model providers, data providers, brokers, and external agents through adapters, SDKs, and MCP.
+- **Managed agent runtime**  
+Support scheduled and long-running agents with persistent state, monitoring, alerts, and failure recovery.
+- **Dynamic market evaluation**  
+Evaluate agents through live-market paper trading with execution records, costs, risks, and reasoning traces—not only final returns.
+- **Risk and stress testing**  
+Test agents under changing market conditions with configurable risk policies, approval rules, and kill switches.
+- **Open agent ecosystem**  
+Grow Agent Cards, reproducible submissions, competitions, and the open leaderboard toward hundreds and eventually thousands of reusable agent instances.
+
+News sentiment is live via Agentic FinSearch (Home panel + v2 agent context); Reddit/social sentiment still planned.
 
 ## Citation
 
