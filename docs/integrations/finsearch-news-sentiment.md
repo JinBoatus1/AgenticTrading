@@ -1,7 +1,7 @@
 # Consuming FinSearch News-Sentiment Signals (Plan 1)
 
-**Audience:** whoever builds `dashboard/backend/integrations/news_sentiment.py`.
-**Status (2026-07-13):** the FinSearch producer half is **shipped and LIVE**; the ATL consumer seam is **already in this repo and fail-closed**. The only missing piece is the adapter this document specifies.
+**Audience:** whoever maintains `dashboard/backend/integrations/news_sentiment.py`.
+**Status (2026-07-16):** **shipped on both sides and live.** The FinSearch producer is live; the adapter this document specifies is built and consumed by the fail-closed loader. Read what follows as *the contract as shipped*, not as a work order — where this doc and the module disagree, the module wins and this doc is the bug.
 **See also:** [`finsearch-news-items.md`](finsearch-news-items.md) — the shared `news-story v2` story vocabulary and the raw-items endpoint behind the Home panel's "Latest news" column (Phase B).
 
 ---
@@ -140,7 +140,7 @@ And `news_overview` ← the top-level `news_overview` string (passthrough).
 
 ## Error & degraded handling (fail closed, log loud)
 
-The consumer slot already defaults to empty, so every failure mode collapses safely to "no news this step." Map them explicitly:
+The consumer slot already defaults to empty, so every failure mode collapses safely to "no news this step." That safety is exactly the hazard: **a collapsed slot and a quiet news day are the same object**, so the log level is the only thing separating "nothing happened" from "the contract moved." Map them explicitly:
 
 | Condition | Adapter behavior |
 |-----------|------------------|
@@ -150,6 +150,10 @@ The consumer slot already defaults to empty, so every failure mode collapses saf
 | `404` | No artifact at/before `as_of`. Return `{}` (normal for early steps). |
 | body `status: degraded` | Data is **still usable** — project it as normal, but surface `status_reason` (log / overview) so the run is auditable. |
 | network/timeout | Return `{}`; log. Do not retry hard inside a per-step call. |
+| **one signal is off-spec** (missing/renamed key, wrong type) | Drop **that ticker only**, `WARNING` naming the missing key, project the rest. A dropped ticker is indistinguishable from a quiet ticker — which is already this dict's shape (only tickers *with* news appear), so the blast radius is the broken ticker, not the step. Until #122 this was a dict comprehension: one off-spec ticker raised out of the whole projection and blanked the sentiment slot for **every** ticker that step. |
+| **every** signal is off-spec (non-empty artifact → 0 usable entries) | Wire-shape drift, not "no news": `ERROR` via `_alarm_if_all_dropped`. An **empty** artifact is not drift — nothing was dropped. A signal filtered out by the `?tickers=` universe is not drift either; the alarm compares against the *considered* subset, not the raw block. |
+
+**Why `ERROR` and not `WARNING`.** Per-entry warnings are what a producer rename looked like on 2026-07-14 — routine noise, for hours, under a green suite and an HTTP 200. A wholesale drop is the only signal that distinguishes *absent* from *broken*, and it has to be loud enough to be found. See [`finsearch-news-items.md`](finsearch-news-items.md) §"Drift escalates `status`…" for what each caller does with it — and note that on **this** (backtest) path the alarm is **log-only**: there is no per-step status field to raise, and giving drift a real channel is open issue #123. `_project_entry` deliberately keeps **no v1 `score` fallback**: a `KeyError` there means the contract broke and must be seen, not smoothed over.
 
 ---
 
@@ -161,60 +165,34 @@ The producer emits a one-line **`rationale`** per ticker (why the read is bullis
 
 ---
 
-## Reference sketch
+## Where the shipped adapter puts each of these
 
-Not prescriptive — the projection above is the contract; degraded-handling is yours to decide (the `rationale` question is settled — see the design note above).
+This section used to carry a reference sketch. It is **deleted, deliberately**:
+the adapter is built, so a sketch of it was a second and worse copy of the truth,
+and it drifted exactly as you'd predict — its projection loop had no per-ticker
+isolation, which is the defect #122 had to fix in the real module while the
+"reference" for that module went on demonstrating it. The projection table above
+is the contract; `dashboard/backend/integrations/news_sentiment.py` is the
+reference. Read the module.
 
-```python
-# dashboard/backend/integrations/news_sentiment.py
-import os, requests
-from datetime import datetime, timezone
+| Concern | Where it lives |
+|---------|----------------|
+| Transport, auth header, memo/negative cache, `?as_of` / `?tickers` | `fetch_signals` (+ `_http_get`, `_headers`) |
+| `signals[TICKER]` → `NewsSentimentEntry` | `_project_entry` (story triple via the shared `_story_fields`) |
+| Per-ticker drop isolation | `_project_step_signals` |
+| Wholesale-drift `ERROR` | `_alarm_if_all_dropped` (log-only on this path — issue #123) |
+| Entry point the loader calls | `get_news_sentiment` |
 
-_BASE = "https://agenticfinsearch.org/api/signals/news/"
+Two facts the sketch carried that are worth keeping in prose:
 
-def _headers():
-    key = os.environ.get("FINGPT_API_KEY", "")
-    return {"Authorization": f"Bearer {key}"} if key else {}
-
-def _coerce_timestamp(timestamp):
-    # The real call site (external_run_service.py:429-431) serializes the step
-    # timestamp to an ISO STRING, not a datetime — coerce, don't assume.
-    if isinstance(timestamp, str):
-        timestamp = datetime.fromisoformat(timestamp)
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=timezone.utc)
-    return timestamp
-
-def get_news_sentiment(universe, timestamp):
-    timestamp = _coerce_timestamp(timestamp)
-    as_of = timestamp.date().isoformat()
-    reference_ts = timestamp.timestamp()
-    resp = requests.get(
-        _BASE,
-        params={"as_of": as_of, "tickers": ",".join(universe)},
-        headers=_headers(), timeout=10,
-    )
-    if resp.status_code != 200:
-        return {"news_sentiment": {}, "news_overview": None}  # fail closed; log on 401/503/400
-    body = resp.json()
-    out = {}
-    for ticker, s in body.get("signals", {}).items():
-        out[ticker] = {
-            "sentiment": s["sentiment"],
-            "score": s["sentiment_score"],
-            "headline": s["headline"],
-            "source": s["source"],
-            "url": s["url"],
-            "n_articles": s["n_articles"],
-            "age_hours": max(0.0, (reference_ts - s["published"]) / 3600.0),
-            "rationale": s.get("rationale"),
-        }
-    return {"news_sentiment": out, "news_overview": body.get("news_overview")}
-
-# compute_sentiment(stories): the *producer* already computes sentiment over the
-# feed (Heartbeat/news_signals.py). ATL consumes the result; it does not recompute.
-# Keep this function only if you want a local offline path over the fixture.
-```
+- **`timestamp` arrives as an ISO string, not a `datetime`.** The real call site
+  (`external_run_service.py`) serializes it before the loader ever sees it, so
+  `_coerce_timestamp` coerces rather than assumes — and returns `None` for junk,
+  which `get_news_sentiment` fails closed on.
+- **ATL does not compute sentiment.** The producer already computes it over the
+  feed (`Heartbeat/news_signals.py`); this adapter consumes the result. There is
+  no local scoring path, and adding one would fork the frozen seam this document
+  opens with.
 
 ---
 
@@ -227,5 +205,7 @@ def get_news_sentiment(universe, timestamp):
 | Consumer seam, `NewsSentimentEntry`, fail-closed loader | ATL `api/v2/models.py`, `execution/backtest_backend.py`; `docs/superpowers/specs/2026-06-23-agent-api-foundation-design.md` |
 | Auth requirement | FinSearch `Docs/superpowers/plans/2026-07-12-endpoint-auth.md` (PRs #354/#355/#356); endpoint verified live 2026-07-13 |
 | `as_of`, Dow-30 reconcile | FinSearch PR #340 / #341; ATL #91 / #94 |
+| Per-entry drop isolation + wholesale-drift `ERROR` on the step path | ATL PR #122; `_project_step_signals`, `_alarm_if_all_dropped`; `test_one_malformed_step_signal_does_not_blank_the_other_tickers` / `test_every_step_signal_dropped_alarms_instead_of_reading_as_a_quiet_news_day` / `test_universe_filter_alone_is_not_drift` |
+| Backtest drift is log-only (no per-step status channel) | ATL open issue #123 |
 
 **Deliberate deviation from the plan:** the plan's frozen sketch listed `rationale`/`published` on the injected entry; the shipped `NewsSentimentEntry` carries `age_hours`/`n_articles` instead of `published`, plus (as of 2026-07-13) an optional `rationale`. This doc documents the shipped contract rather than assuming the older sketch.
