@@ -249,8 +249,45 @@ def _project_entry(sig: dict, reference_ts: float) -> dict:
     }
 
 
+def _project_step_signals(considered: dict, reference_ts: float) -> dict:
+    """Per-step backtest signals projected to the internal entry shape, dropping
+    the entries `_project_entry` cannot read.
+
+    The isolation is the whole point. This was a dict comprehension, so one
+    off-spec ticker raised out of the entire projection and the caller blanked
+    the sentiment slot for EVERY ticker that step — a producer typo on MSFT
+    silently deleting NVDA's news. The panel has always dropped and carried on
+    (_representative_feed); the backtest is the projection that never learned it.
+
+    A dropped ticker is indistinguishable from a ticker with no news — which is
+    the shape this dict already has (only tickers WITH signals appear), so the
+    blast radius shrinks from "every ticker" to "the broken one". Wholesale
+    drift is the case that still needs saying out loud: see the caller's
+    _alarm_if_all_dropped.
+
+    `_project_entry` stays the single source of which fields are required, and a
+    KeyError names the missing one — so an all-tickers-at-once "missing
+    'sentiment_score'" reads as a rename rather than as routine noise.
+    """
+    projected = {}
+    for sym, sig in considered.items():
+        try:
+            projected[sym] = _project_entry(sig, reference_ts)
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning("news_sentiment: dropping step signal %r — %s: %s",
+                           sym, type(exc).__name__, exc)
+    return projected
+
+
 def get_news_sentiment(universe, timestamp) -> dict:
-    """Contract interface for execution/backtest_backend.load_news_sentiment."""
+    """Contract interface for execution/backtest_backend.load_news_sentiment.
+
+    Reports its own contract breaks (drop + warn per entry, ERROR on wholesale
+    drift) rather than raising them at the caller. The caller's fail-closed
+    try/except is a backstop for the genuinely unexpected, not the thing that
+    makes a producer rename visible — leaving that to the caller made the
+    reporting only as good as each new caller's memory to re-implement it.
+    """
     empty = {"news_sentiment": {}, "news_overview": None}
     ts = _coerce_timestamp(timestamp)
     if ts is None:
@@ -262,11 +299,15 @@ def get_news_sentiment(universe, timestamp) -> dict:
     if not body:
         return empty
     wanted = set(tickers)
-    out = {
-        sym: _project_entry(sig, reference_ts)
-        for sym, sig in (body.get("signals") or {}).items()
-        if not wanted or sym in wanted
-    }
+    considered = {sym: sig for sym, sig in (body.get("signals") or {}).items()
+                  if not wanted or sym in wanted}
+    out = _project_step_signals(considered, reference_ts)
+    # `considered`, never the raw signals block: a signal for a ticker outside
+    # the universe is filtered by design, not dropped by drift, so alarming on
+    # it would cry wolf on every narrow-universe run and train the reader to
+    # ignore the one alarm that matters.
+    _alarm_if_all_dropped(considered, out, source="backtest step signals",
+                          consequence="this step's sentiment slot is empty")
     return {"news_sentiment": out, "news_overview": body.get("news_overview")}
 
 
@@ -349,11 +390,16 @@ def _alarm_if_all_dropped(raw, projected: Union[list, dict], *, source: str,
 
     Failing closed is not the same as failing visibly, and every projection here
     only buys the first: a malformed entry is dropped with a per-entry warning
-    and the panel carries on, so a producer renaming a field looks exactly like
+    and the caller carries on, so a producer renaming a field looks exactly like
     routine noise. On 2026-07-14 AF renamed title/link -> headline/url and this
-    adapter served the Phase-A feed for hours on warnings alone. The caller
-    escalates a True to `degraded` so the break reaches the panel too — a log
-    line only ever reaches whoever happens to be reading logs, and nobody was."""
+    adapter served the Phase-A feed for hours on warnings alone.
+
+    What a True is worth is the caller's to decide, and the callers differ. The
+    panel's escalate it to `degraded` so the break reaches the badge — a log line
+    only ever reaches whoever happens to be reading logs, and nobody was. The
+    backtest path has no equivalent channel and is log-only pending #123. So do
+    not read this helper as a promise that drift always reaches a human; it
+    reports, and reporting is only as loud as the channel the caller gives it."""
     if not (raw and not projected):
         return False
     logger.error("news_sentiment: %s produced 0 usable entries from %d raw "

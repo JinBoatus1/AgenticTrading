@@ -403,6 +403,73 @@ def test_degraded_artifact_still_projects_in_backtest_path(monkeypatch):
     assert out["news_overview"] == body["news_overview"]
 
 
+def _body_without(field, *, symbols):
+    """The wire fixture with `field` stripped from `symbols` — i.e. the shape a
+    producer rename actually leaves behind."""
+    body = dict(load_signals_wire_fixture())
+    body["signals"] = {
+        sym: {k: v for k, v in sig.items() if not (sym in symbols and k == field)}
+        for sym, sig in body["signals"].items()
+    }
+    return body
+
+
+def test_one_malformed_step_signal_does_not_blank_the_other_tickers(monkeypatch, caplog):
+    """Per-entry isolation on the backtest path: one off-spec ticker must not
+    take the readable ones down with it.
+
+    Delete this and nothing stops the projection going back to a dict
+    comprehension, where a single producer typo on MSFT empties the sentiment
+    slot for EVERY ticker that step. _project_step_signals carries the why."""
+    body = _body_without("sentiment_score", symbols={"MSFT"})
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    ts = datetime(2026, 7, 10, 15, 0, tzinfo=timezone.utc)
+
+    with caplog.at_level("WARNING"):
+        out = ns.get_news_sentiment(["MSFT", "NVDA"], ts)
+
+    assert "MSFT" not in out["news_sentiment"]   # dropped...
+    assert "NVDA" in out["news_sentiment"]       # ...without taking this one with it
+    # Names the missing key, not a bare "malformed": "missing 'sentiment_score'"
+    # on every ticker at once is what reads as a rename rather than as noise.
+    assert any("sentiment_score" in r.getMessage() for r in caplog.records)
+
+
+def test_every_step_signal_dropped_alarms_instead_of_reading_as_a_quiet_news_day(
+        monkeypatch, caplog):
+    """The case per-entry isolation would otherwise hide. A rename makes every
+    entry unreadable, so log-and-drop alone yields an empty slot plus a few
+    warnings — indistinguishable from "no news this step", which is exactly how
+    the 2026-07-14 outage ran for hours on warnings nobody read."""
+    body = _body_without("sentiment_score", symbols={"MSFT", "NVDA"})
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    ts = datetime(2026, 7, 10, 15, 0, tzinfo=timezone.utc)
+
+    with caplog.at_level("ERROR"):
+        out = ns.get_news_sentiment(["MSFT", "NVDA"], ts)
+
+    assert out["news_sentiment"] == {}
+    assert any("drift" in r.getMessage()
+               for r in caplog.records if r.levelname == "ERROR")
+
+
+def test_universe_filter_alone_is_not_drift(monkeypatch, caplog):
+    """The alarm's `raw` is the post-filter set, never the wire's signals block.
+    A signal for a ticker outside the universe is filtered by design, not dropped
+    by drift — alarming on it would fire on every narrow-universe run and train
+    the reader to ignore the one alarm that matters."""
+    monkeypatch.setattr(ns, "_http_get",
+                        lambda **kw: _fake_response(body=load_signals_wire_fixture()))
+    ts = datetime(2026, 7, 10, 15, 0, tzinfo=timezone.utc)
+
+    with caplog.at_level("ERROR"):
+        out = ns.get_news_sentiment(["JPM"], ts)     # fixture has MSFT/NVDA only
+
+    assert out["news_sentiment"] == {}               # correctly empty...
+    assert not [r for r in caplog.records
+                if r.levelname == "ERROR"]           # ...but not a contract break
+
+
 def test_304_revalidation_serves_cached_body(monkeypatch):
     """A conditional GET that returns 304 serves the previously cached body
     (the latest-read path always sends If-None-Match). The on-disk fixture
