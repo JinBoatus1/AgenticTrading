@@ -389,14 +389,12 @@ _PANEL_SIGNAL_KEYS = ("sentiment", "sentiment_score", "url", "source")
 def _project_panel_signals(signals: dict) -> dict:
     """Panel `signals` projected to the entries the UI can actually render.
 
-    This dict used to reach the browser raw from the wire. That made it the one
-    panel path with no projection — and therefore the one path
-    `_alarm_if_all_dropped` was blind to, since it can only ever see what a
-    projection dropped. Nothing read `sentiment_score` before the browser did,
-    where `Number(undefined).toFixed(2)` renders the *string* "NaN": every chip
-    would read "NVDA NaN" with no drop, no exception, no badge and no log. That
-    is the 2026-07-14 title/link outage one field over, and the score ->
-    sentiment_score rename passed within inches of it.
+    Projecting is what makes the path watchable at all: `_alarm_if_all_dropped`
+    only ever sees what a projection dropped, so while this dict reached the
+    browser raw from the wire no alarm could cover it. Nothing reads
+    `sentiment_score` server-side — the browser does, where
+    `Number(undefined).toFixed(2)` renders the *string* "NaN", so a rename would
+    paint "NVDA NaN" into every chip with no drop, no exception and no log.
 
     Naming the missing key in the log is the point: "missing sentiment_score"
     on every ticker at once reads as a rename, where a bare "malformed signal"
@@ -435,9 +433,9 @@ def get_latest_panel_payload(tickers) -> dict:
     backstops, because when IT drifts there is nothing left to fall back to,
     and `signals` needs one because it is what the panel is actually for.
 
-    `signals` and `feed` are projected independently and from the raw wire dict,
-    never from each other: their required keys differ (a story with no sentiment
-    read is still a story), so coupling them would let one break take out both.
+    `signals` and `feed` are each projected from the raw wire dict, never from
+    each other — see _PANEL_SIGNAL_KEYS for why their required keys have to stay
+    independent.
 
     Drift also escalates the payload to `degraded`, which the panel renders as a
     badge. The fallback is what makes this necessary rather than redundant: it
@@ -448,24 +446,22 @@ def get_latest_panel_payload(tickers) -> dict:
         return dict(UNAVAILABLE_PAYLOAD)
     signals = body.get("signals") or {}
     panel_signals = _project_panel_signals(signals)
+    # Call the alarm BEFORE the `or`, never after it: `drifted or _alarm(...)`
+    # short-circuits once anything has drifted, swallowing the ERROR the alarm
+    # exists to emit. Every alarm ORs, so their order carries no other meaning.
+    drifted = _alarm_if_all_dropped(
+        signals, panel_signals, source="panel signals list",
+        consequence="the panel's directional reads are now empty")
     feed = None
     items = fetch_items()
-    drifted = False
     if items:
         feed = _feed_from_items(items)
         drifted = _alarm_if_all_dropped(items, feed, source="items feed",
-                                        consequence="falling back to the Phase-A feed")
+                                        consequence="falling back to the Phase-A feed") or drifted
     if not feed:  # None, [], or all-malformed -> fall back to Phase A
         feed = _representative_feed(signals)
         drifted = _alarm_if_all_dropped(signals, feed, source="Phase-A signals feed",
                                         consequence="the panel feed is now empty") or drifted
-    # Appended rather than folded in above: the items alarm assigns `drifted`
-    # outright instead of OR-ing it, so seeding it earlier would be clobbered
-    # on every request where the items feed loads — the guard would read
-    # correctly and fire never.
-    drifted = _alarm_if_all_dropped(
-        signals, panel_signals, source="panel signals list",
-        consequence="the panel's directional reads are now empty") or drifted
     status = body.get("status", "ok")
     status_reason = body.get("status_reason")
     if drifted:

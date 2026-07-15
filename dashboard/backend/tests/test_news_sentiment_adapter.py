@@ -585,6 +585,32 @@ def test_representative_fallback_all_dropped_logs_drift_error(monkeypatch, caplo
     assert len(drift) == 1
 
 
+def test_every_concurrent_drift_gets_its_own_alarm(monkeypatch, caplog):
+    """Two projections drifting at once must produce two ERRORs, not one.
+
+    Each alarm is OR-ed into `drifted` as `_alarm(...) or drifted` — alarm
+    first. Written the other way round (`drifted or _alarm(...)`) it reads
+    identically and is a silent regression: `or` short-circuits, so the first
+    drift would suppress every later alarm's log, and the operator would learn
+    the feed broke but never that the directional reads went with it. Nothing
+    else in the suite fails on that flip, so it is pinned here."""
+    signals_body = load_signals_fixture()
+    # headline gone -> the Phase-A feed drifts; sentiment_score gone -> the panel
+    # signals drift. Independent projections, so both alarms are due.
+    drifted = {sym: {k: v for k, v in sig.items()
+                     if k not in ("headline", "sentiment_score")}
+               for sym, sig in signals_body["signals"].items()}
+    monkeypatch.setattr(ns, "_http_get",
+                        lambda **kw: _fake_response(body={**signals_body, "signals": drifted}))
+    with caplog.at_level("ERROR"):
+        payload = ns.get_latest_panel_payload(["MSFT", "AAPL"])
+    assert payload["signals"] == {} and payload["feed"] == []
+    sources = {r.getMessage().split(":")[1].split(" produced")[0].strip()
+               for r in caplog.records
+               if r.levelname == "ERROR" and "0 usable entries" in r.getMessage()}
+    assert sources == {"panel signals list", "Phase-A signals feed"}
+
+
 def test_empty_signals_artifact_does_not_log_drift_error(monkeypatch, caplog):
     """A quiet news day — an artifact carrying zero signals — legitimately
     projects to an empty feed. Nothing was dropped, so nothing drifted. This is
