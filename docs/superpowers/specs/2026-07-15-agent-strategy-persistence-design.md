@@ -1,4 +1,4 @@
-# Durable agent & strategy storage (`DATABASE_URL` Postgres backends)
+# Durable agent & strategy storage (`CONTENT_DATABASE_URL` Postgres backends)
 
 **Date:** 2026-07-15
 **Status:** Approved design, pre-implementation
@@ -38,27 +38,30 @@ only option that makes that relationship joinable again.
    `protocol_runs`, `protocol_steps`, `idempotency_keys`, `run_manifest`) stays in
    ephemeral SQLite — explicitly a later phase (write-heavy per-step engine writes;
    Neon free tier is ~0.5 GB).
-2. **Config:** one new env var **`DATABASE_URL`** consumed by the three new store
-   factories. The users factory gains a fallback (`USERS_DATABASE_URL or
-   DATABASE_URL`) so future deployments need only one var; prod already sets
-   `USERS_DATABASE_URL`, so users-store behavior does not change.
+2. **Config:** one new env var **`CONTENT_DATABASE_URL`** consumed by the three new store
+   factories. The users factory's backend selection is **unchanged** — it keeps reading
+   `USERS_DATABASE_URL` alone, and gains only the startup log line described under
+   "Failure semantics". Each Postgres-backed store is thus selected by a var named for
+   what it stores; a deployment that wants everything durable sets both vars, pointing
+   at the same database.
 
-   **Naming — considered and kept, with a mitigation.** `DATABASE_URL` is the most
-   collision-prone name in the ecosystem: it is the Heroku-style de-facto standard,
-   it is what anyone attaching a managed Postgres would reach for by default, and it
-   is plausibly already exported in a developer's shell for an unrelated project. A
-   wrong-database binding is the failure this design must not have — so the risk is
-   answered by making the *target* visible rather than by renaming: every factory
-   logs the resolved host and database name, not a bare `postgres` (see "Failure
-   semantics" below). Note the asymmetry that motivates this: the conftest strip
-   (Testing tier 1) protects the *test process* from an ambient `DATABASE_URL`;
-   nothing protects a local `uvicorn dashboard.backend.app:app` run, and nothing
-   can — reading the ambient var *is* the feature. The log line is what turns
-   "silently bound to the wrong database" into "visibly bound to the wrong
-   database". Escape hatch if this ever bites in practice: rename to
-   `CONTENT_DATABASE_URL`, which is both immune to the convention and consistent
-   with the existing `USERS_DATABASE_URL` precedent, at the cost of this decision's
-   one-var goal.
+   **Naming — `CONTENT_DATABASE_URL`, not `DATABASE_URL`.** The obvious name is the
+   worst available one: `DATABASE_URL` is the Heroku-style de-facto standard, which
+   makes it what a managed-Postgres add-on injects automatically, what anyone attaching
+   a database reaches for by default, and what a developer plausibly already exports in
+   the same shell for an unrelated project. Binding the *wrong database* is the failure
+   this design must not have, and one asymmetry settles it: the conftest strip (Testing
+   tier 1) protects the *test process* from an ambient value, but nothing protects a
+   local `uvicorn dashboard.backend.app:app` run, and nothing can — reading the ambient
+   var *is* the feature. A name no other tool sets cannot be collided with by accident,
+   so the collision is designed out rather than merely made visible. `CONTENT_` also
+   states what the var backs — agents, versions and strategies, i.e. user-created
+   *content*, as against the run history that deliberately stays in SQLite (Decision 1)
+   — and mirrors the `USERS_DATABASE_URL` precedent. Cost, accepted: a fully durable
+   deployment sets two vars instead of one. Note this does **not** retire the
+   host/dbname log line ("Failure semantics" below): the rename kills *accidental*
+   collision, not a typo'd or staging-vs-prod URL, and it does nothing about the more
+   dangerous branch — an *unset* var silently selecting ephemeral SQLite.
 3. **Approach:** literal copy of the proven `users.py` dual-backend pattern —
    hand-written Postgres twin class per store with an identical public method
    surface, per-store factory, no base class, no SQL-translation layer, no ORM.
@@ -76,7 +79,7 @@ Each store module gets a factory cloned from `_build_user_store()`
 
 ```python
 def _build_agent_store():
-    database_url = os.getenv("DATABASE_URL")
+    database_url = os.getenv("CONTENT_DATABASE_URL")
     if database_url:
         from dashboard.backend.domain.agents.repository_postgres import PostgresAgentStore
 
@@ -100,11 +103,11 @@ scopes). They always run under SQLite (conftest strips the env vars), so they st
 valid unchanged — but the new `@pg_only` tests must not copy that fixture pattern;
 use public store methods or dialect-appropriate SQL.
 
-`_build_user_store()` changes to:
-
-```python
-database_url = os.getenv("USERS_DATABASE_URL") or os.getenv("DATABASE_URL")
-```
+`_build_user_store()` keeps its backend selection exactly as shipped —
+`os.getenv("USERS_DATABASE_URL")`, no fallback (Decision 2). It changes only to emit
+the same startup log line as the three new factories, so that all four stores announce
+which backend they bound (see "Failure semantics"). That log line is the whole of the
+users-store diff.
 
 ### New modules
 
@@ -157,7 +160,7 @@ apart from placeholder style, but port it carefully.
 
 ### Failure semantics — fail loud, and fail visible
 
-If `DATABASE_URL` is set but Postgres is unreachable, the twin's `__init__` (which
+If `CONTENT_DATABASE_URL` is set but Postgres is unreachable, the twin's `__init__` (which
 connects to run `_init_schema()`) raises and **the app refuses to start**. To be
 precise about the mechanism: the singletons are bare module-level assignments reached
 transitively when `app.py` imports the router chain, so this is a **raw import-time
@@ -174,7 +177,7 @@ everywhere, and it is what stops a later contributor from "helpfully" wrapping a
 factory in a `try/except` — which would silently restore the exact failure mode this
 pattern exists to kill.
 
-The dangerous case is the *other* branch: `DATABASE_URL` simply **unset** silently
+The dangerous case is the *other* branch: `CONTENT_DATABASE_URL` simply **unset** silently
 selects ephemeral SQLite, and nothing in the app today logs which backend won (true
 even for the shipped users store). Each factory (including the users one) therefore
 emits exactly one startup log line naming the chosen backend.
@@ -244,7 +247,7 @@ All unique constraints and indexes carry over:
 the backend), the app already owns this integrity (`owns_agent`,
 `claim_browser_agents_to_user`), and declaring it fails in both configurations: in
 the same-database config it makes agent-store init order-dependent on the users table
-already existing; in the split config (`USERS_DATABASE_URL` and `DATABASE_URL`
+already existing; in the split config (`USERS_DATABASE_URL` and `CONTENT_DATABASE_URL`
 pointing at different databases) it is categorically impossible — Postgres does not
 support cross-database foreign keys at all. In the recommended prod config (same Neon
 DB) real joins become possible; enforcement stays app-level, as today. (For scope
@@ -300,9 +303,9 @@ clarity: `agent_versions` declares no FK to `external_agents` in SQLite either �
   data). Post-cutover they are recreated once through the API and persist thereafter.
   No code-level seeding.
 - **Rollout — env var FIRST, then merge.** Merging to `main` auto-deploys prod, and
-  an *unset* `DATABASE_URL` silently selects ephemeral SQLite (only set-but-unreachable
+  an *unset* `CONTENT_DATABASE_URL` silently selects ephemeral SQLite (only set-but-unreachable
   fails loud) — so merging first would open an invisible window where the feature
-  doesn't work. Order: (1) set `DATABASE_URL` in the **Render dashboard** (same Neon
+  doesn't work. Order: (1) set `CONTENT_DATABASE_URL` in the **Render dashboard** (same Neon
   database as `USERS_DATABASE_URL` — which itself lives only in the dashboard, not in
   `render.yaml`; the yaml is known-drifted from prod and editing it alone does
   nothing) → (2) merge; CI auto-deploys on green main → (3) confirm the new
@@ -310,7 +313,7 @@ clarity: `agent_versions` declares no FK to `external_agents` in SQLite either �
   and check the host/db actually matches the intended Neon database rather than just
   that the word "postgres" appears → (4) **live verification:** create an agent,
   trigger a redeploy, confirm the agent still lists and its API key still resolves.
-  Optionally add `DATABASE_URL` to `render.yaml` with `sync: false` as documentation,
+  Optionally add `CONTENT_DATABASE_URL` to `render.yaml` with `sync: false` as documentation,
   clearly not as the mechanism.
 
 - **Publish the merge gate where GitHub enforces it, from the moment the PR opens.**
@@ -319,7 +322,7 @@ clarity: `agent_versions` declares no FK to `external_agents` in SQLite either �
   demonstrated norm of merging open PRs unreviewed (see CLAUDE.md, "Merge & branch
   discipline"; PR #107 is the case study, where a gate posted as a comment arrived 41
   minutes after someone had already merged). So the implementation PR **opens as a
-  draft**, with `DO NOT MERGE until DATABASE_URL is set in the Render dashboard` as
+  draft**, with `DO NOT MERGE until CONTENT_DATABASE_URL is set in the Render dashboard` as
   the literal first line of its body, and is marked ready-for-review only once the
   var is set. A gate recorded in a plan file, a session's memory, or a comment is not
   a gate.
@@ -345,22 +348,23 @@ most important item in this section.
    `test_users_postgres.py` live tier, and that wants to shake out on its own commit
    rather than tangled with new code.
 1. **Whole suite stays on SQLite:** `dashboard/backend/tests/conftest.py` must strip
-   `DATABASE_URL` at import time, alongside the existing `USERS_DATABASE_URL` strip
+   `CONTENT_DATABASE_URL` at import time, alongside the existing `USERS_DATABASE_URL` strip
    (`conftest.py:44-47`). Without this, a dev with prod env vars set would run the
    test suite against the production Neon database. Note this strip is **load-bearing
    for tests that already exist**, not just a new safety net: two of them assert the
    *singleton* is a SQLite store by reaching for `.db_path`
    (`tests/domain/agents/test_repository_move.py:39-40` and
    `tests/domain/strategies/test_strategy_store.py:42-43`). Once the factories exist,
-   an ambient `DATABASE_URL` would break those with an `AttributeError`, not just
+   an ambient `CONTENT_DATABASE_URL` would break those with an `AttributeError`, not just
    redirect their writes. (Tests that construct a store directly — e.g.
    `test_agent_repository_compatibility.py`'s `repos` fixture — are indifferent to the
    env var, since `__init__` never reads it.)
-2. **Dispatch tests** per factory: `DATABASE_URL` set → Postgres twin selected;
-   unset → SQLite; users factory precedence (`USERS_DATABASE_URL` wins over
-   `DATABASE_URL`). No live Postgres needed (mirror
-   `test_users_postgres.py`'s dispatch pair). Each asserts the backend log line,
-   including the resolved host/dbname target.
+2. **Dispatch tests** per factory: `CONTENT_DATABASE_URL` set → Postgres twin selected;
+   unset → SQLite. The users factory gets the same pair on `USERS_DATABASE_URL`, plus
+   one test pinning that it **ignores** `CONTENT_DATABASE_URL` — the vars are scoped
+   per store (Decision 2), and that separation is only a claim until something asserts
+   it. No live Postgres needed (mirror `test_users_postgres.py`'s dispatch pair). Each
+   asserts the backend log line, including the resolved host/dbname target.
 3. **Fail-loud tests** per twin: an unreachable URL must raise
    `psycopg.OperationalError` out of `__init__` rather than falling back. No live
    Postgres needed (a closed port refuses instantly), so these run in every
@@ -386,10 +390,10 @@ tests across two identically-named files.
 
 ## Config & docs surface
 
-- `.env.example`: document `DATABASE_URL` next to `USERS_DATABASE_URL` (`:76-83`),
+- `.env.example`: document `CONTENT_DATABASE_URL` next to `USERS_DATABASE_URL` (`:76-83`),
   explicitly contrasting with `DATABASE_PATH` (local SQLite file for everything vs
   durable Postgres for user-created content).
-- `render.yaml`: optionally add `DATABASE_URL` with `sync: false` as documentation —
+- `render.yaml`: optionally add `CONTENT_DATABASE_URL` with `sync: false` as documentation —
   the real mechanism is the Render dashboard (see Rollout).
 - `.github/workflows/ci.yml`: add a `postgres:16-alpine` service + `TEST_POSTGRES_URL`
   to the `backend-tests` job, so the `@pg_only` tier runs (Testing tier 0). Not
