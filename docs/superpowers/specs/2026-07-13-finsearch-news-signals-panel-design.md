@@ -100,7 +100,7 @@ GET /api/news/items/   ?limit=50 [&as_of=YYYY-MM-DD]
 
 ## 5. Testing
 
-- **Offline-first:** copy `signals-v1.schema.json` + `signals-fixture.json` from the FinSearch repo into `dashboard/backend/tests/fixtures/` (per the base contract). All adapter tests run against the fixture — no network, no key, CI-safe.
+- **Offline-first:** copy `signals-v2.schema.json` + `signals-fixture.json` from the FinSearch repo into `dashboard/backend/tests/fixtures/` (per the base contract). All adapter tests run against the fixture — no network, no key, CI-safe.
 - Adapter: projection field-by-field (incl. `rationale`, `age_hours` against a simulated step timestamp), every error-table row (401/503/400/404/degraded/network → correct fail-closed output + log level), and the memo-policy invariants: **an ISO-string timestamp exactly as the real call site passes it**; a past-date key fetched once; a config error (401) negative-cached for past dates; today's 404 NOT sticking after the artifact appears; a transport failure never serving a cached body.
 - `test_execution_backends.py::test_news_sentiment_fail_closed_when_plan1_absent` must be rewritten when the module lands (its module-absent premise becomes false, and it would otherwise call the real adapter — a live HTTP request from CI): simulate absence via a `None` entry in `sys.modules`.
 - Contract: `NewsSentimentEntry` accepts entries with and without `rationale` (additive proof); v2 envelope test extended.

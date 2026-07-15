@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "batch": "items-fixture.jsonl",
   "count": 6,
   "items": [
@@ -11,7 +11,7 @@
       "published": 1783339200.0,
       "description": "Nvidia said datacenter bookings set a quarterly record.",
       "tickers": ["NVDA"],
-      "score": 0.7
+      "editorial_score": 0.7
     },
     {
       "guid": "fix-msft-1",
@@ -21,7 +21,7 @@
       "published": 1783335600.0,
       "description": "Azure growth guidance was revised upward.",
       "tickers": ["MSFT"],
-      "score": 0.5
+      "editorial_score": 0.5
     },
     {
       "guid": "fix-msft-2",
@@ -31,7 +31,7 @@
       "published": 1783334000.0,
       "description": "Second outlet on the same Azure guidance raise.",
       "tickers": ["MSFT"],
-      "score": 0.45
+      "editorial_score": 0.45
     },
     {
       "guid": "fix-aapl-1",
@@ -41,7 +41,7 @@
       "published": 1783332000.0,
       "description": "Store opening; no financial subject matter.",
       "tickers": ["AAPL"],
-      "score": 0.05
+      "editorial_score": 0.05
     },
     {
       "guid": "fix-googl-1",
@@ -51,7 +51,7 @@
       "published": 1783330000.0,
       "description": "Personnel move; no financial subject matter.",
       "tickers": ["GOOGL"],
-      "score": 0.03
+      "editorial_score": 0.03
     },
     {
       "guid": "fix-mkt-1",
@@ -61,7 +61,7 @@
       "published": 1783328400.0,
       "description": "General-market story: carries no ticker at all.",
       "tickers": [],
-      "score": 0.1
+      "editorial_score": 0.1
     }
   ]
 }

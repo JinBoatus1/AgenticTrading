@@ -2,7 +2,7 @@
 
 **Audience:** whoever builds `dashboard/backend/integrations/news_sentiment.py`.
 **Status (2026-07-13):** the FinSearch producer half is **shipped and LIVE**; the ATL consumer seam is **already in this repo and fail-closed**. The only missing piece is the adapter this document specifies.
-**See also:** [`finsearch-news-items.md`](finsearch-news-items.md) — the shared `news-story v1` story vocabulary and the raw-items endpoint behind the Home panel's "Latest news" column (Phase B).
+**See also:** [`finsearch-news-items.md`](finsearch-news-items.md) — the shared `news-story v2` story vocabulary and the raw-items endpoint behind the Home panel's "Latest news" column (Phase B).
 
 ---
 
@@ -37,9 +37,14 @@ No ATL-side contract change is needed — the `/api/v2` refactor shipped the who
   | `n_articles` | int | ≥ 0 |
   | `rationale` | str \| None | optional — see design note |
 
-> **Transitional:** until FinSearch's schema-v2 deploy lands, the producer
-> still sends `score` (v1); the adapter reads `sentiment_score` with a `score`
-> fallback. PR-2 removes the fallback and pins `schema_version == 2`.
+> **Note the two vocabularies.** `NewsSentimentEntry.score` above is the
+> **internal** envelope key and is *not* a missed rename: the wire sends
+> `sentiment_score`, the adapter reads that and emits `score` internally. The
+> two are decoupled on purpose, so "rename the wire" never means "rename the
+> consumer type." Signals v2 shipped 2026-07-15 (FinSearch #361, ATL #115) and
+> the transitional v1 `score` fallback is **deleted** — v2 is a hard rename,
+> not a dual-write, and FinSearch normalizes at its API boundary, so `score`
+> cannot appear on the wire from either the latest read or `?as_of`.
 
 - **Universe:** the loader is called with `list(DJIA_30)` (the canonical current Dow-30 constant, `infrastructure/llm/validator.py`, reconciled in #91/#94 — the old `AMEX` typo is gone). Pass that straight through as the `?tickers=` filter.
 
@@ -76,9 +81,9 @@ This shared key is a **coarse gate** (it raises the bar against drive-by API abu
 
 ---
 
-## Producer response shape (`signals-v1`)
+## Producer response shape (`signals-v2`)
 
-Top level — the fields the **public, bearer-gated** response carries (consume by key, not position; JSON member order is not significant): `schema_version` (=1), `profile`, `generated_at` (ISO-8601), `source_items`, `window_hours`, `watchlist[]`, `status` (`ok` | `degraded`), `status_reason`, `news_overview`, `diagnostics{…}`, `signals`, and `staleness_hours` (server-computed hours since `generated_at`, appended last by the view).
+Top level — the fields the **public, bearer-gated** response carries (consume by key, not position; JSON member order is not significant): `schema_version` (=2), `profile`, `generated_at` (ISO-8601), `source_items`, `window_hours`, `watchlist[]`, `status` (`ok` | `degraded`), `status_reason`, `news_overview`, `diagnostics{…}`, `signals`, and `staleness_hours` (server-computed hours since `generated_at`, appended last by the view).
 
 > **Do not** expect `generator` / `model` / `prompt_version` on the wire: the producer strips them from every public response via `_PUBLIC_STRIP` in `signals_views.py`. Conversely `staleness_hours` is **injected** there (after the strip, so it serializes at the end of the object) and is the documented origin of the panel's "Updated Xh ago" header — it is not part of the raw on-disk artifact.
 
@@ -98,7 +103,7 @@ Top level — the fields the **public, bearer-gated** response carries (consume 
 }
 ```
 
-The authoritative JSON Schema and a committed golden fixture live in the FinSearch repo at `Heartbeat/schemas/signals-v1.schema.json` and `Heartbeat/tests/fixtures/signals-fixture.json`. Copy both into ATL (suggest `dashboard/backend/tests/fixtures/`) so the adapter has an **offline/CI target** that needs no network or key.
+The authoritative JSON Schema and a committed golden fixture live in the FinSearch repo at `Heartbeat/schemas/signals-v2.schema.json` and `Heartbeat/tests/fixtures/signals-fixture.json`. Both are copied **verbatim** into `dashboard/backend/tests/fixtures/` so the adapter has an **offline/CI target** that needs no network or key. Re-copy them, never hand-edit them: `test_signals_fixture_validates_against_the_vendored_producer_schema` checks the pair against each other, which is what keeps the copies honest — before it existed the vendored schema was inert and sat at v1 for a day after the producer moved to v2, with nothing red.
 
 ---
 
@@ -218,7 +223,7 @@ def get_news_sentiment(universe, timestamp):
 | Section | Anchor |
 |---------|--------|
 | Framing, "Plan 1", "one frozen seam", measurement-not-alpha | `FinSearch-to-ATL-Integration-Plan.html` (2026-06-23, reconciled 2026-07-06, shipped-half 2026-07-07) |
-| Producer contract, `signals-v1`, `as_of`, relevance gate | FinSearch `Docs/superpowers/specs/2026-07-06-news-to-signals-pipeline-design.md`; `Heartbeat/schemas/signals-v1.schema.json` |
+| Producer contract, `signals-v2`, `as_of`, relevance gate | FinSearch `Docs/superpowers/specs/2026-07-06-news-to-signals-pipeline-design.md`; `Heartbeat/schemas/signals-v2.schema.json` |
 | Consumer seam, `NewsSentimentEntry`, fail-closed loader | ATL `api/v2/models.py`, `execution/backtest_backend.py`; `docs/superpowers/specs/2026-06-23-agent-api-foundation-design.md` |
 | Auth requirement | FinSearch `Docs/superpowers/plans/2026-07-12-endpoint-auth.md` (PRs #354/#355/#356); endpoint verified live 2026-07-13 |
 | `as_of`, Dow-30 reconcile | FinSearch PR #340 / #341; ATL #91 / #94 |

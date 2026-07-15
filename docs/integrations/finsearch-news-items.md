@@ -1,4 +1,4 @@
-# FinSearch Raw News Items — the `news-story v1` Contract (Phase B)
+# FinSearch Raw News Items — the `news-story v2` Contract (Phase B)
 
 **Audience:** both teams — AF producer (`Main/backend/api/signals_views.py`, Agentic-FinSearch) and ATL consumer (`dashboard/backend/integrations/news_sentiment.py`).
 **Status (2026-07-14):** **live.** AF PR #359 shipped the producer and is deployed (wire shape verified against prod). The ATL consumer lands in PR #110 — ATL PR #107 merged at a commit that predated the `headline`/`url` rename, so between the two merges the adapter read the retired keys and the panel silently served the Phase-A fallback; #110 is the fix.
@@ -7,7 +7,7 @@
 
 ---
 
-## The `news-story v1` vocabulary
+## The `news-story v2` vocabulary
 
 Every AF **news** endpoint emits stories in this shape; every consumer reads it
 by key. New sources are normalized into it **at AF's API boundary** — consumers
@@ -23,22 +23,40 @@ never see per-source dialects.
 | `published` | float | epoch seconds |
 | `tickers` | str[] | 0..N symbols; `[]` = general-market story |
 
-Items-only per-story extras (absent from a signals story): `guid`, `description`, `score`.
+Items-only per-story extras (absent from a signals story): `guid`, `description`, `editorial_score`.
 
-**Response-level field:** `schema_version` (int, currently `1`) — sits at the
+> `editorial_score` was named `score` until news-story v2 (2026-07-14). It was
+> renamed because a bare `score` collided semantically across the two news
+> endpoints: on **items** it is an editorial-prominence weight, while on
+> **signals** the same word meant a directional sentiment read in −1…1. The
+> signals endpoint's key became `sentiment_score` in the same change.
+
+**Response-level field:** `schema_version` (int, currently `2`) — sits at the
 top of the response body, **not** inside each story. Intended evolution valve:
 fields are added additively; a breaking change bumps the version.
 
-> **It is a producer-side convention only — no consumer reads it today.** ATL
-> parses stories by key and ignores `schema_version` entirely. So a v2 that
-> renamed a field would not be *detected* by the version number; every story
-> would simply fail to project and the panel would fall back to Phase A. That is
-> fail-closed, which is why it is tolerable, but the version number does no work
-> in preventing it — what actually surfaces such a break is the drift check in
-> `get_latest_panel_payload` (0 usable entries from a non-empty batch), which
-> logs an `ERROR` **and** escalates the payload to `degraded` so the panel badge
-> says so. Don't mistake the presence of this field for a consumer that gates on
-> it.
+> **It is a producer-side convention only — no consumer reads it at runtime.**
+> ATL parses stories by key and ignores `schema_version` entirely, so a rename
+> is not *detected* by the version number. Don't mistake the presence of this
+> field for a consumer that gates on it. (ATL's fixtures now pin
+> `schema_version == 2` in `test_news_sentiment_fixture.py`, but that is a
+> test-time contract check, not a runtime gate.)
+>
+> **What each layer actually catches — updated after the v2 rename shipped:**
+> - A rename of a field ATL *projects* (`headline`/`url`/`source`/`published`/
+>   `tickers`) makes every story fail to project; the panel falls back to Phase
+>   A. The drift check in `get_latest_panel_payload` (0 usable entries from a
+>   non-empty batch) logs an `ERROR` and escalates the payload to `degraded`.
+>   This is what happened on 2026-07-14 with `title`/`link` → `headline`/`url`.
+> - A rename of a field ATL *doesn't* read — such as `score` →
+>   `editorial_score` itself — is invisible here: `_feed_from_items` never
+>   touches it, so no drift check can fire. What protects this case is entirely
+>   producer-side: `editorial_score` is in AF's `REQUIRED_FIELDS`, so a
+>   pre-rename batch trips the batch-level poison pill, `_load_items` returns
+>   `None`, and the endpoint **404s rather than serving a v1 batch at all**.
+>   (This is also why AF deliberately does *not* salt the items ETag with the
+>   schema version, unlike the signals ETag: no pre-rename batch is servable, so
+>   there is no stale representation for a salt to invalidate.)
 
 **Disk vs. wire:** on-disk batches (`items-*.jsonl`) stay RSS-native
 (`title`/`link` — the scraper's format, validated by the ported
@@ -56,10 +74,10 @@ powers ATL's Home-panel "Latest news" column.
 
   ```json
   {
-    "schema_version": 1,
+    "schema_version": 2,
     "items": [ { "guid": "…", "headline": "…", "url": "…", "source": "…",
                  "published": 1752473600.0, "description": "…",
-                 "tickers": ["AAPL"], "score": 0.7 } ],
+                 "tickers": ["AAPL"], "editorial_score": 0.7 } ],
     "count": 1,
     "batch": "items-2026-07-14.jsonl"
   }

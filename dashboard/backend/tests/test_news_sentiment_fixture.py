@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import jsonschema
+
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
@@ -21,7 +23,7 @@ def load_signals_wire_fixture() -> dict:
 
 
 def load_items_wire_fixture() -> dict:
-    """The `GET /api/news/items/` response shape (news-story v1), the single
+    """The `GET /api/news/items/` response shape (news-story v2), the single
     recorded record of what the adapter's items path parses — see
     docs/integrations/finsearch-news-items.md.
 
@@ -40,11 +42,11 @@ def load_items_wire_fixture() -> dict:
     return json.loads((FIXTURES / "items-wire-fixture.json").read_text())
 
 
-# Every key `GET /api/news/items/` puts on a story, per the news-story v1 table
+# Every key `GET /api/news/items/` puts on a story, per the news-story v2 table
 # in docs/integrations/finsearch-news-items.md. The first five are the shared
-# vocabulary; guid/description/score are the items-only extras.
+# vocabulary; guid/description/editorial_score are the items-only extras.
 ITEMS_STORY_KEYS = {"headline", "url", "source", "published", "tickers",
-                    "guid", "description", "score"}
+                    "guid", "description", "editorial_score"}
 
 
 def test_items_wire_fixture_matches_contract_essentials():
@@ -52,7 +54,7 @@ def test_items_wire_fixture_matches_contract_essentials():
     rename has to change this file — and be seen in review — rather than being
     absorbed silently into whichever test dict happened to mention the field."""
     body = load_items_wire_fixture()
-    assert body["schema_version"] == 1
+    assert body["schema_version"] == 2
     assert set(body) == {"schema_version", "items", "count", "batch"}
     items = body["items"]
     assert isinstance(items, list) and items
@@ -72,10 +74,15 @@ def test_items_wire_fixture_does_not_speak_the_retired_vocabulary():
     """Regression guard on the 2026-07-14 incident: `title`/`link` are the
     on-disk RSS-native names and must never reappear on the wire fixture — the
     rename happens at AF's boundary, so a consumer that sees them is looking at
-    a pre-v1 shape."""
+    a pre-v1 shape. Bare `score` is retired the same way (news-story v2 renamed
+    it `editorial_score`), but note it is retired for a stricter reason: the
+    items endpoint has no boundary normalizer, so `editorial_score` sits in the
+    producer's REQUIRED_FIELDS and a pre-rename batch trips the batch-level
+    poison pill and 404s rather than being served as v1."""
     for item in load_items_wire_fixture()["items"]:
         assert "title" not in item
         assert "link" not in item
+        assert "score" not in item
 
 
 def test_items_fixture_is_the_batch_the_signals_fixture_came_from():
@@ -102,12 +109,46 @@ def test_items_fixture_is_the_batch_the_signals_fixture_came_from():
 
 def test_fixture_matches_contract_essentials():
     body = load_signals_fixture()
-    assert body["schema_version"] in (1, 2)  # transitional; PR-2 pins == 2
+    assert body["schema_version"] == 2
     assert isinstance(body["signals"], dict) and body["signals"]
     sample = next(iter(body["signals"].values()))
-    for field in ("sentiment", "score", "rationale", "headline", "source",
-                  "url", "published", "guid", "n_articles"):
+    for field in ("sentiment", "sentiment_score", "rationale", "headline",
+                  "source", "url", "published", "guid", "n_articles"):
         assert field in sample
+
+
+def test_signals_fixture_validates_against_the_vendored_producer_schema():
+    """Both files are copied verbatim from FinSearch (`Heartbeat/schemas/` and
+    `Heartbeat/tests/fixtures/`), so checking one against the other is what
+    makes the vendored pair self-policing.
+
+    Until now nothing in the suite loaded the schema at all — it was inert
+    documentation, which is how it sat pinned at v1 while the producer moved to
+    v2 and no test noticed. v2 sets additionalProperties:false and requires
+    `sentiment_score`, so this is also the assertion that turns a re-vendored
+    fixture carrying a stray legacy `score` into a CI failure.
+
+    Only the on-disk fixture is validated, never the wire one: the wire shape
+    deliberately violates this schema (it drops the three _PUBLIC_STRIP
+    required fields and appends `staleness_hours`), which is precisely the
+    distinction test_wire_fixture_reflects_public_projection guards."""
+    schema = json.loads((FIXTURES / "signals-v2.schema.json").read_text())
+    jsonschema.validate(instance=load_signals_fixture(), schema=schema)
+
+
+def test_signals_fixtures_do_not_speak_the_retired_score_vocabulary():
+    """The `score` -> `sentiment_score` rename is hard, not a dual-write:
+    signals-v2.schema.json sets additionalProperties:false and requires
+    sentiment_score, and FinSearch normalizes at its API boundary so `score`
+    never reaches the wire (whether the artifact is read as latest or via
+    ?as_of). A fixture still carrying `score` would describe a shape the
+    producer cannot emit — which is precisely the failure this suite had:
+    v1-pinned fixtures stay green while prod serves v2, so they fail when you
+    fix them and pass when you are wrong."""
+    for body in (load_signals_fixture(), load_signals_wire_fixture()):
+        for sig in body["signals"].values():
+            assert "score" not in sig
+            assert isinstance(sig["sentiment_score"], float)
 
 
 def test_wire_fixture_reflects_public_projection():

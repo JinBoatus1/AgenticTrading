@@ -172,7 +172,11 @@ def test_malformed_panel_signal_dropped_not_whole_panel(monkeypatch):
     """One signal missing a required story field is dropped from the feed
     (logged), not allowed to collapse the entire panel to unavailable."""
     body = load_signals_fixture()
-    body["signals"]["BADD"] = {"sentiment": "bullish", "score": 0.1}  # no headline/url
+    # Off-spec in exactly one way — no headline/url — so the drop is
+    # attributable to the missing story field. Keep sentiment_score valid:
+    # omitting it too would drop the entry for a second, unrelated reason and
+    # this test would pass without proving what it claims.
+    body["signals"]["BADD"] = {"sentiment": "bullish", "sentiment_score": 0.1}
     monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
     payload = ns.get_latest_panel_payload(["MSFT", "NVDA", "BADD"])
     assert payload["status"] != "unavailable"                 # panel survived
@@ -329,7 +333,7 @@ def test_304_revalidation_serves_cached_body(monkeypatch):
 
 
 def _items_body(items, batch="items-test.jsonl"):
-    return {"schema_version": 1, "items": items, "count": len(items), "batch": batch}
+    return {"schema_version": 2, "items": items, "count": len(items), "batch": batch}
 
 
 def test_items_feed_preferred_and_mapped_correctly(monkeypatch):
@@ -580,7 +584,8 @@ def test_signals_down_returns_unavailable_and_skips_items_fetch(monkeypatch):
 def test_feed_from_items_maps_exact_five_keys():
     items = [
         {"guid": "g1", "headline": "Fed cuts rates", "url": "https://x/1", "source": "Reuters",
-         "published": 1700000200.0, "description": "d1", "tickers": ["AAPL", "MSFT"], "score": 0.5},
+         "published": 1700000200.0, "description": "d1", "tickers": ["AAPL", "MSFT"],
+         "editorial_score": 0.5},
     ]
     feed = ns._feed_from_items(items)
     assert feed == [{
