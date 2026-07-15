@@ -182,6 +182,67 @@ def test_malformed_panel_signal_dropped_not_whole_panel(monkeypatch):
     assert payload["status"] != "unavailable"                 # panel survived
     feed_tickers = {item["ticker"] for item in payload["feed"]}
     assert "MSFT" in feed_tickers and "BADD" not in feed_tickers  # good kept, bad dropped
+    # BADD has no url/source either, so it is unrenderable in the signals list
+    # too. Asserted separately from the feed: they are independent projections
+    # with different required keys, and this test used to check only the feed —
+    # which is precisely how the raw `signals` passthrough went unguarded.
+    assert "BADD" not in payload["signals"]
+    assert {"MSFT", "NVDA"} <= set(payload["signals"])
+
+
+def test_panel_signal_missing_sentiment_score_is_dropped_not_rendered_nan(monkeypatch):
+    """The bug this guard exists for. `signals` was passed through raw, so a
+    renamed `sentiment_score` reached the browser intact and
+    `Number(undefined).toFixed(2)` painted the literal string "NaN" into every
+    chip — no drop, no exception, no alarm. Drop the entry instead: a missing
+    reading must not render as a reading."""
+    body = load_signals_fixture()
+    del body["signals"]["NVDA"]["sentiment_score"]
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    payload = ns.get_latest_panel_payload(["MSFT", "NVDA"])
+    assert "NVDA" not in payload["signals"]
+    assert "MSFT" in payload["signals"]
+    assert payload["status"] != "unavailable"      # one bad entry != an outage
+    # Still a valid story, so it stays in the feed: the two projections have
+    # independent required keys and must not be coupled.
+    assert any(item["ticker"] == "NVDA" for item in payload["feed"])
+
+
+def test_panel_signals_all_missing_sentiment_score_surfaces_as_degraded(monkeypatch):
+    """Wholesale drift, i.e. a producer rename rather than one off-spec entry.
+    The feed is unaffected (it reads headline/url/source), so without an alarm
+    on the signals projection the panel would look healthy while every
+    directional read silently vanished."""
+    body = load_signals_fixture()
+    for sig in body["signals"].values():
+        del sig["sentiment_score"]
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
+    payload = ns.get_latest_panel_payload(["MSFT", "NVDA"])
+    assert payload["signals"] == {}
+    assert payload["status"] == "degraded"
+    assert ns._DRIFT_STATUS_REASON in payload["status_reason"]
+    assert payload["feed"]  # the feed still renders — this is signals-only drift
+
+
+def test_panel_signals_drift_survives_a_healthy_items_feed(monkeypatch):
+    """Pins the `drifted` accumulation, which is sharper than it looks: the
+    items alarm ASSIGNS `drifted` rather than OR-ing it, so a signals-drift
+    result seeded anywhere above that line is clobbered on exactly the requests
+    where the items feed loads — the healthy Phase-B case, i.e. always, in
+    prod. The guard would read correctly and fire never. The other drift tests
+    can't see this: they leave `_http_get_items` unpatched, so items never
+    load and the clobbering line never runs."""
+    signals_body = load_signals_fixture()
+    items_body = load_items_wire_fixture()
+    for sig in signals_body["signals"].values():
+        del sig["sentiment_score"]
+    monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=signals_body))
+    monkeypatch.setattr(ns, "_http_get_items", lambda **kw: _fake_response(body=items_body))
+    payload = ns.get_latest_panel_payload(["MSFT", "NVDA"])
+    assert payload["signals"] == {}
+    assert payload["feed"]                    # Phase B healthy — no feed drift
+    assert payload["status"] == "degraded"    # ...and the signals drift still lands
+    assert ns._DRIFT_STATUS_REASON in payload["status_reason"]
 
 
 def test_panel_signal_with_null_published_sinks_not_crashes(monkeypatch):
