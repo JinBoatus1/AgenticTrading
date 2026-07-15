@@ -22,6 +22,9 @@ httpx==0.28.1
 httpx-sse==0.4.1
 idna==3.15
 jiter==0.14.0
+# Reached here as an mcp transitive, but dashboard/backend/tests/
+# test_news_sentiment_fixture.py imports it directly to validate the vendored
+# producer schema. Keep pinned even if mcp stops requiring it.
 jsonschema==4.25.1
 jsonschema-specifications==2025.4.1
 llvmlite==0.44.0

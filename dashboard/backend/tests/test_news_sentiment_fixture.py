@@ -148,6 +148,12 @@ def test_signals_fixtures_do_not_speak_the_retired_score_vocabulary():
     for body in (load_signals_fixture(), load_signals_wire_fixture()):
         for sig in body["signals"].values():
             assert "score" not in sig
+            # Deliberately stricter than the vendored schema, whose `number`
+            # admits ints: news_signals.py builds this via float() + round(),
+            # so float — not "any number" — is the real producer invariant.
+            # Don't relax it to (int, float): the schema check above already
+            # covers "is a number", and only for the on-disk fixture, so this
+            # is also the wire fixture's only type guard.
             assert isinstance(sig["sentiment_score"], float)
 
 
