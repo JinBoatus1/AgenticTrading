@@ -80,17 +80,23 @@ def test_backtest_backend_emits_typed_context(monkeypatch):
     assert ack["accepted"] is True
 
 
-def test_news_sentiment_fail_closed_when_loader_raises(monkeypatch):
-    # Plan 1 adapter exists but throws at call time → still fail-closed.
+def _install_fake_adapter(monkeypatch, raises: Exception):
+    """Install an importable news_sentiment adapter whose get_news_sentiment
+    raises, i.e. the call-time failure branch rather than the import-time one."""
     import types
 
     fake = types.ModuleType("dashboard.backend.integrations.news_sentiment")
 
     def _boom(universe, timestamp):
-        raise RuntimeError("news service down")
+        raise raises
 
     fake.get_news_sentiment = _boom
     monkeypatch.setitem(sys.modules, "dashboard.backend.integrations.news_sentiment", fake)
+
+
+def test_news_sentiment_fail_closed_when_loader_raises(monkeypatch):
+    # Plan 1 adapter exists but throws at call time → still fail-closed.
+    _install_fake_adapter(monkeypatch, RuntimeError("news service down"))
 
     sentiment, overview = load_news_sentiment(["AAPL"], "2026-04-15T10:30:00+00:00")
     assert sentiment == {} and overview is None
@@ -103,15 +109,7 @@ def test_news_sentiment_loader_failure_is_logged(monkeypatch, caplog):
     sentiment slot empties with no exception, no log and no red test. That is
     exactly how the 2026-07-14 score -> sentiment_score rename could have
     zeroed sentiment out of every backtest unnoticed."""
-    import types
-
-    fake = types.ModuleType("dashboard.backend.integrations.news_sentiment")
-
-    def _boom(universe, timestamp):
-        raise KeyError("sentiment_score")
-
-    fake.get_news_sentiment = _boom
-    monkeypatch.setitem(sys.modules, "dashboard.backend.integrations.news_sentiment", fake)
+    _install_fake_adapter(monkeypatch, KeyError("sentiment_score"))
 
     with caplog.at_level("ERROR"):
         sentiment, overview = load_news_sentiment(["AAPL"], "2026-04-15T10:30:00+00:00")

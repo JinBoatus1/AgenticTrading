@@ -32,15 +32,12 @@ def load_news_sentiment(universe: List[str], timestamp: Any) -> Tuple[Dict[str, 
     get_news_sentiment(universe, timestamp) -> {"news_sentiment": {...}, "news_overview": str|None}.
     A backtest must not die because news is unavailable, so both failure modes
     below degrade to an empty slot — but they LOG, because fail-closed and
-    fail-silent are different things. The adapter already handles its own
-    expected misses quietly (404, network, bad key) and returns empty rather
-    than raising; anything that actually escapes it is unexpected, which is why
-    these log at exception level rather than warning.
+    fail-silent are different things: without a log, a producer contract break
+    is indistinguishable from a quiet news day.
 
-    Without the log, a producer contract break (e.g. the 2026-07-14 FinSearch
-    score -> sentiment_score rename raising KeyError out of _project_entry) is
-    indistinguishable from a quiet news day: sentiment silently empties out of
-    every step with no exception, no log, and no failing test.
+    Exception level rather than warning is deliberate: the adapter already
+    handles its own expected misses quietly (404, network, bad key) and returns
+    empty rather than raising, so anything escaping it is genuinely unexpected.
     """
     try:
         from dashboard.backend.integrations.news_sentiment import get_news_sentiment  # type: ignore

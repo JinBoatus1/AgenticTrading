@@ -1,20 +1,10 @@
-"""PR-2 of the FinSearch score-field disambiguation (see FinSearch spec
-2026-07-14-score-field-disambiguation-design.md): the transitional v1 `score`
-fallback is gone, and reading v1 is now an error rather than a kindness.
+"""PR-2 of the FinSearch score-field disambiguation: the transitional v1 `score`
+fallback is gone, so a v1-only payload is now a KeyError rather than a silent
+kindness. This module is only about which key `_project_entry` READS.
 
-Signals v2 is a HARD rename, not a dual-write: signals-v2.schema.json requires
-`sentiment_score` and sets additionalProperties:false, and FinSearch renames at
-its API boundary so `score` never reaches the wire — whether the artifact is
-read as latest or via `?as_of`, and whether the artifact on disk is native v2
-or a normalized v1. There is no grace period left to be tolerant of, so a
-payload still carrying `score` is not an old-but-valid producer worth
-accommodating; it is a broken one. Tolerating it would only paint a plausible
-number onto the panel while hiding the breakage.
-
-Note `_project_entry` still EMITS the internal key `score`. That is deliberate,
-not a missed rename: api/v2/models.py's NewsSentimentEntry validates the
-internal envelope, whose vocabulary is decoupled from the wire's by design.
-This module is only about which key we READ.
+Why there is no fallback to be tolerant of, and why `_project_entry` still
+deliberately EMITS the internal key `score`: see the "two vocabularies" note in
+docs/integrations/finsearch-news-sentiment.md.
 """
 import pytest
 

@@ -236,12 +236,11 @@ def _story_fields(sig: dict) -> dict:
 def _project_entry(sig: dict, reference_ts: float) -> dict:
     return {
         "sentiment": sig["sentiment"],
-        # Reads the wire's v2 key; emits the INTERNAL key `score`, which
-        # api/v2/models.py's NewsSentimentEntry validates. The two vocabularies
-        # are decoupled by design — this is not a half-finished rename.
-        # No v1 fallback: signals v2 is a hard rename and FinSearch normalizes
-        # at its boundary, so `score` cannot reach us. A KeyError here means the
-        # producer contract broke and should be seen, not smoothed over.
+        # Asymmetry is deliberate, not a half-finished rename: the wire's key is
+        # `sentiment_score`, the internal envelope's is `score` (validated by
+        # api/v2/models.py's NewsSentimentEntry). Do NOT "fix" the emitted key
+        # to match the wire. No v1 fallback — a KeyError here means the producer
+        # contract broke and must be seen, not smoothed over.
         "score": sig["sentiment_score"],
         **_story_fields(sig),
         "n_articles": sig["n_articles"],
@@ -312,7 +311,7 @@ def fetch_items(*, limit: int = _PANEL_FEED_LIMIT) -> Optional[list]:
 
 
 def _feed_from_items(items) -> list:
-    """Project news-story v1 items onto the panel feed keys — a near-
+    """Project news-story v2 items onto the panel feed keys — a near-
     passthrough now that AF's items endpoint speaks the shared vocabulary
     (headline/url on the wire; docs/integrations/finsearch-news-items.md):
     headline->headline, url->url, source->source, published->published,
