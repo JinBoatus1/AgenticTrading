@@ -35,9 +35,12 @@ def load_news_sentiment(universe: List[str], timestamp: Any) -> Tuple[Dict[str, 
     fail-silent are different things: without a log, a producer contract break
     is indistinguishable from a quiet news day.
 
-    Exception level rather than warning is deliberate: the adapter already
-    handles its own expected misses quietly (404, network, bad key) and returns
-    empty rather than raising, so anything escaping it is genuinely unexpected.
+    Exception level rather than warning is deliberate: the adapter handles its
+    own expected misses quietly (404, network, bad key) AND reports its own
+    wire-shape drift (dropping the unreadable entry, ERROR-ing if that empties
+    the step), so anything still escaping it is genuinely unexpected. Don't
+    reach back across the boundary to interpret what escaped — an except here
+    that explains the adapter's internals goes stale the moment they move.
     """
     try:
         from dashboard.backend.integrations.news_sentiment import get_news_sentiment  # type: ignore
@@ -52,8 +55,7 @@ def load_news_sentiment(universe: List[str], timestamp: Any) -> Tuple[Dict[str, 
     except Exception as exc:
         logger.exception(
             "load_news_sentiment: adapter raised %r; sentiment slot left empty "
-            "for this step (a KeyError here usually means the producer's "
-            "payload shape changed)", exc)
+            "for this step", exc)
         return {}, None
 
 

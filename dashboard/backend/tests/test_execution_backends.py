@@ -103,12 +103,15 @@ def test_news_sentiment_fail_closed_when_loader_raises(monkeypatch):
 
 
 def test_news_sentiment_loader_failure_is_logged(monkeypatch, caplog):
-    """Fail-closed must not mean fail-silent. A producer field rename reaches
-    here as a KeyError escaping the adapter; swallowed without a log it is
-    indistinguishable from a quiet news day or a producer outage, so the
-    sentiment slot empties with no exception, no log and no red test. That is
-    exactly how the 2026-07-14 score -> sentiment_score rename could have
-    zeroed sentiment out of every backtest unnoticed."""
+    """Fail-closed must not mean fail-silent: swallowed without a log, an adapter
+    fault empties the sentiment slot with no exception and no red test — from
+    out here, indistinguishable from a quiet news day.
+
+    A producer rename no longer arrives this way. The adapter drops and alarms on
+    its own wire-shape drift, so this is the backstop for what is left: a fault
+    unexpected enough to escape it entirely, reported with whatever it carried
+    (hence the assertion on the exception's own text, not on a hint this end
+    guesses about the other end's internals)."""
     _install_fake_adapter(monkeypatch, KeyError("sentiment_score"))
 
     with caplog.at_level("ERROR"):
