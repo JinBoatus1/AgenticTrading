@@ -78,7 +78,11 @@ def test_items_wire_fixture_does_not_speak_the_retired_vocabulary():
     it `editorial_score`), but note it is retired for a stricter reason: the
     items endpoint has no boundary normalizer, so `editorial_score` sits in the
     producer's REQUIRED_FIELDS and a pre-rename batch trips the batch-level
-    poison pill and 404s rather than being served as v1."""
+    poison pill and 404s rather than being served as v1.
+
+    These are named guards kept for their failure message; the exact-set match
+    in test_items_wire_fixture_matches_contract_essentials already implies all
+    three, and is what generalizes to the next rename."""
     for item in load_items_wire_fixture()["items"]:
         assert "title" not in item
         assert "link" not in item
@@ -137,14 +141,19 @@ def test_signals_fixture_validates_against_the_vendored_producer_schema():
 
 
 def test_signals_fixtures_do_not_speak_the_retired_score_vocabulary():
-    """The `score` -> `sentiment_score` rename is hard, not a dual-write:
-    signals-v2.schema.json sets additionalProperties:false and requires
-    sentiment_score, and FinSearch normalizes at its API boundary so `score`
-    never reaches the wire (whether the artifact is read as latest or via
-    ?as_of). A fixture still carrying `score` would describe a shape the
-    producer cannot emit — which is precisely the failure this suite had:
-    v1-pinned fixtures stay green while prod serves v2, so they fail when you
-    fix them and pass when you are wrong."""
+    """Named guard on the retired `score` key, kept for its failure message
+    rather than its coverage: the schema test above already forbids a stray
+    `score` on the on-disk fixture (additionalProperties:false), and the wire
+    fixture inherits that transitively via
+    test_wire_fixture_is_base_minus_strip_plus_staleness's dict equality. Those
+    two are what actually generalize to the NEXT rename; this one just says so
+    out loud. The float assertion below is not redundant — see its comment.
+
+    A fixture carrying `score` describes a shape the producer cannot emit (see
+    the "two vocabularies" note in docs/integrations/finsearch-news-sentiment.md).
+    That was this suite's blind channel: v1-pinned fixtures stayed green while
+    prod served v2, so they failed when you fixed them and passed when you were
+    wrong."""
     for body in (load_signals_fixture(), load_signals_wire_fixture()):
         for sig in body["signals"].values():
             assert "score" not in sig
