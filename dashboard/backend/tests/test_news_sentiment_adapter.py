@@ -319,13 +319,12 @@ def _body_without(field, *, symbols):
 
 
 def test_one_malformed_step_signal_does_not_blank_the_other_tickers(monkeypatch, caplog):
-    """Per-entry isolation on the backtest path.
+    """Per-entry isolation on the backtest path: one off-spec ticker must not
+    take the readable ones down with it.
 
-    This projection was a dict comprehension, so one off-spec ticker raised out
-    of the whole thing and the caller's fail-closed except emptied the sentiment
-    slot for EVERY ticker that step — one producer typo on MSFT silently
-    deleting NVDA's news. The panel has dropped-and-carried-on since
-    _representative_feed; this is the projection that never learned it."""
+    Delete this and nothing stops the projection going back to a dict
+    comprehension, where a single producer typo on MSFT empties the sentiment
+    slot for EVERY ticker that step. _project_step_signals carries the why."""
     body = _body_without("sentiment_score", symbols={"MSFT"})
     monkeypatch.setattr(ns, "_http_get", lambda **kw: _fake_response(body=body))
     ts = datetime(2026, 7, 10, 15, 0, tzinfo=timezone.utc)

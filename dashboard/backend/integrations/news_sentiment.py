@@ -256,7 +256,7 @@ def _project_step_signals(considered: dict, reference_ts: float) -> dict:
     The isolation is the whole point. This was a dict comprehension, so one
     off-spec ticker raised out of the entire projection and the caller blanked
     the sentiment slot for EVERY ticker that step — a producer typo on MSFT
-    silently deleting AAPL's news. The panel has always dropped and carried on
+    silently deleting NVDA's news. The panel has always dropped and carried on
     (_representative_feed); the backtest is the projection that never learned it.
 
     A dropped ticker is indistinguishable from a ticker with no news — which is
@@ -390,11 +390,16 @@ def _alarm_if_all_dropped(raw, projected: Union[list, dict], *, source: str,
 
     Failing closed is not the same as failing visibly, and every projection here
     only buys the first: a malformed entry is dropped with a per-entry warning
-    and the panel carries on, so a producer renaming a field looks exactly like
+    and the caller carries on, so a producer renaming a field looks exactly like
     routine noise. On 2026-07-14 AF renamed title/link -> headline/url and this
-    adapter served the Phase-A feed for hours on warnings alone. The caller
-    escalates a True to `degraded` so the break reaches the panel too — a log
-    line only ever reaches whoever happens to be reading logs, and nobody was."""
+    adapter served the Phase-A feed for hours on warnings alone.
+
+    What a True is worth is the caller's to decide, and the callers differ. The
+    panel's escalate it to `degraded` so the break reaches the badge — a log line
+    only ever reaches whoever happens to be reading logs, and nobody was. The
+    backtest path has no equivalent channel and is log-only pending #123. So do
+    not read this helper as a promise that drift always reaches a human; it
+    reports, and reporting is only as loud as the channel the caller gives it."""
     if not (raw and not projected):
         return False
     logger.error("news_sentiment: %s produced 0 usable entries from %d raw "
