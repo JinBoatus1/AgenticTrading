@@ -173,26 +173,46 @@ function decorateAgent(agent) {
 
 const MOCK_AGENTS = [
   {
+    agent_id: 'mock-momentum-scout', name: 'Momentum Scout', agent_type: 'builtin',
+    model_name: 'GPT-5.5', is_live: true, cash_allocation: 10000,
+    paper_equity: 12480.32, paper_day_pnl: 184.2, paper_day_pnl_pct: 1.5,
+    paper_buying_power: 4820, paper_open_positions: 6,
+    paper_last_activity: 'Bought 4 NVDA · 18 min ago',
+    paper_updated_at: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
+    run_count: 2, latest_run: { total_return: 0.084, start_date: '2026-06-01', end_date: '2026-06-30', initial_equity: 10000, final_equity: 10842.5 },
+    total_input_tokens: 41000, total_output_tokens: 21500, total_est_cost_usd: 0.085, runs: [],
+  },
+  {
     agent_id: 'mock-test-agent-2', name: 'test agent 2', agent_type: 'builtin',
-    model_name: 'anthropic/claude-haiku-4-5', run_count: 1,
-    latest_run: { total_return: 0.065, sharpe_ratio: 2.67 },
+    model_name: 'anthropic/claude-haiku-4-5', run_count: 1, cash_allocation: 10000,
+    latest_run: {
+      total_return: 0.08425, sharpe_ratio: 2.67,
+      start_date: '2026-06-01', end_date: '2026-06-30',
+      initial_equity: 10000, final_equity: 10842.5,
+      created_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    },
     total_input_tokens: 41000, total_output_tokens: 21500, total_est_cost_usd: 0.085, runs: [],
   },
   {
     agent_id: 'mock-test-agent', name: 'test agent', agent_type: 'builtin', is_active: true,
     model_name: 'anthropic/claude-haiku-4-5', run_count: 1,
-    latest_run: { total_return: -0.004, sharpe_ratio: -16.84 },
+    latest_run: { total_return: -0.004, sharpe_ratio: -16.84, start_date: '2026-05-01', end_date: '2026-05-31', initial_equity: 10000, final_equity: 9960 },
     total_input_tokens: 30000, total_output_tokens: 17500, total_est_cost_usd: 0.064, runs: [],
   },
   {
+    agent_id: 'mock-draft-alpha', name: 'Alpha Draft', agent_type: 'builtin',
+    model_name: 'anthropic/claude-haiku-4-5', run_count: 0, cash_allocation: 1000,
+    latest_run: {}, total_input_tokens: 0, total_output_tokens: 0, runs: [],
+  },
+  {
     agent_id: 'mock-test', name: 'test', agent_type: 'external',
-    model_name: 'local-model', run_count: 0,
+    model_name: 'local-model', run_count: 0, cash_allocation: 1000,
     latest_run: {}, total_input_tokens: 0, total_output_tokens: 0, runs: [],
   },
   {
     agent_id: 'mock-sdk-1', name: 'sdk-selftest-agent', agent_type: 'external',
     model_name: 'rule-based', run_count: 1,
-    latest_run: { total_return: 0.02, sharpe_ratio: 4.25 },
+    latest_run: { total_return: 0.02, sharpe_ratio: 4.25, start_date: '2026-06-01', end_date: '2026-06-30', initial_equity: 10000, final_equity: 10200 },
     total_input_tokens: 44800, total_output_tokens: 20000, total_est_cost_usd: 0.0, runs: [],
   },
   {
@@ -230,15 +250,359 @@ const MOCK_AGENTS = [
 // Holds the most recently loaded agents so the toolbar can re-filter without refetching.
 let allAgents = [];
 let agentViewMode = 'grid';
+
+/** @returns {{ key: 'paper'|'backtested'|'draft', label: string, className: string }} */
 function resolveAgentStatusBadge(agent) {
-  if (agent.is_live === true || agent.deployment_status === 'live') {
-    return { label: 'Live', className: 'live' };
+  const deployment = String(agent.deployment_status || '').toLowerCase();
+  if (
+    agent.is_live === true ||
+    deployment === 'live' ||
+    deployment === 'paper'
+  ) {
+    return { key: 'paper', label: 'PAPER TRADING', className: 'paper' };
   }
   const runCount = Number(agent.run_count) || (Array.isArray(agent.runs) ? agent.runs.length : 0);
-  if (runCount > 0) {
-    return { label: 'Backtested', className: 'backtested' };
+  if (runCount > 0 || agent.latest_run?.run_id || agent.latest_run?.total_return != null) {
+    return { key: 'backtested', label: 'IDLE', className: 'idle' };
   }
-  return { label: 'Draft', className: 'draft' };
+  return { key: 'draft', label: 'DRAFT', className: 'draft' };
+}
+
+function formatAgentMoney(value, { cents = true } = {}) {
+  if (value == null || value === '' || !Number.isFinite(Number(value))) return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: cents ? 2 : 0,
+    maximumFractionDigits: cents ? 2 : 0,
+  }).format(Number(value));
+}
+
+function formatSignedMoney(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  const body = formatAgentMoney(Math.abs(n));
+  if (n > 0) return `+${body}`;
+  if (n < 0) return `−${body}`;
+  return body;
+}
+
+function formatRelativeTime(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '';
+  const mins = Math.round((Date.now() - t) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function formatShortDateRange(start, end) {
+  const fmt = (raw, withYear = false) => {
+    if (!raw) return '';
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) {
+      const s = String(raw);
+      return s.length >= 10 ? s.slice(5, 10) : s;
+    }
+    return dt.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      ...(withYear ? { year: 'numeric' } : {}),
+    });
+  };
+  const a = fmt(start);
+  const b = fmt(end, true);
+  if (a && b) return `${a} — ${b}`;
+  return a || b || '—';
+}
+
+function agentRunCount(agent) {
+  return Number(agent.run_count) || (Array.isArray(agent.runs) ? agent.runs.length : 0);
+}
+
+function renderAgentRunsLink(agent) {
+  const count = agentRunCount(agent);
+  const label = `${count} backtest${count === 1 ? '' : 's'}`;
+  return `
+    <button class="agent-card-runs-link agent-view-runs-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">
+      <span class="agent-card-runs-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M7 15l3-3 3 2 5-6"/></svg>
+      </span>
+      <span>${escapeHtml(label)}</span>
+      <span class="agent-card-runs-chevron" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+      </span>
+    </button>`;
+}
+
+function hashStringSeed(str) {
+  let h = 0;
+  const s = String(str || '');
+  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h) || 1;
+}
+
+function renderAgentSparkline(seed, positive = true) {
+  const color = positive ? '#4ade80' : '#ff6b6b';
+  const fillId = `agSpark-${hashStringSeed(seed)}`;
+  const n = 8;
+  const pts = [];
+  let v = 0.35 + (hashStringSeed(seed) % 30) / 100;
+  for (let i = 0; i < n; i += 1) {
+    const wobble = ((hashStringSeed(`${seed}:${i}`) % 17) - 8) / 40;
+    v = Math.max(0.08, Math.min(0.92, v + wobble + (positive ? 0.04 : -0.03)));
+    pts.push([ (i / (n - 1)) * 80, 36 - v * 32 ]);
+  }
+  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const area = `${line} L80,36 L0,36 Z`;
+  return `
+    <svg class="agent-card-sparkline" viewBox="0 0 80 36" width="80" height="36" aria-hidden="true">
+      <defs>
+        <linearGradient id="${fillId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${color}" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d="${area}" fill="url(#${fillId})"/>
+      <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+}
+
+function agentTypeLabel(agent) {
+  return agent.agent_type === 'builtin' ? 'Built-in' : 'External';
+}
+
+/** Human-readable model label from provider paths like anthropic/claude-haiku-4-5. */
+function formatAgentModelLabel(modelName) {
+  const raw = String(modelName || '').trim();
+  if (!raw) return 'Local model';
+  const known = {
+    'anthropic/claude-haiku-4-5': 'Claude Haiku 4.5',
+    'anthropic/claude-sonnet-4-6': 'Claude Sonnet 4.6',
+    'claude-haiku-4.5': 'Claude Haiku 4.5',
+    'claude-sonnet-4.6': 'Claude Sonnet 4.6',
+    'gpt-5.5': 'GPT-5.5',
+    'openai/gpt-5.5': 'GPT-5.5',
+    'local-model': 'Local model',
+    'rule-based': 'Rule-based',
+    'rule-based-demo': 'Rule-based',
+  };
+  if (known[raw]) return known[raw];
+  try {
+    const escaped = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(raw) : raw.replace(/"/g, '\\"');
+    const option = document.querySelector(`option[value="${escaped}"]`);
+    if (option?.textContent?.trim() && option.textContent.trim() !== raw) {
+      return option.textContent.trim();
+    }
+  } catch (_) { /* ignore selector errors */ }
+  let label = raw.includes('/') ? raw.split('/').pop() : raw;
+  label = label.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  label = label.replace(/\b(\d)\s+(\d)\b/g, '$1.$2');
+  return label;
+}
+
+function agentRobotIcon() {
+  return `<span class="agent-card-icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5" y="9" width="14" height="10" rx="3"/>
+      <path d="M12 5v4"/><circle cx="12" cy="4" r="1"/>
+      <circle cx="9" cy="14" r="1.1" fill="currentColor" stroke="none"/>
+      <circle cx="15" cy="14" r="1.1" fill="currentColor" stroke="none"/>
+    </svg>
+  </span>`;
+}
+
+function resolvePaperCardMetrics(agent) {
+  const cash = Number(agent.cash_allocation);
+  const fallback = Number.isFinite(cash) ? cash : 10000;
+  const equity = Number(agent.paper_equity ?? agent.paper_portfolio_value);
+  const hasLive = Number.isFinite(equity);
+  const dayPnl = Number(agent.paper_day_pnl);
+  const dayPnlPct = Number(agent.paper_day_pnl_pct);
+  const buyingPower = Number(agent.paper_buying_power);
+  const openPositions = Number(agent.paper_open_positions);
+  return {
+    equity: hasLive ? equity : fallback,
+    dayPnl: Number.isFinite(dayPnl) ? dayPnl : null,
+    dayPnlPct: Number.isFinite(dayPnlPct) ? dayPnlPct : null,
+    buyingPower: Number.isFinite(buyingPower) ? buyingPower : fallback,
+    openPositions: Number.isFinite(openPositions) ? openPositions : 0,
+    lastActivity: agent.paper_last_activity || null,
+    updatedAt: agent.paper_updated_at || null,
+    hasLive,
+  };
+}
+
+function resolveBacktestCardMetrics(agent) {
+  const run = agent.latest_run || (Array.isArray(agent.runs) && agent.runs[0]) || null;
+  const cash = Number(agent.cash_allocation);
+  const initial = Number(run?.initial_equity);
+  const startEquity = Number.isFinite(initial)
+    ? initial
+    : Number.isFinite(cash)
+      ? cash
+      : 10000;
+  const final = Number(run?.final_equity);
+  let ending = Number.isFinite(final) ? final : null;
+  const retRaw = Number(run?.total_return);
+  const retFrac = Number.isFinite(retRaw)
+    ? Math.abs(retRaw) <= 1
+      ? retRaw
+      : retRaw / 100
+    : null;
+  if (ending == null && retFrac != null) ending = startEquity * (1 + retFrac);
+  if (ending == null) ending = startEquity;
+  const pnl = ending - startEquity;
+  return {
+    ending,
+    pnl,
+    positive: pnl >= 0,
+    period: formatShortDateRange(run?.start_date, run?.end_date),
+    universe: run?.universe || run?.index || 'DJIA',
+    createdAt: run?.created_at || null,
+    runId: run?.run_id || null,
+  };
+}
+
+function renderAgentCardBody(agent, statusKey) {
+  if (statusKey === 'paper') {
+    const m = resolvePaperCardMetrics(agent);
+    const positive = m.dayPnl == null ? true : m.dayPnl >= 0;
+    let changeHtml = '';
+    if (m.dayPnl != null) {
+      const pct =
+        m.dayPnlPct != null
+          ? ` (${m.dayPnlPct >= 0 ? '+' : ''}${m.dayPnlPct.toFixed(2)}%)`
+          : '';
+      changeHtml = `<p class="agent-card-change ${positive ? 'is-pos' : 'is-neg'}">${escapeHtml(formatSignedMoney(m.dayPnl))}${escapeHtml(pct)} today</p>`;
+    } else if (!m.hasLive) {
+      changeHtml = `<p class="agent-card-change is-muted">Allocated capital · paper session not live yet</p>`;
+    }
+    const activity = m.lastActivity
+      ? escapeHtml(m.lastActivity)
+      : m.hasLive
+        ? 'Paper trading active'
+        : 'Ready for paper trading';
+    const updated = m.updatedAt
+      ? `Updated ${formatRelativeTime(m.updatedAt)}`
+      : '';
+    return `
+      <div class="agent-card-hero">
+        <div class="agent-card-hero-text">
+          <div class="agent-card-metric-head">
+            <span class="agent-card-mode-chip">PAPER</span>
+            <span class="agent-card-metric-label">Portfolio Value</span>
+          </div>
+          <p class="agent-card-metric-value">${escapeHtml(formatAgentMoney(m.equity))}</p>
+          ${changeHtml}
+        </div>
+        ${renderAgentSparkline(agent.agent_id || agent.name, positive)}
+      </div>
+      <div class="agent-card-divider"></div>
+      <div class="agent-card-stats">
+        <div class="agent-card-stat">
+          <span class="agent-card-stat-label">Buying Power</span>
+          <span class="agent-card-stat-value">${escapeHtml(formatAgentMoney(m.buyingPower, { cents: false }))}</span>
+        </div>
+        <div class="agent-card-stat">
+          <span class="agent-card-stat-label">Open Positions</span>
+          <span class="agent-card-stat-value">${escapeHtml(String(m.openPositions))}</span>
+        </div>
+      </div>
+      ${renderAgentRunsLink(agent)}
+      <div class="agent-card-divider"></div>
+      <div class="agent-card-activity">
+        <span class="agent-card-activity-icon agent-card-activity-icon--buy" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.4a2 2 0 0 0 2-1.5L21 8H7"/></svg>
+        </span>
+        <div class="agent-card-activity-text">
+          <span>${activity}</span>
+          ${updated ? `<span class="agent-card-activity-sub">${escapeHtml(updated)}</span>` : ''}
+        </div>
+      </div>`;
+  }
+
+  if (statusKey === 'backtested') {
+    const m = resolveBacktestCardMetrics(agent);
+    const runCount = agentRunCount(agent);
+    const runLabel = runCount > 0 ? `Completed backtest #${runCount}` : 'Completed a backtest';
+    return `
+      <div class="agent-card-hero">
+        <div class="agent-card-hero-text">
+          <div class="agent-card-metric-head">
+            <span class="agent-card-mode-chip agent-card-mode-chip--backtest">BACKTEST</span>
+            <span class="agent-card-metric-label">Ending Value</span>
+          </div>
+          <p class="agent-card-metric-value">${escapeHtml(formatAgentMoney(m.ending))}</p>
+          <p class="agent-card-change ${m.positive ? 'is-pos' : 'is-neg'}">${escapeHtml(formatSignedMoney(m.pnl))} during latest run</p>
+        </div>
+        ${renderAgentSparkline(agent.agent_id || agent.name, m.positive)}
+      </div>
+      <p class="agent-card-period">${escapeHtml(m.period)}</p>
+      <div class="agent-card-divider"></div>
+      ${renderAgentRunsLink(agent)}
+      <div class="agent-card-divider"></div>
+      <div class="agent-card-activity">
+        <span class="agent-card-activity-icon agent-card-activity-icon--done" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>
+        </span>
+        <div class="agent-card-activity-text">
+          <span>${escapeHtml(runLabel)}</span>
+        </div>
+      </div>`;
+  }
+
+  const capital =
+    agent.cash_allocation != null
+      ? formatAgentCashAllocation(agent.cash_allocation)
+      : '$1,000';
+  return `
+    <div class="agent-card-hero agent-card-hero--draft">
+      <div class="agent-card-hero-text">
+        <span class="agent-card-metric-label">Allocated Capital</span>
+        <p class="agent-card-metric-value">${escapeHtml(capital)}</p>
+      </div>
+    </div>
+    <div class="agent-card-empty">
+      <span class="agent-card-empty-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 16l4-4 3 3 5-6 4 4"/><path d="M4 20h16"/></svg>
+      </span>
+      <strong>No backtest runs yet</strong>
+      <span>Run a backtest to evaluate this agent.</span>
+    </div>`;
+}
+
+function renderAgentCardActions(agent, statusKey) {
+  const id = escapeHtml(agent.agent_id);
+  let primary = '';
+  if (statusKey === 'paper') {
+    primary = `<button class="agent-card-cta agent-open-btn" type="button" data-agent-id="${id}">Open Agent</button>`;
+  } else if (statusKey === 'backtested') {
+    primary = `<button class="agent-card-cta agent-card-cta--outline agent-view-runs-btn" type="button" data-agent-id="${id}">View All Runs</button>`;
+  } else {
+    primary = `<button class="agent-card-cta agent-run-backtest-btn" type="button" data-agent-id="${id}">Run Backtest</button>`;
+  }
+  const rotate =
+    agent.agent_type === 'builtin'
+      ? ''
+      : `<button class="agent-menu-item agent-rotate-key-btn" type="button" data-agent-id="${id}">New API key</button>`;
+  return `
+    <div class="agent-card-actions agent-card-actions--status">
+      ${primary}
+      <div class="agent-card-menu">
+        <button class="agent-menu-toggle" type="button" aria-label="More actions" aria-expanded="false" data-agent-id="${id}">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>
+        </button>
+        <div class="agent-menu-dropdown" hidden>
+          <button class="agent-menu-item agent-edit-btn" type="button" data-agent-id="${id}">Edit</button>
+          ${rotate}
+          <button class="agent-menu-item agent-menu-item--danger agent-delete-btn" type="button" data-agent-id="${id}">Delete</button>
+        </div>
+      </div>
+    </div>`;
 }
 
 // Demo/mock agents (MOCK_AGENTS) have no database row, so renames made in the editor
@@ -344,6 +708,43 @@ function renderAgentsError() {
   if (errorEl) errorEl.hidden = false;
 }
 
+async function openAgentInBacktest(agent, runId = null) {
+  if (!agent) return;
+  await activateAgent(agent);
+  if (runId) localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, runId);
+  navigateToPage('playground', { playgroundTab: 'backtest' });
+  currentMode = 'backtest';
+  await loadData();
+}
+
+async function openAgentInPaper(agent) {
+  if (!agent) return;
+  await activateAgent(agent);
+  navigateToPage('playground', { playgroundTab: 'paper' });
+  currentMode = 'paper';
+  await loadData();
+}
+
+function bindAgentCardMenus(grid) {
+  grid.querySelectorAll('.agent-menu-toggle').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const menu = btn.closest('.agent-card-menu');
+      const dropdown = menu?.querySelector('.agent-menu-dropdown');
+      if (!dropdown) return;
+      const willOpen = dropdown.hidden;
+      grid.querySelectorAll('.agent-menu-dropdown').forEach((el) => {
+        el.hidden = true;
+      });
+      grid.querySelectorAll('.agent-menu-toggle').forEach((el) => {
+        el.setAttribute('aria-expanded', 'false');
+      });
+      dropdown.hidden = !willOpen;
+      btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    });
+  });
+}
+
 function renderAgentsGrid(agents) {
   const grid = document.getElementById('agentsGrid');
   const empty = document.getElementById('agentsEmptyState');
@@ -362,45 +763,28 @@ function renderAgentsGrid(agents) {
     const isBuiltin = agent.agent_type === 'builtin';
     const statusBadge = resolveAgentStatusBadge(agent);
     const card = document.createElement('div');
-    card.className = `section-card agent-card agent-card--compact${isBuiltin ? ' agent-card-builtin' : ''}`;
-
-    const typeBadge = isBuiltin
-      ? '<span class="status-badge builtin">Built-in</span>'
-      : '<span class="agent-discord connected">External agent</span>';
-
-    const apiKeyButton = isBuiltin
-      ? ''
-      : `<button class="agent-action-btn agent-action-secondary agent-rotate-key-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">New API key</button>`;
-
-    const cashBadge = agent.cash_allocation != null
-      ? `<span class="agent-cash-allocation" title="Starting capital budget for this agent">Initial cash: ${formatAgentCashAllocation(agent.cash_allocation)}</span>`
-      : '';
+    card.className = `section-card agent-card agent-card--status agent-card--${statusBadge.key}${isBuiltin ? ' agent-card-builtin' : ''}`;
+    const model = escapeHtml(agent.model_name || 'local-model');
+    const type = escapeHtml(agentTypeLabel(agent));
 
     card.innerHTML = `
-      <div class="agent-card-head">
-        <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
-        <span class="status-badge ${statusBadge.className}">${statusBadge.label}</span>
+      <div class="agent-card-top">
+        <div class="agent-card-identity">
+          ${agentRobotIcon()}
+          <div class="agent-card-identity-text">
+            <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
+            <p class="agent-card-submeta">${model} · ${type}</p>
+          </div>
+        </div>
+        <span class="status-badge ${statusBadge.className}"><span class="status-badge-dot" aria-hidden="true"></span>${statusBadge.label}</span>
       </div>
-      <div class="agent-meta">
-        <span>${escapeHtml(agent.model_name || 'local-model')}</span>
-        ${typeBadge}
-        ${cashBadge}
-      </div>
-      ${isBuiltin && agent.description ? `<p class="agent-description">${escapeHtml(agent.description)}</p>` : ''}
-      <div class="agent-meta">
-        <span>${agent.run_count || 0} backtest run(s)</span>
-        ${renderAgentTokenCost(agent)}
-      </div>
-      ${renderAgentRunList(agent)}
-      <div class="agent-card-actions">
-        <button class="agent-action-btn agent-edit-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">Edit</button>
-        <button class="agent-action-btn agent-select-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">View in Playground</button>
-        ${apiKeyButton}
-        <button class="agent-action-btn agent-delete-btn" type="button" data-agent-id="${escapeHtml(agent.agent_id)}">Delete</button>
-      </div>
+      ${renderAgentCardBody(agent, statusBadge.key)}
+      ${renderAgentCardActions(agent, statusBadge.key)}
     `;
     grid.appendChild(card);
   });
+
+  bindAgentCardMenus(grid);
 
   grid.querySelectorAll('.agent-edit-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -412,27 +796,26 @@ function renderAgentsGrid(agents) {
     });
   });
 
-  grid.querySelectorAll('.agent-select-btn').forEach((btn) => {
+  grid.querySelectorAll('.agent-open-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const agent = agents.find((a) => a.agent_id === btn.dataset.agentId);
-      if (!agent) return;
-      await activateAgent(agent);
-      navigateToPage('playground', { playgroundTab: 'backtest' });
-      currentMode = 'backtest';
-      await loadData();
+      await openAgentInPaper(agent);
     });
   });
 
-  grid.querySelectorAll('.agent-run-link').forEach((btn) => {
+  grid.querySelectorAll('.agent-view-runs-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const agent = agents.find((a) => a.agent_id === btn.dataset.agentId);
-      const runId = btn.dataset.runId;
-      if (!agent || !runId) return;
-      await activateAgent(agent);
-      localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, runId);
-      navigateToPage('playground', { playgroundTab: 'backtest' });
-      currentMode = 'backtest';
-      await loadData();
+      if (!agent) return;
+      const runId = resolveBacktestCardMetrics(agent).runId;
+      await openAgentInBacktest(agent, runId);
+    });
+  });
+
+  grid.querySelectorAll('.agent-run-backtest-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const agent = agents.find((a) => a.agent_id === btn.dataset.agentId);
+      await openAgentInBacktest(agent);
     });
   });
 
@@ -480,6 +863,16 @@ function renderAgentsGrid(agents) {
     });
   });
 }
+
+document.addEventListener('click', (event) => {
+  if (event.target.closest?.('.agent-card-menu')) return;
+  document.querySelectorAll('#agentsGrid .agent-menu-dropdown').forEach((el) => {
+    el.hidden = true;
+  });
+  document.querySelectorAll('#agentsGrid .agent-menu-toggle').forEach((el) => {
+    el.setAttribute('aria-expanded', 'false');
+  });
+});
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -629,6 +1022,9 @@ async function loadAgents() {
     if (typeof window.updateAgentAllocationFromAgents === 'function') {
       window.updateAgentAllocationFromAgents(allAgents.map(decorateAgent));
     }
+    if (typeof window.refreshHomeModules === 'function') {
+      window.refreshHomeModules();
+    }
   } catch (error) {
     console.warn('Failed to load agents:', error.message);
     if (isDemoMode()) {
@@ -640,6 +1036,9 @@ async function loadAgents() {
       allAgents = [];
       renderAgentsError();
       populateBacktestAgentSelect();
+    }
+    if (typeof window.refreshHomeModules === 'function') {
+      window.refreshHomeModules();
     }
   }
 }
@@ -1107,6 +1506,9 @@ function updateAuthUI() {
     logoutBtn.hidden = true;
   }
 
+  if (typeof window.refreshHomeModules === 'function') {
+    window.refreshHomeModules();
+  }
 }
 
 function setAuthMode(mode) {
@@ -1392,6 +1794,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize session FIRST (before any API calls)
     initSession();
     initAuthUI();
+    await restoreActiveAgentSession();
+    // Load agents before home modules render so the dashboard My Agents card
+    // is not empty on first paint (previously only loaded on My Agents tab).
+    try {
+        await loadAgents();
+    } catch (error) {
+        console.warn('Initial loadAgents failed:', error.message);
+    }
     applyInitialNavigation();
     window.addEventListener('agent-editor-saved', async (event) => {
         const agent = event.detail?.agent;
@@ -1419,7 +1829,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         currentMode = 'backtest';
         await loadData();
     });
-    await restoreActiveAgentSession();
     await applyAgentRunDeepLink();
     const config = loadConfigFromURL();
     window.CURRENT_CONFIG = config;
@@ -2919,9 +3328,8 @@ function persistNavigation() {
 function clearNavBootState() {
     const html = document.documentElement;
     html.removeAttribute('data-nav-boot');
-    html.removeAttribute('data-nav-page');
-    html.removeAttribute('data-nav-playground-tab');
-    html.removeAttribute('data-nav-competition-tab');
+    // Keep data-nav-page / tab attrs as the live navigation signal (home snap
+    // scroll and other page-scoped CSS depend on them after boot).
 }
 
 function applyInitialNavigation() {
@@ -3120,6 +3528,11 @@ function navigateToPage(page, options = {}) {
     if (options.playgroundTab) playgroundTab = options.playgroundTab;
     if (options.competitionTab) competitionTab = options.competitionTab;
 
+    const html = document.documentElement;
+    html.setAttribute('data-nav-page', page);
+    html.setAttribute('data-nav-playground-tab', playgroundTab);
+    html.setAttribute('data-nav-competition-tab', competitionTab);
+
     document.querySelectorAll('.primary-nav .mode-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.mode === page);
     });
@@ -3257,6 +3670,7 @@ function initNavigation() {
     document.getElementById('agentViewList')?.addEventListener('click', () => setAgentViewMode('list'));
 
     document.getElementById('addAgentBtn')?.addEventListener('click', openAddAgentModal);
+    document.getElementById('addAgentBtnToolbar')?.addEventListener('click', openAddAgentModal);
     document.getElementById('addAgentModalClose')?.addEventListener('click', closeAddAgentModal);
     document.getElementById('addAgentModalBackdrop')?.addEventListener('click', closeAddAgentModal);
     document.getElementById('connectExternalAgentBtn')?.addEventListener('click', openCreateExternalAgentModal);
