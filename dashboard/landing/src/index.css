@@ -152,3 +152,53 @@
     linear-gradient(to bottom, rgba(30, 42, 74, 0.5) 1px, transparent 1px);
   background-size: 40px 40px;
 }
+
+/* Match dashboard home-scroll-hint */
+.landing-scroll-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.9);
+  cursor: pointer;
+  transition: color 0.2s, opacity 0.25s;
+}
+
+.landing-scroll-hint:hover {
+  color: #22d3ee;
+}
+
+.landing-scroll-hint-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.landing-scroll-hint-icon {
+  width: 22px;
+  height: 22px;
+  animation: landing-scroll-bounce 1.6s ease-in-out infinite;
+}
+
+.landing-scroll-hint.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes landing-scroll-bounce {
+  0%, 100% { transform: translateY(0); opacity: 0.7; }
+  50% { transform: translateY(6px); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-scroll-hint-icon { animation: none; }
+}

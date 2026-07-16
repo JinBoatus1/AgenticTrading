@@ -43,7 +43,7 @@ function Counter({ end, label, icon: Icon, prefix = "", suffix = "" }: { end: nu
 
 export function StatsBar() {
   return (
-    <section className="py-12 border-y border-border bg-background/50 relative z-20">
+    <section id="landing-stats" className="py-12 border-y border-border bg-background/50 relative z-20 scroll-mt-24">
       <div className="container mx-auto px-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <Counter end={3421} label="Agents Online" icon={Users} />

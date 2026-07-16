@@ -1,11 +1,26 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Terminal, Bot, User, Search, LineChart, CheckCircle2 } from "lucide-react";
+import { Terminal, Bot, User, Search, LineChart, CheckCircle2, ChevronDown } from "lucide-react";
 import { useState, useEffect } from "react";
 
 export function Hero() {
+  const [hintHidden, setHintHidden] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => {
+      setHintHidden(window.scrollY > 48);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const scrollToNext = () => {
+    document.getElementById("landing-stats")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
-    <section className="relative pt-36 pb-20 md:pt-44 md:pb-32 overflow-hidden min-h-[90vh] flex items-center">
+    <section className="relative min-h-[100dvh] flex items-center overflow-hidden pt-36 pb-28 md:pt-40 md:pb-32">
       <div className="absolute inset-0 bg-grid-pattern opacity-30 [mask-image:radial-gradient(ellipse_at_center,black,transparent_80%)]" />
 
       <div className="container mx-auto px-6 relative z-10 flex flex-col lg:flex-row items-center gap-16">
@@ -56,6 +71,16 @@ export function Hero() {
           </div>
         </motion.div>
       </div>
+
+      <button
+        type="button"
+        className={`landing-scroll-hint${hintHidden ? " is-hidden" : ""}`}
+        aria-label="Scroll for more"
+        onClick={scrollToNext}
+      >
+        <span className="landing-scroll-hint-label">Scroll</span>
+        <ChevronDown className="landing-scroll-hint-icon" aria-hidden="true" />
+      </button>
     </section>
   );
 }
