@@ -1,4 +1,11 @@
-"""Deterministic vn.py simulation provider contract."""
+"""Deterministic vn.py simulation provider contract.
+
+These require the optional ``vnpy`` dependency (``requirements-vnpy.txt``); when
+it is absent the whole module is skipped so the suite stays green on minimal
+interpreters. ``vnpy_simulation`` imports ``vnpy`` at module scope, so without
+the skip this raises during *collection* and aborts the entire pytest session.
+The provider boundary's own always-on tests live in ``test_provider.py``.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +16,8 @@ import sys
 
 import pandas as pd
 import pytest
+
+pytest.importorskip("vnpy")
 
 from dashboard.backend.infrastructure.llm.validator import DJIA_30
 from dashboard.backend.infrastructure.market_data.alpaca_bars import (

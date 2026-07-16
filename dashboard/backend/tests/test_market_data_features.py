@@ -14,6 +14,7 @@ import dashboard.backend.api.routers.backtests as backtests
 from dashboard.backend.infrastructure.market_data.provider import (
     MarketDataDependencyError,
     VNPY_SIMULATION,
+    validate_market_data_source,
 )
 
 REAL_RUN_BACKTEST_BACKGROUND = backtests.run_backtest_background
@@ -136,6 +137,14 @@ def test_enabled_simulation_is_passed_to_background_runner(monkeypatch):
     monkeypatch.setenv("ENABLE_VNPY_SIMULATION", "true")
     spy = Spy()
     monkeypatch.setattr(backtests, "run_backtest_background", spy)
+    # Stand in for "vn.py is installed" without requiring the optional
+    # dependency: validate_market_data_source is the real allow-list + feature
+    # gate, minus the find_spec probe. The env var above therefore still has to
+    # be set for this to reach the runner (test_disabled_... proves the 403),
+    # and the probe itself is covered by test_missing_vnpy_returns_503.
+    monkeypatch.setattr(
+        backtests, "ensure_market_data_source_available", validate_market_data_source
+    )
 
     response = TestClient(app).post(
         "/backtest/run",

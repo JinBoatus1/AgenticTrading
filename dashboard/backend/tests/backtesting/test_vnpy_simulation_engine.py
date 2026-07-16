@@ -1,14 +1,29 @@
-"""End-to-end engine coverage for the offline vn.py simulation provider."""
+"""End-to-end engine coverage for the offline vn.py simulation provider.
+
+This module imports no ``vnpy`` symbols, so it collects without the optional
+dependency. Only the two cases that actually build a simulation provider are
+gated on it; ``test_cli_exposes_data_source_option`` inspects argparse ``--help``
+text and must keep running everywhere, since that CLI contract is exactly what a
+vn.py-less deploy still ships.
+"""
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
+
+import pytest
 
 from dashboard.backend.domain.backtesting import engine as engine_module
 from dashboard.backend.domain.backtesting.engine import HourlyBacktester
 from dashboard.backend.infrastructure.llm.validator import DJIA_30
 from dashboard.backend.infrastructure.market_data.provider import VNPY_SIMULATION
+
+requires_vnpy = pytest.mark.skipif(
+    importlib.util.find_spec("vnpy") is None,
+    reason="optional vnpy dependency not installed (requirements-vnpy.txt)",
+)
 
 
 class RecordingDB:
@@ -31,6 +46,7 @@ def fail_llm_client():
     raise AssertionError("simulation mode must not create an LLM client")
 
 
+@requires_vnpy
 def test_simulation_constructor_forces_rule_based_mode(monkeypatch):
     monkeypatch.setenv("ENABLE_VNPY_SIMULATION", "true")
     monkeypatch.setattr(engine_module, "HAS_ANTHROPIC", True)
@@ -48,6 +64,7 @@ def test_simulation_constructor_forces_rule_based_mode(monkeypatch):
     assert backtester.llm_client is None
 
 
+@requires_vnpy
 def test_canonical_simulation_runs_agent_and_both_baselines_offline(monkeypatch):
     monkeypatch.setenv("ENABLE_VNPY_SIMULATION", "true")
     monkeypatch.setattr(engine_module, "HAS_ANTHROPIC", True)

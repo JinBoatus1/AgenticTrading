@@ -1,4 +1,11 @@
-"""Conversion contract from real vn.py BarData to AgenticTrading OHLCV."""
+"""Conversion contract from real vn.py BarData to AgenticTrading OHLCV.
+
+These require the optional ``vnpy`` dependency (``requirements-vnpy.txt``); when
+it is absent the whole module is skipped so the suite stays green on minimal
+interpreters. Without the skip the module-level ``vnpy`` import raises during
+*collection*, which aborts the entire pytest session rather than failing one
+module.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +15,9 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
+
+pytest.importorskip("vnpy")
+
 from vnpy.trader.constant import Exchange, Interval
 from vnpy.trader.object import BarData
 
