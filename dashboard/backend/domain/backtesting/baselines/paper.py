@@ -1,3 +1,4 @@
+from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
 """
 Paper trading baselines - calculate independently from backtesting.
 Creates DJIA Index and Buy & Hold baselines for the paper account's date range.
@@ -135,13 +136,13 @@ class PaperTradingBaselineCalculator:
             if not bars:
                 return None
             
-            # Create equity curve starting at $100,000
+            # Create equity curve starting at INITIAL_CAPITAL
             initial_price = bars[0]["c"]
             equity_curve = []
             
             for bar in bars:
                 price = bar["c"]
-                equity = 100000 * (price / initial_price)
+                equity = INITIAL_CAPITAL * (price / initial_price)
                 equity_curve.append({
                     "timestamp": bar["t"],
                     "equity": round(equity, 2),
@@ -208,7 +209,7 @@ class PaperTradingBaselineCalculator:
                         count += 1
                 
                 avg_return = total_return / count if count > 0 else 0
-                equity = 100000 * (1 + avg_return)
+                equity = INITIAL_CAPITAL * (1 + avg_return)
                 
                 equity_curve.append({
                     "timestamp": timestamp,
@@ -324,7 +325,7 @@ class PaperTradingBaselineCalculator:
         import random
         
         curve = []
-        equity = 100000
+        equity = INITIAL_CAPITAL
         current_date = start_date
         
         while current_date <= end_date:

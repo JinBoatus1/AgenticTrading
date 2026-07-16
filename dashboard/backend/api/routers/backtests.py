@@ -40,6 +40,7 @@ from dashboard.backend.paths import DASHBOARD_DIR, REPO_ROOT, SCRIPTS_DIR
 from dashboard.backend.middleware import get_session_id_from_request
 from dashboard.backend.api.rate_limit import FixedWindowRateLimiter, client_key
 from dashboard.backend.domain.agents.service import agent_service
+from dashboard.backend.domain.backtesting.constants import resolve_initial_capital
 from dashboard.backend.equity_plot import (
     build_backtest_chart_data,
     curve_timestamps_and_values,
@@ -275,6 +276,14 @@ def run_backtest_background(
             cmd += ["--model", model.strip()]
 
         cmd += ["--run-id", live_run_id, "--progress-file", progress_file]
+
+        from dashboard.backend.domain.backtesting.constants import resolve_initial_capital as _resolve_cap
+        cash_allocation = None
+        if agent_id:
+            agent = agent_service.get_agent(agent_id)
+            if agent:
+                cash_allocation = agent.get("cash_allocation")
+        cmd += ["--initial-capital", str(_resolve_cap(cash_allocation))]
 
         print(f"📋 Running: {' '.join(cmd)}", flush=True)
         
@@ -722,7 +731,7 @@ async def get_backtest_chart_data(run_id: str, request: Request):
         raise HTTPException(status_code=404, detail="No equity data to plot for this run")
 
     initial_capital = float(
-        run.get("initial_equity") or agent_curve[0].get("equity") or 100_000
+        run.get("initial_equity") or agent_curve[0].get("equity") or 1_000
     )
     agent_card = agent_service.agents.get_agent_by_session(session_id)
     card_name = (agent_card or {}).get("name")
@@ -892,7 +901,7 @@ def _render_run_plot_png(run_id: str) -> bytes:
     if not timestamps:
         raise HTTPException(status_code=404, detail="No equity data to plot for this run")
 
-    initial_capital = float(run.get("initial_equity") or agent_values[0] or 100_000)
+    initial_capital = float(run.get("initial_equity") or agent_values[0] or 1_000)
     baselines = market_index_baselines_for_run(
         timestamps,
         run.get("start_date") or "",

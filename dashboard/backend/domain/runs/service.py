@@ -28,7 +28,10 @@ from typing import Any, Callable, Dict, List, Optional
 
 import dashboard.backend.domain.backtesting.external_run_service as ebs
 from dashboard.backend.database import db
-from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
+from dashboard.backend.domain.backtesting.constants import (
+    INITIAL_CAPITAL,
+    resolve_initial_capital,
+)
 from dashboard.backend.execution.base import TERMINAL_STATUSES
 from dashboard.backend.domain.runs.environment import get_environment
 from dashboard.backend.infrastructure.llm.validator import DJIA_30, MAX_ORDER_SHARES
@@ -383,9 +386,10 @@ def create_run(
                 details={"invalid_symbols": invalid},
             )
 
-    # The engine hardcodes the starting capital; rather than silently ignore a
-    # requested override, reject a non-default value explicitly so the agent/SDK
-    # knows it was not honored. (The SDK sends the default 100000, which passes.)
+    # Starting capital follows the agent's cash_allocation (default
+    # INITIAL_CAPITAL, max MAX_AGENT_CASH_ALLOCATION). A non-matching override
+    # is rejected so agents/SDKs know it was not honored.
+    resolved_capital = resolve_initial_capital(agent.get("cash_allocation"))
     initial_cash = config.get("initial_cash")
     if initial_cash is not None:
         try:
@@ -394,13 +398,13 @@ def create_run(
             raise ProtocolError(
                 "invalid_config", "config.initial_cash must be a number", 400
             )
-        if requested != float(INITIAL_CAPITAL):
+        if requested != float(resolved_capital):
             raise ProtocolError(
                 "invalid_config",
-                f"config.initial_cash is fixed at {INITIAL_CAPITAL} in this "
-                "environment; custom values are not yet supported",
+                f"config.initial_cash must match this agent's cash allocation "
+                f"({resolved_capital:g}); custom values are not supported",
                 400,
-                details={"initial_cash": INITIAL_CAPITAL},
+                details={"initial_cash": resolved_capital},
             )
 
     mode = config.get("mode", "safe_trading")
@@ -436,6 +440,7 @@ def create_run(
             # The effective allow-list: observation features must cover every
             # symbol constraints() advertises as tradeable (LOW #11).
             symbols=config.get("symbols") or DJIA_30,
+            initial_capital=resolved_capital,
         )
         backtest_id = start_res["backtest_id"]
 

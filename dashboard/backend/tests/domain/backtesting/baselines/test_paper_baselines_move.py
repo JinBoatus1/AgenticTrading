@@ -104,12 +104,12 @@ def test_fetch_djia_historical_schema(calc, fake_requests):
     assert len(curve) == 2
     assert curve[0] == {
         "timestamp": "2024-01-01",
-        "equity": 100000.0,
-        "cash": 30000.0,
-        "positions_value": 70000.0,
+        "equity": 1000.0,
+        "cash": 300.0,
+        "positions_value": 700.0,
         "daily_return": 0.0,
     }
-    assert curve[1]["equity"] == 110000.0
+    assert curve[1]["equity"] == 1100.0
     assert round(curve[1]["daily_return"], 4) == 0.1
 
 
@@ -144,10 +144,10 @@ def test_fetch_buy_and_hold_schema(calc, fake_requests):
     assert first_call["timeout"] == 5
 
     assert len(curve) == 2
-    assert curve[0]["equity"] == 100000.0
+    assert curve[0]["equity"] == 1000.0
     assert curve[0]["daily_return"] == 0.0
-    # Each symbol up 10% -> avg return 0.1 -> equity 110000.
-    assert curve[1]["equity"] == 110000.0
+    # Each symbol up 10% -> avg return 0.1 -> equity 1100.
+    assert curve[1]["equity"] == 1100.0
     assert round(curve[1]["daily_return"], 4) == 0.1
 
 

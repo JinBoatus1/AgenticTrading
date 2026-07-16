@@ -32,7 +32,7 @@ from dashboard.backend.infrastructure.llm.validator import (
     actions_to_executable,
     parse_actions_payload,
 )
-from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
+from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL, resolve_initial_capital
 from dashboard.backend.domain.backtesting.features import TechnicalIndicators
 from dashboard.backend.domain.backtesting.metrics import (
     calculate_max_drawdown,
@@ -127,6 +127,7 @@ class ExternalBacktestSession:
         mode: str = "safe_trading",
         symbols: Optional[List[str]] = None,
         run_id: Optional[str] = None,
+        initial_capital: Optional[float] = None,
     ):
         self.backtest_id = backtest_id
         self.session_id = session_id
@@ -151,7 +152,8 @@ class ExternalBacktestSession:
         # threaded into the decision log so each decision traces to its context.
         self.context_ref_by_step: Dict[int, str] = {}
 
-        self.manager = PortfolioManager(initial_capital=INITIAL_CAPITAL)
+        self.initial_capital = resolve_initial_capital(initial_capital)
+        self.manager = PortfolioManager(initial_capital=self.initial_capital)
         self.all_data: Dict[str, pd.DataFrame] = {}
         self.timestamps: List[Any] = []
         self.price_cache: Dict[str, Dict[Any, float]] = {}
@@ -561,9 +563,9 @@ class ExternalBacktestSession:
         # legacy flow (no pre-set id) mints the collision-safe ext_ id here.
         if not self.run_id:
             self.run_id = _new_ext_run_id()
-        initial_eq = equity_curve[0]["equity"] if equity_curve else INITIAL_CAPITAL
-        final_eq = equity_curve[-1]["equity"] if equity_curve else INITIAL_CAPITAL
-        total_return = (final_eq - INITIAL_CAPITAL) / INITIAL_CAPITAL
+        initial_eq = equity_curve[0]["equity"] if equity_curve else self.initial_capital
+        final_eq = equity_curve[-1]["equity"] if equity_curve else self.initial_capital
+        total_return = (final_eq - self.initial_capital) / self.initial_capital
 
         est_cost = token_cost.estimate_cost_usd(
             self.model_name, self.est_input_tokens, self.est_output_tokens
@@ -796,6 +798,7 @@ def start_backtest(
     end_date: str,
     mode: str = "safe_trading",
     symbols: Optional[List[str]] = None,
+    initial_capital: Optional[float] = None,
 ) -> Dict[str, Any]:
     backtest_id = f"bt_{uuid.uuid4().hex[:12]}"
     session = ExternalBacktestSession(
@@ -807,6 +810,7 @@ def start_backtest(
         end_date=end_date,
         mode=mode,
         symbols=symbols,
+        initial_capital=initial_capital,
     )
     session.status = "loading"
 

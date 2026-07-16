@@ -61,8 +61,8 @@ def test_hourly_backtester_moved_to_engine_in_phase_2c5():
 
 def test_constructor_defaults():
     pm = CanonicalPortfolioManager()
-    assert pm.initial_capital == 100000
-    assert pm.cash == 100000
+    assert pm.initial_capital == 1000
+    assert pm.cash == 1000
     assert pm.positions == {}
     assert pm.entry_prices == {}
     assert pm.trades == []

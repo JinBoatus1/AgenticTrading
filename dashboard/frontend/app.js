@@ -130,6 +130,8 @@ function formatTokenCount(value) {
 // TODO: Replace mock agent data with backend API data later.
 // ============================================================================
 const MAX_AGENT_CASH_ALLOCATION = 3000;
+const DEFAULT_AGENT_CASH_ALLOCATION = 1000;
+const DEFAULT_PORTFOLIO_EQUITY = 10000;
 const AGENT_CASH_OVERRIDE_PREFIX = 'agent-cash-allocation:';
 
 function formatAgentCashAllocation(value) {
@@ -143,6 +145,9 @@ function formatAgentCashAllocation(value) {
 }
 
 function parseAgentCashAllocationInput(raw) {
+  if (raw === '' || raw == null) {
+    return DEFAULT_AGENT_CASH_ALLOCATION;
+  }
   const value = Number(raw);
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`Initial cash must be between $0 and $${MAX_AGENT_CASH_ALLOCATION.toLocaleString()}.`);
@@ -1639,7 +1644,7 @@ function displayPerformanceMetrics(metrics) {
     console.log('displayPerformanceMetrics() called with:', metrics);
     
     // Calculate final value from initial equity and total return
-    const initialCapital = metrics.initial_equity || 100000;
+    const initialCapital = metrics.initial_equity || 1000;
     let totalReturnPercent = metrics.total_return || 0;
     if (Math.abs(totalReturnPercent) <= 1 && totalReturnPercent !== 0) {
         totalReturnPercent = totalReturnPercent * 100;

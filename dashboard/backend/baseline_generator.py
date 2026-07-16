@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 
 from dashboard.backend.paths import CREDENTIALS_DIR
+from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
 from dashboard.backend.infrastructure.market_data.alpaca_bars import (
     MarketDataUnavailableError,
 )
@@ -141,7 +142,7 @@ class BaselineGenerator:
         bars_by_symbol: Dict[str, pd.DataFrame],
         start_date: str,
         end_date: str,
-        initial_capital: float = 100000,
+        initial_capital: float = INITIAL_CAPITAL,
         symbols_to_buy: Optional[List[str]] = None
     ) -> List[Dict]:
         """
@@ -277,7 +278,7 @@ class BaselineGenerator:
         bars_by_symbol: Dict[str, pd.DataFrame],
         start_date: str,
         end_date: str,
-        initial_capital: float = 100000,
+        initial_capital: float = INITIAL_CAPITAL,
         symbols_to_track: Optional[List[str]] = None
     ) -> List[Dict]:
         """
@@ -410,7 +411,7 @@ def generate_baselines(
     bars_by_symbol: Dict[str, pd.DataFrame],
     start_date: str,
     end_date: str,
-    initial_capital: float = 100000,
+    initial_capital: float = INITIAL_CAPITAL,
     symbols_list: Optional[List[str]] = None
 ) -> Tuple[List[Dict], List[Dict]]:
     """

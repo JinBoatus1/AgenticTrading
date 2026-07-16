@@ -123,7 +123,7 @@ def test_create_run_accepts_the_fixed_default_initial_cash(fake_http):
     fake_http(responder)
     _client().create_run(
         "agv_1", environment_id="e", start_date="a", end_date="b",
-        initial_cash=100_000,
+        initial_cash=1_000,
     )
     assert "initial_cash" not in captured["body"]["config"]
 
@@ -146,7 +146,7 @@ def test_get_next_step_typed_parsing(fake_http):
         "status": "awaiting_decision",
         "observation": {
             "market": {"bars": {}, "features": {"AAPL": {"price": 210.0}}, "events": []},
-            "portfolio": {"cash": 100_000, "equity": 100_000, "positions": []},
+            "portfolio": {"cash": 1_000, "equity": 1_000, "positions": []},
         },
         "constraints": {"allowed_symbols": ["AAPL"], "allow_short": False, "max_orders": 5},
     }
@@ -157,7 +157,7 @@ def test_get_next_step_typed_parsing(fake_http):
     assert step.id == "step_1" == step.step_id
     assert step.sequence == 0
     assert step.observation.features == {"AAPL": {"price": 210.0}}
-    assert step.observation.portfolio["cash"] == 100_000
+    assert step.observation.portfolio["cash"] == 1_000
     assert step.constraints["max_orders"] == 5
     assert step.raw == payload  # .raw preserved for forward compat
 

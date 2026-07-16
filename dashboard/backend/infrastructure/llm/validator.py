@@ -417,7 +417,7 @@ Stocks to buy on first hour:
 Top 10 DJIA stocks: AAPL, MSFT, JPM, V, JNJ, WMT, PG, AXP, HD, DIS
 
 First-hour buy logic:
-- allocation_per_stock = 10000 (which is 100000 / 10)
+- allocation_per_stock = 100 (which is 1000 / 10)
 - For each stock, find its current price in market_snapshot.
 - position_size = int(10000 / current_price)
 - If the stock is not in VALID SYMBOLS or price is missing, skip it.

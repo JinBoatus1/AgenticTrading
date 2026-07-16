@@ -181,6 +181,8 @@
         throw new Error('Initial cash cannot exceed $3,000.');
       }
       cash_allocation = Math.round(value);
+    } else {
+      cash_allocation = 1000;
     }
     return {
       name: nameInput ? nameInput.value.trim() : '',

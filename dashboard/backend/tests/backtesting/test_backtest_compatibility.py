@@ -59,6 +59,6 @@ def test_legacy_metric_methods_delegate():
 
 
 def test_public_constants_unchanged():
-    assert bha.INITIAL_CAPITAL == 100000
+    assert bha.INITIAL_CAPITAL == 1000
     assert isinstance(bha.DJIA_30, list)
     assert len(bha.DJIA_30) == 30

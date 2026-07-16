@@ -197,6 +197,7 @@ def test_get_leaderboard_schema_and_ranking(isolated_service):
     }
     assert result["total_entries"] == 2
     assert result["window"]["label"] == "2026-04-15 → 2026-05-15"
+    # Fixture config keeps initial_capital=100000; product default is tested below.
     assert result["display_capital"] == 100000
 
     entries = result["entries"]

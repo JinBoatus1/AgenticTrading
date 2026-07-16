@@ -169,6 +169,7 @@ def main():
     parser.add_argument("--model", default=None, help="Override the LLM model id (e.g. anthropic/claude-haiku-4-5). Defaults to the gateway-appropriate slug.")
     parser.add_argument("--run-id", default=None, help="Preset run id (used for live progress + DB row)")
     parser.add_argument("--progress-file", default=None, help="Path to write incremental equity snapshots for live dashboard charting")
+    parser.add_argument("--initial-capital", type=float, default=None, help="Starting capital for this backtest (defaults to INITIAL_CAPITAL)")
     
     args = parser.parse_args()
     
@@ -217,7 +218,8 @@ def main():
     print(f"Session: {session_id[:8]}...")
     print(f"Stocks: {len(DJIA_30)} (DJIA)")
     print(f"Trading: Hourly (Agent decisions based on indicators)")
-    print(f"Capital: ${INITIAL_CAPITAL:,.0f}")
+    capital = float(args.initial_capital) if args.initial_capital is not None else float(INITIAL_CAPITAL)
+    print(f"Capital: ${capital:,.0f}")
     
     # Show mode
     mode_display = "Sub-agent Pipeline" if pipeline else ("Custom Prompt" if strategy_prompt else args.mode.replace("_", " ").title())
@@ -241,6 +243,7 @@ def main():
         pipeline=pipeline,
         live_run_id=args.run_id,
         progress_file=args.progress_file,
+        initial_capital=capital,
     )
     
     if backtester.use_llm:
