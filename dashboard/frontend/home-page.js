@@ -1193,23 +1193,30 @@ async function loadHomeLeaderboardModule() {
     const list = document.getElementById('homeModuleRankList');
     if (!list) return;
 
+    // Home module shows LLM model performance only (no baselines / indices).
     const HOME_MOCK_LEADERBOARD = [
-        { rank: 1, model: 'DeepSeek V4 Pro', cumulative_return: 0.0749, sharpe_ratio: 5.01, portfolio_value: 107490 },
-        { rank: 2, model: 'SPY', cumulative_return: 0.0595, sharpe_ratio: 1.27, portfolio_value: 105950 },
-        { rank: 3, model: 'Equal-Weight', cumulative_return: 0.0504, sharpe_ratio: 1.11, portfolio_value: 105040 },
-        { rank: 4, model: 'Buy & Hold', cumulative_return: 0.0487, sharpe_ratio: 0.98, portfolio_value: 104870 },
-        { rank: 5, model: 'Qwen3.7 Plus', cumulative_return: 0.0249, sharpe_ratio: 0.72, portfolio_value: 102490 },
+        { rank: 1, model: 'DeepSeek V4 Pro', is_model: true, cumulative_return: 0.0749, sharpe_ratio: 5.01, portfolio_value: 107490 },
+        { rank: 2, model: 'Claude Sonnet 4.6', is_model: true, cumulative_return: 0.0312, sharpe_ratio: 1.18, portfolio_value: 103120 },
+        { rank: 3, model: 'GPT-5.5', is_model: true, cumulative_return: 0.0281, sharpe_ratio: 0.94, portfolio_value: 102810 },
+        { rank: 4, model: 'Qwen3.7 Plus', is_model: true, cumulative_return: 0.0249, sharpe_ratio: 0.72, portfolio_value: 102490 },
+        { rank: 5, model: 'Gemini 3.1 Pro', is_model: true, cumulative_return: 0.0156, sharpe_ratio: 0.41, portfolio_value: 101560 },
     ];
 
-    function homeEntryType(entry) {
-        const badge = String(entry.team_badge || entry.entry_type || entry.kind || '').toLowerCase();
-        const label = String(entry.model || entry.team_name || '').toLowerCase();
-        if (badge.includes('index') || ['spy', 'qqq', 'dia', 'vix', 'djia'].includes(label)) return 'index';
-        if (badge.includes('baseline') || label.includes('equal') || label.includes('buy') || label.includes('hold') || label.includes('mean')) {
-            return 'baseline';
-        }
-        if (entry.is_baseline === true) return 'baseline';
-        return 'model';
+    function isHomeModelEntry(entry) {
+        return !!(entry && (entry.is_model || entry.team_badge === 'Model'));
+    }
+
+    function homeModelEntries(entries) {
+        return (entries || [])
+            .filter(isHomeModelEntry)
+            .slice()
+            .sort((a, b) => {
+                const ra = Number(a.rank);
+                const rb = Number(b.rank);
+                if (Number.isFinite(ra) && Number.isFinite(rb) && ra !== rb) return ra - rb;
+                return Number(b.cumulative_return || 0) - Number(a.cumulative_return || 0);
+            })
+            .map((entry, index) => ({ ...entry, rank: index + 1 }));
     }
 
     function homeFormatPortfolioValue(value) {
@@ -1222,6 +1229,10 @@ async function loadHomeLeaderboardModule() {
     }
 
     function renderEntries(entries) {
+        if (!entries.length) {
+            list.innerHTML = '<li class="home-module-rank-empty">No model rankings yet.</li>';
+            return;
+        }
         list.innerHTML = entries.map((entry) => {
             const rank = Number(entry.rank) || 0;
             const rankClass = rank >= 1 && rank <= 3 ? ` home-module-rank--${rank}` : '';
@@ -1229,14 +1240,11 @@ async function loadHomeLeaderboardModule() {
             const ret = Number(entry.cumulative_return || 0);
             const retClass = ret >= 0 ? 'positive' : 'negative';
             const sharpe = Number(entry.sharpe_ratio || 0);
-            const type = homeEntryType(entry);
-            const typeLabel = type === 'index' ? 'INDEX' : type === 'baseline' ? 'BASELINE' : 'MODEL';
             const value = homeFormatPortfolioValue(entry.portfolio_value);
             return `<li>
                 <span class="home-module-rank${rankClass}">${homeEscape(rank || '—')}</span>
                 <span class="hm-rank-entry">
                     <span class="home-module-rank-name">${homeEscape(label)}</span>
-                    <span class="hm-type-badge hm-type-badge--${type}">${typeLabel}</span>
                 </span>
                 <span class="hm-rank-value tabular-nums">${homeEscape(value)}</span>
                 <span class="hm-rank-ret ${retClass} tabular-nums">${homeEscape(homeFormatReturnPct(ret))}</span>
@@ -1247,22 +1255,20 @@ async function loadHomeLeaderboardModule() {
 
     try {
         if (typeof API === 'undefined' || typeof API_BASE === 'undefined') {
-            renderEntries(HOME_MOCK_LEADERBOARD);
+            renderEntries(homeModelEntries(HOME_MOCK_LEADERBOARD));
             return;
         }
         const payload = await API.get(`${API_BASE}/api/v1/leaderboard?t=${Date.now()}`);
-        const entries = (payload.entries || [])
-            .slice()
-            .sort((a, b) => (Number(a.rank) || 999) - (Number(b.rank) || 999));
+        const models = homeModelEntries(payload.entries || []);
 
-        if (!entries.length) {
-            renderEntries(HOME_MOCK_LEADERBOARD);
+        if (!models.length) {
+            renderEntries(homeModelEntries(HOME_MOCK_LEADERBOARD));
             return;
         }
-        renderEntries(entries);
+        renderEntries(models);
     } catch (error) {
         console.warn('Home leaderboard module failed:', error.message);
-        renderEntries(HOME_MOCK_LEADERBOARD);
+        renderEntries(homeModelEntries(HOME_MOCK_LEADERBOARD));
     }
 }
 
