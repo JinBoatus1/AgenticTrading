@@ -5663,7 +5663,7 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market
 .home-landing-headline {
     margin: 0 0 32px;
     max-width: 36rem;
-    font-size: clamp(2.5rem, 3.2vw, 3.625rem);
+    font-size: clamp(2.85rem, 3.9vw, 4.25rem);
     font-weight: 800;
     line-height: 1.05;
     letter-spacing: -0.04em;
