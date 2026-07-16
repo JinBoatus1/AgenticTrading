@@ -107,6 +107,34 @@
   align-items: center;
   gap: 12px;
   padding: 10px 24px;
+  position: relative;
+}
+
+.landing-header > .brand-lockup {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: center;
+  z-index: 1;
+}
+
+.landing-header > :first-child,
+.landing-header > :last-child {
+  grid-row: 1;
+  z-index: 2;
+}
+
+.landing-header > :first-child {
+  grid-column: 1;
+  justify-self: start;
+}
+
+.landing-header > :last-child {
+  grid-column: 3;
+  justify-self: end;
+}
+
+html {
+  scrollbar-gutter: stable;
 }
 
 /* Match dashboard header brand (app.html .header-brand / .logo-container / .title-section h1) */

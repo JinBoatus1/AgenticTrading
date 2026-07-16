@@ -25,20 +25,29 @@ export function Hero() {
 
       <div className="container mx-auto px-6 relative z-10 flex flex-col lg:flex-row items-center gap-16">
         <div className="flex-1 text-center lg:text-left">
-          <motion.h1
-            className="mb-8 max-w-xl text-[clamp(2.85rem,3.9vw,4.25rem)] font-extrabold leading-[1.05] tracking-[-0.04em] text-[#e5e7eb] mx-auto lg:mx-0"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            Talk to Agents<br />
-            <span className="inline-block mt-[0.42em] text-[#22d3ee]">Test Trading Ideas</span>
-          </motion.h1>
+          <h1 className="mb-8 max-w-xl text-[clamp(2.85rem,3.9vw,4.25rem)] font-extrabold leading-[1.05] tracking-[-0.04em] text-[#e5e7eb] mx-auto lg:mx-0">
+            <motion.span
+              className="block"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.08 }}
+            >
+              Talk to Agents
+            </motion.span>
+            <motion.span
+              className="inline-block mt-[0.42em] text-[#22d3ee]"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.42 }}
+            >
+              Test Trading Ideas
+            </motion.span>
+          </h1>
           <motion.div
             className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
+            transition={{ duration: 0.5, delay: 0.75 }}
           >
             <Button size="lg" className="w-full sm:w-auto bg-primary text-primary-foreground glow-primary hover:bg-primary/90 text-base h-12 px-8" asChild>
               <a href="/app?view=home">Get Started</a>

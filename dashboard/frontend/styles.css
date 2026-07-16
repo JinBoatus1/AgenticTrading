@@ -48,6 +48,11 @@ html, body {
     height: 100%;
 }
 
+html {
+    /* Keep brand center aligned with landing (which always has a scrollbar). */
+    scrollbar-gutter: stable;
+}
+
 body {
     font-family: var(--font-base);
     background-color: var(--bg-primary);
@@ -71,11 +76,15 @@ body {
     padding: 10px 24px;
     border-bottom: 1px solid var(--border-color);
     gap: 12px;
+    position: relative;
 }
 
 .header-brand {
-    grid-column: 2;
+    /* True viewport-center rail (same trick as landing), independent of side chrome width. */
+    grid-column: 1 / -1;
+    grid-row: 1;
     justify-self: center;
+    z-index: 1;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -83,11 +92,14 @@ body {
     text-decoration: none;
     color: inherit;
     cursor: pointer;
+    pointer-events: auto;
 }
 
 .header-left {
     grid-column: 1;
+    grid-row: 1;
     justify-self: start;
+    z-index: 2;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -267,7 +279,9 @@ a.header-brand:hover .title-section h1 {
 
 .header-right {
     grid-column: 3;
+    grid-row: 1;
     justify-self: end;
+    z-index: 2;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -2178,11 +2192,13 @@ a.header-brand:hover .title-section h1 {
 
     .header-brand {
         grid-column: 1;
+        grid-row: auto;
         justify-self: center;
     }
 
     .header-left {
         grid-column: 1;
+        grid-row: auto;
         justify-self: center;
         order: -1;
         flex-wrap: wrap;
@@ -2191,6 +2207,7 @@ a.header-brand:hover .title-section h1 {
 
     .header-right {
         grid-column: 1;
+        grid-row: auto;
         justify-self: stretch;
         flex-wrap: wrap;
         width: 100%;
@@ -5673,9 +5690,33 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market
     letter-spacing: -0.04em;
     color: #e5e7eb;
 }
+.home-landing-headline .home-headline-line {
+    display: block;
+    opacity: 0;
+    transform: translateY(18px);
+    animation: home-headline-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.home-landing-headline .home-headline-line--1 {
+    animation-delay: 0.08s;
+}
+.home-landing-headline .home-headline-line--2,
 .home-landing-headline .home-headline-accent {
     display: inline-block;
     margin-top: 0.42em;
+    animation-delay: 0.42s;
+}
+@keyframes home-headline-in {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .home-landing-headline .home-headline-line {
+        opacity: 1;
+        transform: none;
+        animation: none;
+    }
 }
 .home-landing-ctas {
     display: flex;
