@@ -102,7 +102,7 @@ body {
     min-width: 0;
     text-decoration: none;
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 600;
     transition: color 0.15s ease;
     flex-shrink: 0;
@@ -112,7 +112,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 14px 8px 12px;
+    padding: 9px 16px 9px 14px;
     border-radius: 8px;
     border: 1px solid rgba(34, 211, 238, 0.55);
     background: rgba(12, 28, 52, 0.92);
@@ -120,7 +120,7 @@ body {
         0 0 14px rgba(34, 211, 238, 0.18),
         inset 0 0 0 1px rgba(34, 211, 238, 0.06);
     color: #f8fafc;
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 600;
     text-decoration: none;
     white-space: nowrap;
@@ -138,8 +138,8 @@ body {
 }
 
 .header-discord-btn__icon {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     flex-shrink: 0;
     color: #5865f2;
     fill: currentColor;
@@ -151,8 +151,8 @@ body {
 }
 
 .header-discord-btn__arrow {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     flex-shrink: 0;
     color: #ffffff;
     opacity: 0.92;
@@ -164,8 +164,8 @@ body {
 }
 
 .header-github-icon {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     flex-shrink: 0;
 }
 
@@ -210,25 +210,25 @@ a.header-brand:hover .title-section h1 {
 
 .title-section h1 {
     margin: 0;
-    font-size: 28px;
+    font-size: 32px;
     font-weight: 700;
     color: var(--text-primary);
     letter-spacing: 0.3px;
 }
 
 .beta-badge {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     color: #fff;
     background-color: var(--info-color);
-    padding: 2px 5px;
+    padding: 2px 6px;
     border-radius: 2px;
     text-transform: none;
     letter-spacing: 0.4px;
 }
 
 .title-section p {
-    font-size: 11px;
+    font-size: 13px;
     color: var(--text-secondary);
     line-height: 1.4;
 }
@@ -296,7 +296,7 @@ a.header-brand:hover .title-section h1 {
 
 .auth-user-label {
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
     max-width: 200px;
     overflow: hidden;
@@ -325,13 +325,13 @@ a.header-brand:hover .title-section h1 {
 }
 
 .auth-btn {
-    padding: 5px 12px;
+    padding: 7px 14px;
     border: 1px solid var(--border-color);
     background: var(--bg-card);
     color: var(--text-primary);
     border-radius: 4px;
     cursor: pointer;
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 600;
 }
 
@@ -537,13 +537,13 @@ a.header-brand:hover .title-section h1 {
 }
 
 .mode-btn {
-    padding: 6px 14px;
+    padding: 8px 16px;
     border: none;
     background-color: transparent;
     color: var(--text-secondary);
     border-radius: 3px;
     cursor: pointer;
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 600;
     transition: all 0.15s;
     white-space: nowrap;
@@ -2133,8 +2133,8 @@ a.header-brand:hover .title-section h1 {
 
 @media (max-width: 1100px) {
     .mode-btn {
-        padding: 6px 10px;
-        font-size: 10px;
+        padding: 7px 12px;
+        font-size: 13px;
     }
 
     .header-account {
