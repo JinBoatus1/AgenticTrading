@@ -11,8 +11,8 @@ moved.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 import dashboard.backend.infrastructure.llm.token_cost as token_cost
 from dashboard.backend.database import db
@@ -29,6 +29,7 @@ from dashboard.backend.domain.leaderboard.strategies import get_strategy
 from dashboard.backend.paths import CONFIG_DIR
 
 LEADERBOARD_MODE = "leaderboard"
+VALID_PERIODS = ("contest", "daily")
 
 # H6 integrity threshold: an LLM entry must have decided at least this fraction
 # of its steps with the model itself. Below it, the curve is mostly a rule-based
@@ -57,6 +58,58 @@ def load_leaderboard_config() -> Dict[str, Any]:
     path = CONFIG_DIR / "leaderboard.json"
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _normalize_period(period: Optional[str]) -> str:
+    value = (period or "contest").strip().lower()
+    return value if value in VALID_PERIODS else "contest"
+
+
+def daily_window_dates(as_of: Optional[date] = None) -> Tuple[str, str]:
+    """Most recently completed weekday (Mon–Fri), used as the daily board window."""
+    d = as_of or datetime.now(timezone.utc).date()
+    d = d - timedelta(days=1)
+    while d.weekday() >= 5:  # Sat/Sun → roll back to Friday
+        d -= timedelta(days=1)
+    iso = d.isoformat()
+    return iso, iso
+
+
+def resolve_leaderboard_config(period: Optional[str] = "contest") -> Dict[str, Any]:
+    """Return the effective leaderboard config for ``contest`` or ``daily``.
+
+    Daily reuses the same strategy roster as the contest board, but caches under
+    a separate session and a rolling 1-day (last completed weekday) window.
+    """
+    base = load_leaderboard_config()
+    period_key = _normalize_period(period)
+    if period_key == "daily":
+        start_date, end_date = daily_window_dates()
+        # Drop fixed contest reference so mean-variance gets a fresh prior month.
+        daily_base = {k: v for k, v in base.items() if k != "reference_start_date"}
+        return {
+            **daily_base,
+            "session_id": base.get("daily_session_id", "leaderboard-daily"),
+            "start_date": start_date,
+            "end_date": end_date,
+            "reference_start_date": reference_start_date(start_date, None),
+            "description": (
+                f"Daily leaderboard for {start_date} (last completed US weekday). "
+                "Baselines recompute on load; LLM models are refreshed by the daily deploy job."
+            ),
+            "period": "daily",
+            "board_title": "Daily Leaderboard",
+            "phase_label": "Daily",
+            "standings_label": "Daily Standings",
+        }
+    return {
+        **base,
+        "period": "contest",
+        "board_title": "Competition Leaderboard",
+        "phase_label": "Preseason",
+        "standings_label": "Preseason Standings",
+    }
+
 
 
 def _run_id(strategy_id: str, start_date: str, end_date: str) -> str:
@@ -109,9 +162,13 @@ def _config_needs_mean_variance(config: Dict[str, Any]) -> bool:
     return False
 
 
-def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
+def ensure_leaderboard_runs(
+    force_refresh: bool = False,
+    period: Optional[str] = "contest",
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Compute and persist leaderboard baselines if missing."""
-    config = load_leaderboard_config()
+    config = config or resolve_leaderboard_config(period)
     session_id = config["session_id"]
     start_date = config["start_date"]
     end_date = config["end_date"]
@@ -212,6 +269,7 @@ def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
         "session_id": session_id,
         "start_date": start_date,
         "end_date": end_date,
+        "period": config.get("period", "contest"),
         "created": created,
         "skipped": skipped,
         "refreshed_at": _utcnow_iso(),
@@ -303,6 +361,7 @@ def deploy_model_run(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     allow_fallback: bool = False,
+    period: Optional[str] = "contest",
 ) -> Dict[str, Any]:
     """Compute and persist one (expensive) leaderboard model entry.
 
@@ -310,9 +369,10 @@ def deploy_model_run(
     leaderboard: it runs the model's hourly backtest over the contest window,
     stores the equity curve + metrics + token cost, and caches it so the web
     leaderboard can display it without recomputing. Pass start/end to test on a
-    shorter window (writes a separate cached run for that window).
+    shorter window (writes a separate cached run for that window). Pass
+    ``period="daily"`` to target the rolling daily board window.
     """
-    config = load_leaderboard_config()
+    config = resolve_leaderboard_config(period)
     session_id = config["session_id"]
     start_date = start_date or config["start_date"]
     end_date = end_date or config["end_date"]
@@ -435,10 +495,13 @@ def _rank_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return entries
 
 
-def get_leaderboard(force_refresh: bool = False) -> Dict[str, Any]:
+def get_leaderboard(
+    force_refresh: bool = False,
+    period: Optional[str] = "contest",
+) -> Dict[str, Any]:
     """Return ranked leaderboard entries with chart-ready equity curves."""
-    meta = ensure_leaderboard_runs(force_refresh=force_refresh)
-    config = load_leaderboard_config()
+    config = resolve_leaderboard_config(period)
+    meta = ensure_leaderboard_runs(force_refresh=force_refresh, config=config)
     session_id = config["session_id"]
     start_date = config["start_date"]
     end_date = config["end_date"]
@@ -519,10 +582,14 @@ def get_leaderboard(force_refresh: bool = False) -> Dict[str, Any]:
         leader = entries[0]["team_name"] if entries else "—"
 
     return {
+        "period": config.get("period", "contest"),
+        "board_title": config.get("board_title", "Competition Leaderboard"),
+        "phase_label": config.get("phase_label", "Preseason"),
+        "standings_label": config.get("standings_label", "Preseason Standings"),
         "window": {
             "start_date": start_date,
             "end_date": end_date,
-            "label": f"{start_date} → {end_date}",
+            "label": f"{start_date} → {end_date}" if start_date != end_date else start_date,
             "description": config.get("description", ""),
         },
         "updated_at": meta.get("refreshed_at"),

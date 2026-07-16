@@ -57,6 +57,12 @@ def main() -> int:
     parser.add_argument("--end", default=None, help="Override window end (YYYY-MM-DD) for testing")
     parser.add_argument("--force", action="store_true", help="Recompute even if a cached run exists")
     parser.add_argument(
+        "--period",
+        choices=("contest", "daily"),
+        default="contest",
+        help="Target board: contest (fixed preseason window) or daily (last completed weekday)",
+    )
+    parser.add_argument(
         "--allow-fallback",
         action="store_true",
         help="Publish even if the LLM entry fell back to rule-based trading "
@@ -78,7 +84,7 @@ def main() -> int:
             )
         return 0
 
-    print(f"Deploying '{args.entry}' to the leaderboard...")
+    print(f"Deploying '{args.entry}' to the {args.period} leaderboard...")
     if args.start or args.end:
         print(f"  (test window override: {args.start or 'config'} → {args.end or 'config'})")
 
@@ -89,6 +95,7 @@ def main() -> int:
             start_date=args.start,
             end_date=args.end,
             allow_fallback=args.allow_fallback,
+            period=args.period,
         )
     except LeaderboardFallbackError as exc:
         print("\n❌ Refused to publish a rule-based fallback under an LLM name:")

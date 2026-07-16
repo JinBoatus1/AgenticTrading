@@ -15,15 +15,22 @@ router = APIRouter(prefix="/v1/leaderboard", tags=["leaderboard"])
 
 
 @router.get("")
-async def api_get_leaderboard(refresh: bool = Query(default=False)):
+async def api_get_leaderboard(
+    refresh: bool = Query(default=False),
+    period: str = Query(
+        default="contest",
+        description="Leaderboard period: 'contest' (fixed preseason window) or 'daily' (last completed weekday).",
+    ),
+):
     """
-    Official competition leaderboard for the configured contest window.
+    Official competition / daily leaderboard for the requested period.
 
     Baselines are computed from Alpaca hourly backtest data and cached in SQLite.
     Pass ?refresh=true to recompute (e.g. after config change).
+    Pass ?period=daily for the rolling one-day board.
     """
     try:
-        return get_leaderboard(force_refresh=refresh)
+        return get_leaderboard(force_refresh=refresh, period=period)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
