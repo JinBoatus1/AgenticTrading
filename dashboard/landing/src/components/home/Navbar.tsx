@@ -11,7 +11,7 @@ export function Navbar() {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
       <div className="container mx-auto grid grid-cols-[1fr_auto_1fr] items-center gap-5 px-6 py-4">
-        <div className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
+        <div className="hidden md:flex items-center gap-6 text-[15px] font-semibold text-muted-foreground">
           {NAV_LINKS.map((link) => (
             <a key={link.href} href={link.href} className="hover:text-foreground transition-colors">
               {link.label}
@@ -27,7 +27,7 @@ export function Navbar() {
         <div className="col-start-3 flex items-center justify-end">
           <a
             href="/app?view=home"
-            className="inline-flex items-center justify-center rounded-md text-sm font-semibold h-9 px-4 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            className="inline-flex items-center justify-center rounded-md text-[15px] font-semibold h-10 px-5 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >
             Get Started
           </a>
