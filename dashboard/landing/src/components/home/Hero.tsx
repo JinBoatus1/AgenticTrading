@@ -17,7 +17,7 @@ export function Hero() {
             transition={{ duration: 0.5 }}
           >
             Talk to Agents<br />
-            <span className="text-[#22d3ee]">Test Trading Ideas</span>
+            <span className="inline-block mt-[0.42em] text-[#22d3ee]">Test Trading Ideas</span>
           </motion.h1>
           <motion.div
             className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4"

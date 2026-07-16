@@ -210,7 +210,7 @@ a.header-brand:hover .title-section h1 {
 
 .title-section h1 {
     margin: 0;
-    font-size: 23px;
+    font-size: 28px;
     font-weight: 700;
     color: var(--text-primary);
     letter-spacing: 0.3px;
@@ -4457,11 +4457,15 @@ html[data-nav-page="home"] #homeView .home-pager-track {
     height: 200%;
     display: flex;
     flex-direction: column;
-    transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+    /* Explicit from/to transforms so Safari/macOS interpolates instead of flashing. */
+    transform: translate3d(0, 0, 0);
+    transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
     will-change: transform;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
 }
 html[data-nav-page="home"] #homeView .home-pager-track[data-page="1"] {
-    transform: translateY(-50%);
+    transform: translate3d(0, -50%, 0);
 }
 html[data-nav-page="home"] #homeView .home-pager-screen {
     flex: 0 0 50%;
@@ -4530,15 +4534,19 @@ html[data-nav-page="home"] #homeView .dashboard-top-grid {
     flex: 1.12 1 0;
     min-height: 0;
     display: grid;
-    grid-template-columns: 1.2fr 0.85fr 1.05fr;
+    /* Three equal columns so bottom row can span 2+1 and align to the same rails. */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 16px;
 }
 html[data-nav-page="home"] #homeView .dashboard-bottom-grid {
     flex: 0.98 1 0;
     min-height: 0;
     display: grid;
-    grid-template-columns: 1.8fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 16px;
+}
+html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market {
+    grid-column: span 2;
 }
 
 /* display:* rules on cards must not override the HTML hidden attribute */
@@ -4714,7 +4722,7 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid {
 }
 .home-module-title {
     margin: 0;
-    font-size: 15px;
+    font-size: 19px;
     font-weight: 700;
     letter-spacing: 0.01em;
     text-transform: none;
@@ -5482,6 +5490,9 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid {
     html[data-nav-page="home"] #homeView .dashboard-bottom-grid {
         grid-template-columns: 1fr;
     }
+    html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market {
+        grid-column: auto;
+    }
 }
 @media (max-width: 820px) {
     html[data-nav-page="home"] #homeView .home-dashboard-screen-inner {
@@ -5657,6 +5668,10 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid {
     line-height: 1.05;
     letter-spacing: -0.04em;
     color: #e5e7eb;
+}
+.home-landing-headline .home-headline-accent {
+    display: inline-block;
+    margin-top: 0.42em;
 }
 .home-landing-ctas {
     display: flex;
@@ -5885,7 +5900,9 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid {
     line-height: 1.05; letter-spacing: -0.04em; color: var(--text-primary);
     position: relative; z-index: 2;
 }
-.home-headline-accent { color: var(--home-accent-cyan); }
+.home-headline-accent {
+    color: var(--home-accent-cyan);
+}
 .home-description { margin: 0 0 18px; color: var(--text-secondary); font-size: 15px; line-height: 1.6; max-width: 520px; position: relative; z-index: 2; }
 
 .hero-agent-network {
