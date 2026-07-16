@@ -20,9 +20,9 @@ guarantees it is in effect before ``app`` / ``database`` are first imported.
 Guarantees:
 * The live database ``dashboard/storage/data/backtest.db`` is never read,
   written, copied, reset, or deleted by the test run.
-* An ambient ``USERS_DATABASE_URL`` in the developer's shell can never make
-  the test run reach for a real Postgres user store: it is unset here for
-  the same import-time reason ``DATABASE_PATH`` is pinned above.
+* An ambient ``USERS_DATABASE_URL`` or ``CONTENT_DATABASE_URL`` in the developer's
+  shell can never make the test run reach for a real Postgres store: both are
+  unset here for the same import-time reason ``DATABASE_PATH`` is pinned above.
 * Schema creation and migrations run automatically when ``BacktestDatabase`` is
   constructed against the temporary path.
 * Production behavior is unchanged: this only affects the pytest process, which
@@ -45,6 +45,13 @@ os.environ["DATABASE_PATH"] = _TEST_DB_PATH
 # dashboard.backend.users._build_user_store() reach for Postgres at import
 # time; tests must always fall back to the plain SQLite UserStore.
 os.environ.pop("USERS_DATABASE_URL", None)
+
+# Same guarantee for CONTENT_DATABASE_URL: it selects Postgres backends for the
+# agent / agent-version / strategy stores, so a value inherited from the
+# developer's environment (a sourced prod .env, a deploy shell) would point the
+# whole test suite at a real database. Strip it before any backend module is
+# imported.
+os.environ.pop("CONTENT_DATABASE_URL", None)
 
 
 @atexit.register
