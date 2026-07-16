@@ -43,7 +43,6 @@ def reset_backtest_state(monkeypatch):
             "started_at": None,
             "progress_file": None,
             "live_run_id": None,
-            "data_source": "alpaca",
         }
     )
     monkeypatch.setattr(backtests, "run_backtest_background", lambda *a, **k: None)

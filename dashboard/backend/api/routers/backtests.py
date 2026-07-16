@@ -190,7 +190,6 @@ backtest_status = {
     "started_at": None,
     "progress_file": None,
     "live_run_id": None,
-    "data_source": ALPACA,
 }
 backtest_session_id = None  # Track which session owns the running backtest
 
@@ -235,7 +234,6 @@ def run_backtest_background(
         backtest_status["running"] = True
         backtest_status["error"] = None
         backtest_status["started_at"] = time.time()
-        backtest_status["data_source"] = data_source
         backtest_session_id = session_id  # Store session for status polling
 
         live_run_id = f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
