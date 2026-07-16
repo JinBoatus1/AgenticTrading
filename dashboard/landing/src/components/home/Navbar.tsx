@@ -7,31 +7,30 @@ const NAV_LINKS = [
   { href: "#community", label: "Community" },
 ] as const;
 
+/** Same 3-column chrome as dashboard `.header` so the brand sits on the viewport center. */
 export function Navbar() {
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
-      <div className="container mx-auto grid grid-cols-[1fr_auto_1fr] items-center gap-5 px-6 py-4">
-        <div className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
-          {NAV_LINKS.map((link) => (
-            <a key={link.href} href={link.href} className="hover:text-foreground transition-colors">
-              {link.label}
-            </a>
-          ))}
-        </div>
-        <Link href="/" className="brand-lockup col-start-2 justify-center">
-          <div className="brand-logo">
-            <img src={atlLogo} alt="" />
-          </div>
-          <span className="brand-title">Agentic Trading Lab</span>
-        </Link>
-        <div className="col-start-3 flex items-center justify-end">
-          <a
-            href="/app?view=home"
-            className="inline-flex items-center justify-center rounded-md text-sm font-semibold h-9 px-4 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            Get Started
+    <nav className="landing-header fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
+      <div className="hidden md:flex items-center gap-3 text-[15px] font-semibold text-muted-foreground min-w-0">
+        {NAV_LINKS.map((link) => (
+          <a key={link.href} href={link.href} className="hover:text-foreground transition-colors whitespace-nowrap">
+            {link.label}
           </a>
+        ))}
+      </div>
+      <Link href="/" className="brand-lockup">
+        <div className="brand-logo">
+          <img src={atlLogo} alt="" />
         </div>
+        <span className="brand-title">Agentic Trading Lab</span>
+      </Link>
+      <div className="flex items-center justify-end min-w-0">
+        <a
+          href="/app?view=home"
+          className="inline-flex items-center justify-center rounded-md text-[15px] font-semibold h-10 px-5 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          Get Started
+        </a>
       </div>
     </nav>
   );

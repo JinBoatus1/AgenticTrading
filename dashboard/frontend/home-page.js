@@ -656,9 +656,14 @@ function setHomePagerPage(page) {
     const hint = document.getElementById('homeScrollHint');
     if (!track) return;
     const next = page === 1 ? 1 : 0;
+    const prev = track.dataset.page === '1' ? 1 : 0;
     track.dataset.page = String(next);
     if (hint) hint.classList.toggle('is-hidden', next === 1);
-    if (next === 1) {
+    if (next !== 1 || next === prev) return;
+
+    // Defer heavy DOM refresh until the slide finishes — refreshing mid-transition
+    // makes Safari/macOS trackpads look like a flash instead of a slide.
+    const afterSlide = () => {
         const hasAgents = typeof allAgents !== 'undefined' && Array.isArray(allAgents) && allAgents.length > 0;
         if (!hasAgents && typeof loadAgents === 'function') {
             Promise.resolve(loadAgents()).catch(() => {
@@ -667,7 +672,21 @@ function setHomePagerPage(page) {
         } else {
             refreshHomeModules();
         }
-    }
+    };
+    let done = false;
+    const finish = () => {
+        if (done) return;
+        done = true;
+        track.removeEventListener('transitionend', onEnd);
+        afterSlide();
+    };
+    const onEnd = (event) => {
+        if (event.target !== track) return;
+        if (event.propertyName && event.propertyName !== 'transform') return;
+        finish();
+    };
+    track.addEventListener('transitionend', onEnd);
+    window.setTimeout(finish, 780);
 }
 
 function homeEscape(value) {
@@ -1492,7 +1511,11 @@ function initHomeSnapScroll() {
     window.addEventListener('resize', measureAppChromeHeight);
 
     let locked = false;
-    const lockMs = 550;
+    // Match CSS transition (0.7s) + small buffer so Mac trackpad momentum cannot re-trigger.
+    const lockMs = 780;
+    let wheelAcc = 0;
+    let wheelResetTimer = 0;
+    const wheelThreshold = 40;
 
     function currentPage() {
         return track.dataset.page === '1' ? 1 : 0;
@@ -1500,6 +1523,7 @@ function initHomeSnapScroll() {
 
     function go(page) {
         locked = true;
+        wheelAcc = 0;
         setHomePagerPage(page);
         window.setTimeout(() => { locked = false; }, lockMs);
     }
@@ -1520,18 +1544,32 @@ function initHomeSnapScroll() {
                 }
             }
         }
-        if (Math.abs(event.deltaY) < 6) return;
         event.preventDefault();
         if (locked) return;
+
+        // Normalize line/page deltas; Mac pixel trackpads send many small events.
+        let dy = event.deltaY;
+        if (event.deltaMode === 1) dy *= 16;
+        if (event.deltaMode === 2) dy *= 800;
+        if (Math.abs(dy) < 1) return;
+
+        wheelAcc += dy;
+        window.clearTimeout(wheelResetTimer);
+        wheelResetTimer = window.setTimeout(() => { wheelAcc = 0; }, 120);
+
+        if (Math.abs(wheelAcc) < wheelThreshold) return;
+
         const page = currentPage();
-        if (page === 0 && event.deltaY > 0) {
+        const goingDown = wheelAcc > 0;
+        wheelAcc = 0;
+        if (page === 0 && goingDown) {
             go(1);
             return;
         }
-        if (page === 1 && event.deltaY < 0) {
+        if (page === 1 && !goingDown) {
             go(0);
         }
-        // page === 1 && deltaY > 0 → bottom; swallow the event
+        // page === 1 && goingDown → bottom; swallow the event
     }, { passive: false });
 
     // Also block touchpad/page scroll chaining on the document while home is shown.

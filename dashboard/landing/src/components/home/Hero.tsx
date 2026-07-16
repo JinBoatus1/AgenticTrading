@@ -1,29 +1,53 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Terminal, Bot, User, Search, LineChart, CheckCircle2 } from "lucide-react";
+import { Terminal, Bot, User, Search, LineChart, CheckCircle2, ChevronDown } from "lucide-react";
 import { useState, useEffect } from "react";
 
 export function Hero() {
+  const [hintHidden, setHintHidden] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => {
+      setHintHidden(window.scrollY > 48);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const scrollToNext = () => {
+    document.getElementById("landing-stats")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
-    <section className="relative pt-36 pb-20 md:pt-44 md:pb-32 overflow-hidden min-h-[90vh] flex items-center">
+    <section className="relative min-h-[100dvh] flex items-center overflow-hidden pt-36 pb-28 md:pt-40 md:pb-32">
       <div className="absolute inset-0 bg-grid-pattern opacity-30 [mask-image:radial-gradient(ellipse_at_center,black,transparent_80%)]" />
 
       <div className="container mx-auto px-6 relative z-10 flex flex-col lg:flex-row items-center gap-16">
         <div className="flex-1 text-center lg:text-left">
-          <motion.h1
-            className="mb-8 max-w-xl text-[clamp(2.5rem,3.2vw,3.625rem)] font-extrabold leading-[1.05] tracking-[-0.04em] text-[#e5e7eb] mx-auto lg:mx-0"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            Talk to Agents<br />
-            <span className="text-[#22d3ee]">Test Trading Ideas</span>
-          </motion.h1>
+          <h1 className="mb-8 max-w-xl text-[clamp(2.85rem,3.9vw,4.25rem)] font-extrabold leading-[1.05] tracking-[-0.04em] text-[#e5e7eb] mx-auto lg:mx-0">
+            <motion.span
+              className="block"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.08 }}
+            >
+              Talk to Agents
+            </motion.span>
+            <motion.span
+              className="inline-block mt-[0.42em] text-[#22d3ee]"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.42 }}
+            >
+              Test Trading Ideas
+            </motion.span>
+          </h1>
           <motion.div
             className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
+            transition={{ duration: 0.5, delay: 0.75 }}
           >
             <Button size="lg" className="w-full sm:w-auto bg-primary text-primary-foreground glow-primary hover:bg-primary/90 text-base h-12 px-8" asChild>
               <a href="/app?view=home">Get Started</a>
@@ -56,6 +80,16 @@ export function Hero() {
           </div>
         </motion.div>
       </div>
+
+      <button
+        type="button"
+        className={`landing-scroll-hint${hintHidden ? " is-hidden" : ""}`}
+        aria-label="Scroll for more"
+        onClick={scrollToNext}
+      >
+        <span className="landing-scroll-hint-label">Scroll</span>
+        <ChevronDown className="landing-scroll-hint-icon" aria-hidden="true" />
+      </button>
     </section>
   );
 }
