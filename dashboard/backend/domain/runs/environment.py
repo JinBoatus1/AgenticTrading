@@ -25,7 +25,7 @@ ENVIRONMENTS: Dict[str, Dict[str, Any]] = {
         "supported_action_schema": "orders-v1",
         "supports_shorting": False,
         "universe": list(DJIA_30),
-        "initial_cash": 100000,
+        "initial_cash": 1000,
         "constraints": {
             "allow_short": False,
             "max_position_weight": 0.25,

@@ -12,6 +12,10 @@ from typing import List, Optional
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from dashboard.backend.domain.backtesting.constants import (
+    DEFAULT_AGENT_CASH_ALLOCATION,
+    MAX_AGENT_CASH_ALLOCATION,
+)
 from dashboard.backend.domain.agents.repository import _UNSET
 from dashboard.backend.domain.agents.service import (
     AgentNotFoundError,
@@ -32,7 +36,11 @@ class CreateAgentBody(BaseModel):
     model_name: str = Field(default="local-model", max_length=100)
     agent_type: str = Field(default="external", max_length=20)
     description: Optional[str] = Field(default=None, max_length=280)
-    cash_allocation: Optional[float] = Field(default=None, ge=0, le=3000)
+    cash_allocation: Optional[float] = Field(
+        default=DEFAULT_AGENT_CASH_ALLOCATION,
+        ge=0,
+        le=MAX_AGENT_CASH_ALLOCATION,
+    )
 
 
 class PipelineStep(BaseModel):
@@ -51,7 +59,11 @@ class UpdateAgentBody(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     description: Optional[str] = Field(default=None, max_length=280)
     pipeline: Optional[List[PipelineStep]] = Field(default=None, max_length=50)
-    cash_allocation: Optional[float] = Field(default=None, ge=0, le=3000)
+    cash_allocation: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=MAX_AGENT_CASH_ALLOCATION,
+    )
 
 
 @router.post("")

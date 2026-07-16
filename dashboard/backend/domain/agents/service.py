@@ -207,6 +207,12 @@ class AgentService:
         description: Optional[str] = None,
         cash_allocation: Optional[float] = None,
     ) -> Dict[str, Any]:
+        from dashboard.backend.domain.backtesting.constants import (
+            DEFAULT_AGENT_CASH_ALLOCATION,
+        )
+
+        if cash_allocation is None:
+            cash_allocation = float(DEFAULT_AGENT_CASH_ALLOCATION)
         return self.agents.create_agent(
             name=name,
             model_name=model_name,

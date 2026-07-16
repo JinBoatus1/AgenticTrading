@@ -258,7 +258,7 @@ def test_submit_valid_order(client):
     assert len(body["fills"]) == 1
     assert body["fills"][0]["symbol"] == "AAPL"
     assert body["fills"][0]["filled_quantity"] == 10
-    assert body["portfolio_after"]["cash"] < 100000
+    assert body["portfolio_after"]["cash"] < 1000
 
 
 def test_reject_invalid_symbol(client):

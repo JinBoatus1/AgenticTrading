@@ -103,7 +103,7 @@ def test_leaderboard_baselines_uses_canonical_symbols():
     assert lb.AlpacaDataLoader is AlpacaDataLoader
     assert lb.calculate_sharpe is calculate_sharpe
     assert lb.calculate_max_drawdown is calculate_max_drawdown
-    assert lb.INITIAL_CAPITAL == 100000
+    assert lb.INITIAL_CAPITAL == 1000
     assert not hasattr(lb, "bha")
 
 
@@ -137,8 +137,8 @@ def test_initial_capital_canonical_and_reexported():
     from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
     from dashboard.scripts import backtest_hourly_agent as bha
 
-    assert INITIAL_CAPITAL == 100000
-    assert bha.INITIAL_CAPITAL == 100000
+    assert INITIAL_CAPITAL == 1000
+    assert bha.INITIAL_CAPITAL == 1000
     assert bha.INITIAL_CAPITAL is INITIAL_CAPITAL
 
 

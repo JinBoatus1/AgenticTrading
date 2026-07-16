@@ -11,46 +11,40 @@
 // ---------------------------------------------------------------------------
 // Mock data
 // TODO: Replace mock portfolio data with backend API data later.
+// Portfolio budget defaults to $10,000; agents allocate $1,000–$3,000 each.
 // ---------------------------------------------------------------------------
 const PORTFOLIO_MOCK = {
     summary: {
-        totalValue: 128742.34,
-        dayPnl: 2847.21,
-        dayPnlPct: 2.26,
-        totalReturn: 18742.34,
-        totalReturnPct: 17.02,
-        cashAvailable: 12340.56,
+        totalValue: 10000,
+        dayPnl: 0,
+        dayPnlPct: 0,
+        totalReturn: 0,
+        totalReturnPct: 0,
+        cashAvailable: 7000,
     },
     allocations: {
         asset: {
-            total: 128742.34,
+            total: 10000,
             slices: [
-                { label: 'Stocks', pct: 63.1, value: 81169.32, color: '#22d3ee' },
-                { label: 'Crypto', pct: 26.4, value: 34000.21, color: '#a855f7' },
-                { label: 'Cash',   pct: 10.5, value: 13572.81, color: '#64748b' },
+                { label: 'Stocks', pct: 25, value: 2500, color: '#22d3ee' },
+                { label: 'Crypto', pct: 5, value: 500, color: '#a855f7' },
+                { label: 'Cash',   pct: 70, value: 7000, color: '#64748b' },
             ],
         },
         stock: {
-            total: 81169.33,
+            total: 2500,
             slices: [
-                { label: 'AAPL',  pct: 18.2, value: 14778.35, color: '#22d3ee' },
-                { label: 'MSFT',  pct: 16.7, value: 13555.12, color: '#38bdf8' },
-                { label: 'NVDA',  pct: 14.9, value: 12077.88, color: '#34d399' },
-                { label: 'AMZN',  pct: 8.8,  value: 7126.44,  color: '#fbbf24' },
-                { label: 'TSLA',  pct: 3.1,  value: 2522.09,  color: '#f87171' },
-                { label: 'META',  pct: 1.4,  value: 1119.44,  color: '#c084fc' },
-                { label: 'Other', pct: 36.9, value: 29999.99, color: '#475569' },
+                { label: 'AAPL',  pct: 40, value: 1000, color: '#22d3ee' },
+                { label: 'MSFT',  pct: 30, value: 750, color: '#38bdf8' },
+                { label: 'NVDA',  pct: 20, value: 500, color: '#34d399' },
+                { label: 'Other', pct: 10, value: 250, color: '#475569' },
             ],
         },
         crypto: {
-            total: 34000.21,
+            total: 500,
             slices: [
-                { label: 'BTC',   pct: 44.5, value: 15122.09, color: '#f59e0b' },
-                { label: 'ETH',   pct: 30.2, value: 10264.07, color: '#818cf8' },
-                { label: 'SOL',   pct: 11.3, value: 3841.12,  color: '#2dd4bf' },
-                { label: 'ADA',   pct: 6.1,  value: 2078.43,  color: '#3b82f6' },
-                { label: 'DOT',   pct: 4.2,  value: 1424.50,  color: '#ec4899' },
-                { label: 'Other', pct: 3.7,  value: 1269.99,  color: '#475569' },
+                { label: 'BTC',   pct: 60, value: 300, color: '#f59e0b' },
+                { label: 'ETH',   pct: 40, value: 200, color: '#818cf8' },
             ],
         },
     },

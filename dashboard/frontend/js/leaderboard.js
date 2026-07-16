@@ -841,7 +841,7 @@ async function renderEquityCurvesChart() {
     const label = entry.model || entry.team_name;
     const raw = curves[label];
     if (!raw || !raw.length) return;
-    const initial = initials[label] || raw[0] || 100000;
+    const initial = initials[label] || raw[0] || 1000;
     const style = getSeriesStyle(label, entry);
 
     datasets.push({
@@ -866,7 +866,7 @@ async function renderEquityCurvesChart() {
     });
   });
 
-  const baseInitial = (datasets[0] && datasets[0]._initial) || 100000;
+  const baseInitial = (datasets[0] && datasets[0]._initial) || 1000;
   const isMoney = currentChartView === 'absolute';
 
   if (equityCurvesChartInstance) {
@@ -995,7 +995,7 @@ async function renderEquityCurvesChart() {
 }
 
 function transformLeaderboardChartData(curveValues, viewType, initialValue) {
-  const base = initialValue || 100000;
+  const base = initialValue || 1000;
   if (viewType === 'absolute') {
     return curveValues.slice();
   }

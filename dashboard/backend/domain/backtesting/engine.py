@@ -67,6 +67,7 @@ class HourlyBacktester:
         live_run_id: str = None,
         progress_file: str = None,
         data_source: str = ALPACA,
+        initial_capital: float = None,
     ):
         # Validate and swap dates if they're in the wrong order
         from datetime import datetime as dt_parser
@@ -83,6 +84,7 @@ class HourlyBacktester:
         self.start_date = start_date
         self.end_date = end_date
         self.session_id = session_id
+        self.initial_capital = float(INITIAL_CAPITAL if initial_capital is None else initial_capital)
         self.mode = mode  # "safe_trading" or "buy_and_hold"
         # Optional free-form strategy that REPLACES the built-in prompt for this run.
         self.strategy_prompt = (strategy_prompt or "").strip() or None
@@ -282,7 +284,7 @@ class HourlyBacktester:
         llm_calls_count = 0
         llm_model = "rule-based"  # Default
         
-        manager = PortfolioManager(initial_capital=INITIAL_CAPITAL)
+        manager = PortfolioManager(initial_capital=self.initial_capital)
         _decision_steps, post_trade_steps = split_pipeline(self.pipeline)
         if post_trade_steps:
             print(
@@ -416,7 +418,7 @@ class HourlyBacktester:
             # Progress
             if (i + 1) % 100 == 0:
                 equity = manager.equity_history[-1]["equity"]
-                pct_return = ((equity - INITIAL_CAPITAL) / INITIAL_CAPITAL) * 100
+                pct_return = ((equity - self.initial_capital) / self.initial_capital) * 100
                 print(f"   Hour {i+1}/{len(all_timestamps)}: Equity ${equity:,.0f} ({pct_return:+.1f}%)")
         
         equity_curve = manager.get_equity_curve()
@@ -428,9 +430,9 @@ class HourlyBacktester:
         
         # Store in database
         run_id = self.live_run_id or f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-        initial_eq = equity_curve[0]["equity"] if equity_curve else INITIAL_CAPITAL
-        final_eq = equity_curve[-1]["equity"] if equity_curve else INITIAL_CAPITAL
-        total_return = (final_eq - INITIAL_CAPITAL) / INITIAL_CAPITAL
+        initial_eq = equity_curve[0]["equity"] if equity_curve else self.initial_capital
+        final_eq = equity_curve[-1]["equity"] if equity_curve else self.initial_capital
+        total_return = (final_eq - self.initial_capital) / self.initial_capital
 
         est_cost = token_cost.estimate_cost_usd(
             llm_model, manager.input_tokens, manager.output_tokens
@@ -483,7 +485,7 @@ class HourlyBacktester:
             bars_by_symbol=self.all_data,
             start_date=self.start_date,
             end_date=self.end_date,
-            initial_capital=INITIAL_CAPITAL,
+            initial_capital=self.initial_capital,
             symbols_list=TOP_10
         )
         
@@ -494,7 +496,7 @@ class HourlyBacktester:
         run_id = f"buyhold_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         initial_eq = equity_history[0]["equity"]
         final_eq = equity_history[-1]["equity"]
-        total_return = (final_eq - INITIAL_CAPITAL) / INITIAL_CAPITAL
+        total_return = (final_eq - self.initial_capital) / self.initial_capital
         
         db.insert_run(
             run_id=run_id,
@@ -531,7 +533,7 @@ class HourlyBacktester:
             bars_by_symbol=self.all_data,
             start_date=self.start_date,
             end_date=self.end_date,
-            initial_capital=INITIAL_CAPITAL
+            initial_capital=self.initial_capital
         )
         
         if not equity_history:
@@ -541,7 +543,7 @@ class HourlyBacktester:
         run_id = f"djia_index_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         initial_eq = equity_history[0]["equity"]
         final_eq = equity_history[-1]["equity"]
-        total_return = (final_eq - INITIAL_CAPITAL) / INITIAL_CAPITAL
+        total_return = (final_eq - self.initial_capital) / self.initial_capital
         
         db.insert_run(
             run_id=run_id,

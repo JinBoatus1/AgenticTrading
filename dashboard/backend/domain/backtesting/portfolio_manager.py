@@ -29,6 +29,7 @@ from typing import Dict, List
 
 import pandas as pd
 
+from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
 from dashboard.backend.infrastructure.llm.validator import (
     DJIA_30,
     MAX_ORDER_SHARES,
@@ -58,7 +59,7 @@ from dashboard.backend.infrastructure.llm.pipeline_runner import run_pipeline_de
 class PortfolioManager:
     """Manages portfolio with hourly trading decisions based on indicators."""
     
-    def __init__(self, initial_capital: float = 100000):
+    def __init__(self, initial_capital: float = INITIAL_CAPITAL):
         self.initial_capital = initial_capital
         self.cash = initial_capital
         self.positions = {}  # {symbol: num_shares}

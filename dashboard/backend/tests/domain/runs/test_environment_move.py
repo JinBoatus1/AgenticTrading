@@ -54,7 +54,7 @@ def test_get_environment_known_and_unknown():
     assert env["frequency"] == "1h"
     assert env["supported_action_schema"] == "orders-v1"
     assert env["supports_shorting"] is False
-    assert env["initial_cash"] == 100000
+    assert env["initial_cash"] == 1000
     assert env["constraints"] == {
         "allow_short": False,
         "max_position_weight": 0.25,

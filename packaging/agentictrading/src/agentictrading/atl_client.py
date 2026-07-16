@@ -239,7 +239,7 @@ class ATLClient:
                 code="missing_agent_version_id",
             )
         # The backtest environment fixes starting capital (backend INITIAL_CAPITAL).
-        _FIXED_INITIAL_CASH = 100_000
+        _FIXED_INITIAL_CASH = 1_000
         run_config: Dict[str, Any] = {
             "start_date": start_date,
             "end_date": end_date,
