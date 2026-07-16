@@ -201,12 +201,20 @@ class HourlyBacktester:
         print(f"  ✅ All indicators calculated\n")
     
     def _run_metadata(self) -> Dict:
-        """Data provenance and effective config recorded on each run row.
+        """Data provenance recorded on EVERY run row, agent and baseline alike.
+
+        Provenance is the only thing the baselines share with the agent: they
+        make no model calls and run no pipeline, so anything LLM-shaped belongs
+        in ``_agent_run_metadata`` instead."""
+        return {"data_source": self.data_source}
+
+    def _agent_run_metadata(self) -> Dict:
+        """Provenance plus the effective config the agent run actually used.
 
         LLM_MAX_OUTPUT_TOKENS is an env knob that changes a run's spend and
         response truncation; recording the EFFECTIVE value (post defensive
         parse) makes runs auditable after the env changes."""
-        meta: Dict = {"data_source": self.data_source}
+        meta: Dict = self._run_metadata()
         if self.use_llm:
             meta["llm_max_output_tokens"] = llm_harness.DEFAULT_MAX_OUTPUT_TOKENS
         if self.prompt_adaptations:
@@ -265,6 +273,7 @@ class HourlyBacktester:
         if record:
             self.prompt_adaptations.append(record)
         self.pipeline = recombine_pipeline(patched, post_trade_steps)
+
     def run_agent_backtest(self) -> Tuple[str, List[Dict]]:
         """Run backtest with agent making hourly decisions."""
         print("🤖 Running Agent backtest (hourly decisions)...\n")
@@ -445,7 +454,7 @@ class HourlyBacktester:
             input_tokens=manager.input_tokens,
             output_tokens=manager.output_tokens,
             est_cost_usd=est_cost,
-            metadata=self._run_metadata(),
+            metadata=self._agent_run_metadata(),
         )
 
         db.insert_equity_points(run_id, equity_curve)

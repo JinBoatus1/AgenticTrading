@@ -118,7 +118,7 @@ def test_engine_llm_run_metadata_snapshot(monkeypatch):
     from dashboard.backend.domain.backtesting.engine import HourlyBacktester
 
     backtester = HourlyBacktester.__new__(HourlyBacktester)  # skip creds init
-    # _llm_run_metadata() also reads the post-trade/pipeline attrs (added in the
+    # _agent_run_metadata() also reads the post-trade/pipeline attrs (added in the
     # post-trade-analysis work); __init__ sets them, but __new__ skips it, so set
     # the no-pipeline defaults here to keep this a pure llm_max_output_tokens test.
     backtester.prompt_adaptations = []
@@ -128,21 +128,49 @@ def test_engine_llm_run_metadata_snapshot(monkeypatch):
     backtester.data_source = "alpaca"
 
     backtester.use_llm = True
-    assert backtester._run_metadata() == {
+    assert backtester._agent_run_metadata() == {
         "data_source": "alpaca",
         "llm_max_output_tokens": 777,
     }
     backtester.use_llm = False
-    assert backtester._run_metadata() == {"data_source": "alpaca"}
+    assert backtester._agent_run_metadata() == {"data_source": "alpaca"}
+
+
+def test_baseline_metadata_is_provenance_only(monkeypatch):
+    """Baselines make no model calls and run no pipeline, so their rows must
+    carry provenance and nothing else.
+
+    Regression guard: the baselines call _run_metadata() *after*
+    run_agent_backtest() has populated use_llm/prompt_adaptations/pipeline, so
+    a shared metadata builder silently stamps the agent's LLM config and a copy
+    of its pipeline onto Buy & Hold and DJIA rows."""
+    import dashboard.backend.domain.backtesting.engine as engine_mod
+    from dashboard.backend.domain.backtesting.engine import HourlyBacktester
+
+    backtester = HourlyBacktester.__new__(HourlyBacktester)  # skip creds init
+    backtester.data_source = "vnpy_simulation"
+    monkeypatch.setattr(engine_mod.llm_harness, "DEFAULT_MAX_OUTPUT_TOKENS", 777)
+    # State as it stands once the agent run has finished, which is when the
+    # baselines actually build their metadata.
+    backtester.use_llm = True
+    backtester.prompt_adaptations = [{"day": "2026-04-02"}]
+    backtester.initial_pipeline = [{"step": "a"}]
+    backtester.pipeline = [{"step": "b"}]
+
+    assert backtester._run_metadata() == {"data_source": "vnpy_simulation"}
 
 
 def test_engine_agent_run_wires_the_metadata():
     """Wiring guard: the agent-run insert (the LLM one, not the baselines)
-    passes the metadata snapshot."""
+    passes the full config snapshot, while the baselines pass provenance only.
+
+    Both needles matter: _run_metadata() alone would still be found in the
+    source (the baselines call it), so this greps for the agent-specific one."""
     from pathlib import Path
 
     engine_src = (
         Path(__file__).resolve().parents[1]
         / "domain" / "backtesting" / "engine.py"
     ).read_text(encoding="utf-8")
-    assert "metadata=self._run_metadata()" in engine_src
+    assert "metadata=self._agent_run_metadata()" in engine_src
+    assert engine_src.count("metadata=self._run_metadata()") == 2
