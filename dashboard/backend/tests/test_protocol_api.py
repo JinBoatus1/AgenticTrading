@@ -242,11 +242,12 @@ def test_submit_valid_order(client):
     run_id = _create_run(client, key, version_id)
     step = _wait_for_step(client, run_id, key)
 
+    # $1k equity × 0.25 cap = $250; synthetic AAPL ≈ $100 → 2 shares fits.
     resp = client.post(
         f"/api/v1/runs/{run_id}/steps/{step['step_id']}/decision",
         json={
             "idempotency_key": str(uuid.uuid4()),
-            "orders": [{"symbol": "AAPL", "side": "buy", "quantity_type": "shares", "quantity": 10, "order_type": "market"}],
+            "orders": [{"symbol": "AAPL", "side": "buy", "quantity_type": "shares", "quantity": 2, "order_type": "market"}],
             "confidence": 0.8,
             "rationale": "momentum positive",
         },
@@ -257,7 +258,7 @@ def test_submit_valid_order(client):
     assert body["accepted"] is True
     assert len(body["fills"]) == 1
     assert body["fills"][0]["symbol"] == "AAPL"
-    assert body["fills"][0]["filled_quantity"] == 10
+    assert body["fills"][0]["filled_quantity"] == 2
     assert body["portfolio_after"]["cash"] < 1000
 
 
@@ -286,7 +287,7 @@ def test_reject_oversized_order_position_cap(client):
     """A single BUY that would exceed max_position_weight (0.25 of equity) is
     rejected on its own and produces no fill.
 
-    With $100k equity the per-position cap ($25k) binds before cash ($100k), so
+    With $1k equity the per-position cap ($250) binds before cash ($1k), so
     an over-cap order is rejected as ``exceeds_max_position_weight`` (H2/H3
     constraint enforcement) rather than reaching the engine at all.
     """
@@ -368,8 +369,10 @@ def test_oversized_order_does_not_void_valid_orders(client):
         json={
             "idempotency_key": str(uuid.uuid4()),
             "orders": [
-                {"symbol": "AAPL", "side": "buy", "quantity": 400},  # ~$40k > $25k cap
-                {"symbol": "MSFT", "side": "buy", "quantity": 5},    # ~$1k, well within cap
+                # $1k equity × 0.25 = $250 cap; AAPL ≈ $100 → 4 shares (~$400) over cap
+                {"symbol": "AAPL", "side": "buy", "quantity": 4},
+                # MSFT ≈ $200 → 1 share within cap and cash
+                {"symbol": "MSFT", "side": "buy", "quantity": 1},
             ],
         },
         headers={"X-API-Key": key},
@@ -449,8 +452,8 @@ def test_reject_nondefault_initial_cash(client):
 def test_position_cap_accounts_for_intra_decision_accumulation(client):
     """H3 refinement: multiple BUYs of the same symbol in one decision are
     capped by their COMBINED resulting position, not each in isolation. Two
-    AAPL buys of 200 (~$20k each) individually fit the $25k cap, but together
-    ($40k) breach it, so the second must be rejected — otherwise order-splitting
+    AAPL buys of 2 (~$200 each) individually fit the $250 cap, but together
+    (~$400) breach it, so the second must be rejected — otherwise order-splitting
     silently bypasses max_position_weight.
     """
     agent_id, key, _ = _new_agent(client)
@@ -463,23 +466,23 @@ def test_position_cap_accounts_for_intra_decision_accumulation(client):
         json={
             "idempotency_key": str(uuid.uuid4()),
             "orders": [
-                {"symbol": "AAPL", "side": "buy", "quantity": 200},
-                {"symbol": "AAPL", "side": "buy", "quantity": 200},
+                {"symbol": "AAPL", "side": "buy", "quantity": 2},
+                {"symbol": "AAPL", "side": "buy", "quantity": 2},
             ],
         },
         headers={"X-API-Key": key},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    # Only the first 200 shares fill; the accumulated 400 would breach the cap.
+    # Only the first 2 shares fill; the accumulated 4 would breach the cap.
     total_filled = sum(f["filled_quantity"] for f in body["fills"] if f["symbol"] == "AAPL")
-    assert total_filled == 200, body
+    assert total_filled == 2, body
     assert any(
         r["reason"] == "exceeds_max_position_weight" for r in body["validation"]["rejections"]
     ), body
-    # Resulting AAPL position stays within the 25% cap ($25k of $100k equity).
+    # Resulting AAPL position stays within the 25% cap ($250 of $1k equity).
     aapl = [p for p in body["portfolio_after"]["positions"] if p["symbol"] == "AAPL"]
-    assert aapl and aapl[0]["market_value"] <= 25000, body
+    assert aapl and aapl[0]["market_value"] <= 250, body
 
 
 def test_engine_share_cap_does_not_void_valid_orders(client, monkeypatch):
@@ -492,10 +495,12 @@ def test_engine_share_cap_does_not_void_valid_orders(client, monkeypatch):
     """
     import dashboard.backend.domain.runs.environment as env_module
 
+    # Must be large enough that 10k+ shares at synthetic prices still clear the
+    # notional check under $1k equity (100.0 × $1k = $100k < 11k × $100).
     monkeypatch.setitem(
         env_module.ENVIRONMENTS["us-equity-hourly-v1"]["constraints"],
         "max_position_weight",
-        100.0,
+        1e9,
     )
 
     agent_id, key, _ = _new_agent(client)
@@ -509,7 +514,7 @@ def test_engine_share_cap_does_not_void_valid_orders(client, monkeypatch):
             "idempotency_key": str(uuid.uuid4()),
             "orders": [
                 {"symbol": "AAPL", "side": "buy", "quantity": 11000},  # > 10k ceiling
-                {"symbol": "MSFT", "side": "buy", "quantity": 5},       # valid sibling
+                {"symbol": "MSFT", "side": "buy", "quantity": 1},       # valid sibling (~$200)
             ],
         },
         headers={"X-API-Key": key},
