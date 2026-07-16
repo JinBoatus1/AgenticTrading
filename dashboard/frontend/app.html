@@ -884,8 +884,18 @@
                     </select>
                 </div>
 
+                <div class="control-group">
+                    <label for="marketDataSourceSelect">Market Data</label>
+                    <select class="control-select" id="marketDataSourceSelect" aria-label="Select market data source">
+                        <option value="alpaca">Alpaca market data</option>
+                    </select>
+                    <p id="vnpySimulationNotice" class="market-data-notice" hidden>
+                        vn.py simulated bars · deterministic · no LLM calls
+                    </p>
+                </div>
+
                 <div class="control-group universe-spacing">
-                    <label>Model</label>
+                    <label for="modelSelect">Model</label>
                     <select class="control-select" id="modelSelect">
                         <option value="claude-haiku-4.5">Claude Haiku 4.5</option>
                         <option value="claude-sonnet-4.6">Claude Sonnet 4.6</option>
@@ -1001,10 +1011,11 @@
         <!-- Center Panel: Charts & Decision Log -->
         <section class="center-panel">
             <!-- Trading Performance Section -->
-            <div class="section-card">
+            <div class="section-card performance-card">
                 <div class="section-header">
-                    <div class="section-title-group">
+                    <div class="performance-title-row">
                         <h2>Trading Performance</h2>
+                        <span id="backtestDataSourceBadge" class="data-source-badge" hidden></span>
                     </div>
                     <div class="chart-controls">
                         <select id="backtestRunSelect" class="filter-select backtest-run-select" aria-label="Select backtest run" hidden>

@@ -6,9 +6,18 @@ Moved verbatim from ``dashboard/backend/app.py``. The external path
 
 from fastapi import APIRouter
 
+from dashboard.backend.infrastructure.market_data.provider import (
+    vnpy_simulation_enabled,
+)
 from dashboard.backend.paths import CONFIG_DIR
 
 router = APIRouter()
+
+
+@router.get("/config/features")
+async def get_features():
+    """Return optional dashboard capabilities enabled by configuration."""
+    return {"vnpy_simulation_enabled": vnpy_simulation_enabled()}
 
 
 @router.get("/config/defaults")

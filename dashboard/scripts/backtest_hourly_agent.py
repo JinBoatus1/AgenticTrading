@@ -82,6 +82,7 @@ from dashboard.backend.domain.backtesting.metrics import (
 )
 from dashboard.backend.infrastructure.llm.decision_parsing import fix_json_formatting
 from dashboard.backend.infrastructure.market_data.alpaca_bars import AlpacaDataLoader
+from dashboard.backend.infrastructure.market_data.provider import ALPACA, VNPY_SIMULATION
 from dashboard.backend.domain.backtesting.constants import INITIAL_CAPITAL
 
 # DJIA_30 is imported from validator (the single source of truth, guarded by
@@ -155,7 +156,7 @@ from dashboard.backend.domain.backtesting.engine import HourlyBacktester
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Hourly backtest with Agent vs Baselines (Real Alpaca Data)"
+        description="Hourly backtest with Agent vs Baselines"
     )
     parser.add_argument("--start", default=DEFAULT_START, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", default=DEFAULT_END, help="End date (YYYY-MM-DD)")
@@ -169,6 +170,12 @@ def main():
     parser.add_argument("--model", default=None, help="Override the LLM model id (e.g. anthropic/claude-haiku-4-5). Defaults to the gateway-appropriate slug.")
     parser.add_argument("--run-id", default=None, help="Preset run id (used for live progress + DB row)")
     parser.add_argument("--progress-file", default=None, help="Path to write incremental equity snapshots for live dashboard charting")
+    parser.add_argument(
+        "--data-source",
+        default=ALPACA,
+        choices=[ALPACA, VNPY_SIMULATION],
+        help="Market-data provider (default: alpaca)",
+    )
     
     args = parser.parse_args()
     
@@ -216,6 +223,7 @@ def main():
     print(f"Period: {args.start} → {args.end}")
     print(f"Session: {session_id[:8]}...")
     print(f"Stocks: {len(DJIA_30)} (DJIA)")
+    print(f"Data source: {args.data_source}")
     print(f"Trading: Hourly (Agent decisions based on indicators)")
     print(f"Capital: ${INITIAL_CAPITAL:,.0f}")
     
@@ -241,6 +249,7 @@ def main():
         pipeline=pipeline,
         live_run_id=args.run_id,
         progress_file=args.progress_file,
+        data_source=args.data_source,
     )
     
     if backtester.use_llm:
@@ -249,7 +258,7 @@ def main():
         print("⚙️  Using rule-based logic for trading decisions\n")
     
     # Step 1: Load data
-    print("1️⃣ Loading historical hourly data from Alpaca...")
+    print(f"1️⃣ Loading historical hourly data from {args.data_source}...")
     backtester.load_data()
     
     # Step 2: Calculate indicators

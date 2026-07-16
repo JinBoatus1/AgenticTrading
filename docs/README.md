@@ -28,4 +28,8 @@ Edit files under `docs/source/`:
 - **Lab** — `docs/source/lab/`
 - **Orchestration framework** — `docs/source/orchestration/`
 
+Integration guides outside the Sphinx site:
+
+- **vn.py simulated market data (Chinese)** — `docs/integrations/vnpy-simulation.md`
+
 Then commit and push.
