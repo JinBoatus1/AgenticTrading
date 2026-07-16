@@ -171,3 +171,101 @@ def test_daily_window_dates_skips_weekend():
     # Tuesday → Monday
     start, end = lb_service.daily_window_dates(as_of=date(2026, 7, 14))
     assert start == end == "2026-07-13"
+
+
+def test_ensure_leaderboard_runs_skips_refetch_after_empty_curve(tmp_path, monkeypatch):
+    """A failed baseline must not force Alpaca refetch on every page load."""
+    db_path = tmp_path / "lb.db"
+    test_db = db_module.BacktestDatabase(db_path=db_path)
+    monkeypatch.setattr(db_module, "db", test_db)
+    monkeypatch.setattr(lb_service, "db", test_db)
+    monkeypatch.setattr(lb_service, "_SKIP_CACHE_PATH", tmp_path / "skips.json")
+
+    config = {
+        "session_id": "leaderboard-daily",
+        "start_date": "2026-07-14",
+        "end_date": "2026-07-14",
+        "initial_capital": 1000,
+        "period": "daily",
+        "strategies": [
+            {
+                "id": "equal_weight_djia",
+                "name": "Agentic Trading Lab",
+                "label": "Baseline Strategy",
+                "model": "Equal-Weight",
+                "strategy": "equal_weight_index",
+                "symbols": [],
+            },
+            {
+                "id": "mean_variance_djia",
+                "name": "Agentic Trading Lab",
+                "label": "Baseline Strategy",
+                "model": "Mean-Variance",
+                "strategy": "mean_variance",
+                "symbols": [],
+            },
+        ],
+    }
+
+    class _Ok:
+        used_llm = None
+
+        def required_symbols(self):
+            return ["AAPL"]
+
+        def run(self, bars, start, end, capital):
+            return [
+                {"timestamp": f"{start}T14:00:00", "equity": capital, "cash": 0, "positions_value": capital},
+                {"timestamp": f"{end}T20:00:00", "equity": capital * 1.01, "cash": 0, "positions_value": capital * 1.01},
+            ]
+
+        def num_trades(self):
+            return 1
+
+    class _Empty:
+        used_llm = None
+
+        def required_symbols(self):
+            return ["AAPL"]
+
+        def run(self, bars, start, end, capital):
+            return []
+
+        def num_trades(self):
+            return 0
+
+    def fake_get_strategy(strategy):
+        return _Ok() if strategy["id"] == "equal_weight_djia" else _Empty()
+
+    fetch_calls = {"n": 0}
+
+    def fake_fetch(symbols, start, end):
+        fetch_calls["n"] += 1
+        return {"AAPL": object()}
+
+    monkeypatch.setattr(lb_service, "get_strategy", fake_get_strategy)
+    monkeypatch.setattr(lb_service, "fetch_hourly_bars", fake_fetch)
+    monkeypatch.setattr(lb_service, "_config_needs_alpaca", lambda cfg: True)
+    monkeypatch.setattr(lb_service, "_alpaca_bars_start", lambda cfg: cfg["start_date"])
+    monkeypatch.setattr(lb_service, "_symbols_for_config", lambda cfg: ["AAPL"])
+    monkeypatch.setattr(
+        lb_service,
+        "calc_metrics",
+        lambda curve, capital: {
+            "initial_equity": capital,
+            "final_equity": capital * 1.01,
+            "total_return": 0.01,
+            "sharpe_ratio": 1.0,
+            "max_drawdown": -0.01,
+        },
+    )
+
+    first = lb_service.ensure_leaderboard_runs(config=config)
+    assert first["created"] == 1
+    assert first["skipped"] == 1
+    assert fetch_calls["n"] == 1
+
+    second = lb_service.ensure_leaderboard_runs(config=config)
+    assert second.get("cache_hit") is True
+    assert second["created"] == 0
+    assert fetch_calls["n"] == 1  # no second Alpaca pull

@@ -26,10 +26,11 @@ from dashboard.backend.domain.leaderboard.baselines import (
 )
 from dashboard.backend.domain.leaderboard.strategies._common import reference_start_date
 from dashboard.backend.domain.leaderboard.strategies import get_strategy
-from dashboard.backend.paths import CONFIG_DIR
+from dashboard.backend.paths import CONFIG_DIR, DATA_DIR
 
 LEADERBOARD_MODE = "leaderboard"
 VALID_PERIODS = ("contest", "daily")
+_SKIP_CACHE_PATH = DATA_DIR / "leaderboard_skip_cache.json"
 
 # H6 integrity threshold: an LLM entry must have decided at least this fraction
 # of its steps with the model itself. Below it, the curve is mostly a rule-based
@@ -116,6 +117,56 @@ def _run_id(strategy_id: str, start_date: str, end_date: str) -> str:
     return f"lb_{strategy_id}_{start_date.replace('-', '')}_{end_date.replace('-', '')}"
 
 
+def _skip_cache_key(session_id: str, start_date: str, end_date: str, strategy_id: str) -> str:
+    return f"{session_id}|{start_date}|{end_date}|{strategy_id}"
+
+
+def _load_skip_cache() -> Dict[str, str]:
+    if not _SKIP_CACHE_PATH.exists():
+        return {}
+    try:
+        with open(_SKIP_CACHE_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_skip_cache(cache: Dict[str, str]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(_SKIP_CACHE_PATH, "w", encoding="utf-8") as f:
+        json.dump(cache, f, indent=2, sort_keys=True)
+
+
+def _is_skipped(
+    session_id: str, start_date: str, end_date: str, strategy_id: str, cache: Dict[str, str]
+) -> bool:
+    return _skip_cache_key(session_id, start_date, end_date, strategy_id) in cache
+
+
+def _record_skip(
+    session_id: str,
+    start_date: str,
+    end_date: str,
+    strategy_id: str,
+    reason: str,
+    cache: Dict[str, str],
+) -> None:
+    """Remember an uncomputable baseline for this window so we don't refetch daily."""
+    cache[_skip_cache_key(session_id, start_date, end_date, strategy_id)] = reason
+    _save_skip_cache(cache)
+
+
+def _clear_skips_for_window(
+    session_id: str, start_date: str, end_date: str, cache: Dict[str, str]
+) -> Dict[str, str]:
+    prefix = f"{session_id}|{start_date}|{end_date}|"
+    kept = {k: v for k, v in cache.items() if not k.startswith(prefix)}
+    if len(kept) != len(cache):
+        _save_skip_cache(kept)
+    return kept
+
+
 def _find_cached_run(strategy_id: str, start_date: str, end_date: str, session_id: str) -> Optional[Dict[str, Any]]:
     for run in db.get_runs_by_session(session_id) or []:
         if (
@@ -167,23 +218,47 @@ def ensure_leaderboard_runs(
     period: Optional[str] = "contest",
     config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Compute and persist leaderboard baselines if missing."""
+    """Compute and persist leaderboard baselines if missing.
+
+    Successful runs are cached in SQLite. Strategies that fail for a given
+    window (empty curve / no bars) are recorded in a small skip cache so a
+    broken baseline like mean-variance cannot force an Alpaca refetch on every
+    page load — especially important for the daily board ("once per day").
+    """
     config = config or resolve_leaderboard_config(period)
     session_id = config["session_id"]
     start_date = config["start_date"]
     end_date = config["end_date"]
     initial_capital = float(config.get("initial_capital", INITIAL_CAPITAL))
+    skip_cache = _load_skip_cache()
+    if force_refresh:
+        skip_cache = _clear_skips_for_window(session_id, start_date, end_date, skip_cache)
 
-    needs_fetch = force_refresh
+    missing: List[Dict[str, Any]] = []
     for strategy in config.get("strategies", []):
         if not _auto_compute(strategy):
             continue  # LLM models are deployed manually, never block a request
-        if force_refresh:
+        strategy_id = strategy["id"]
+        if not force_refresh and _find_cached_run(strategy_id, start_date, end_date, session_id):
             continue
-        if not _find_cached_run(strategy["id"], start_date, end_date, session_id):
-            needs_fetch = True
-            break
+        if not force_refresh and _is_skipped(session_id, start_date, end_date, strategy_id, skip_cache):
+            continue
+        missing.append(strategy)
 
+    # Nothing left to compute — serve cached board without touching Alpaca.
+    if not missing and not force_refresh:
+        return {
+            "session_id": session_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "period": config.get("period", "contest"),
+            "created": 0,
+            "skipped": 0,
+            "refreshed_at": _utcnow_iso(),
+            "cache_hit": True,
+        }
+
+    needs_fetch = bool(missing) or force_refresh
     bars_by_symbol: Optional[Dict[str, Any]] = None
     if needs_fetch:
         if _config_needs_alpaca(config):
@@ -202,7 +277,9 @@ def ensure_leaderboard_runs(
 
     created = 0
     skipped = 0
-    for strategy in config.get("strategies", []):
+    # Only iterate strategies that still need work (or everything on force refresh).
+    to_run = config.get("strategies", []) if force_refresh else missing
+    for strategy in to_run:
         strategy_id = strategy["id"]
         if not _auto_compute(strategy):
             continue  # deployed via deploy_model_run(), not on-demand
@@ -221,12 +298,18 @@ def ensure_leaderboard_runs(
 
         if required and not bars:
             print(f"⚠️ Skipping {strategy_id}: no Alpaca bars for contest window")
+            _record_skip(
+                session_id, start_date, end_date, strategy_id, "no_bars", skip_cache
+            )
             skipped += 1
             continue
 
         curve = strategy_impl.run(bars, start_date, end_date, initial_capital)
         if not curve:
             print(f"⚠️ Skipping {strategy_id}: empty equity curve")
+            _record_skip(
+                session_id, start_date, end_date, strategy_id, "empty_curve", skip_cache
+            )
             skipped += 1
             continue
 
@@ -273,6 +356,7 @@ def ensure_leaderboard_runs(
         "created": created,
         "skipped": skipped,
         "refreshed_at": _utcnow_iso(),
+        "cache_hit": False,
     }
 
 
