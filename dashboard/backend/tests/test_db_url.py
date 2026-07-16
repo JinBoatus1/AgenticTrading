@@ -37,3 +37,17 @@ def test_keyword_dsn_degrades_without_echoing_its_input():
 def test_empty_and_junk_inputs_do_not_raise():
     assert describe_database_url("") == "?/?"
     assert describe_database_url("postgresql://host:notaport/db") == "?/?"
+
+
+def test_brackets_ipv6_hosts_so_host_and_port_stay_readable():
+    # urlsplit strips the brackets from an IPv6 literal, and IPv6 addresses
+    # are themselves colon-delimited -- so an unbracketed "::1:5432" cannot
+    # be read by eye as host-vs-port, which defeats the only reason this
+    # helper names the target at all.
+    assert describe_database_url("postgresql://u:pw@[::1]:5432/db") == "[::1]:5432/db"
+
+
+def test_reports_port_zero_rather_than_dropping_it():
+    # A falsy check treats port 0 as "no port" and prints "host/db", which
+    # reads identically to a URL that genuinely has no port.
+    assert describe_database_url("postgresql://u:pw@host:0/db") == "host:0/db"

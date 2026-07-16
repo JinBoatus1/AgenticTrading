@@ -35,11 +35,16 @@ def describe_database_url(database_url: str) -> str:
     try:
         parts = urlsplit(database_url)
         host = parts.hostname
-        port = f":{parts.port}" if parts.port else ""
+        port = "" if parts.port is None else f":{parts.port}"
     except ValueError:
         # urlsplit, or .port on a non-integer port, rejected the input.
         return "?/?"
     if not host:
         return "?/?"
     dbname = parts.path.lstrip("/") or "?"
+    # urlsplit strips the brackets from an IPv6 literal, and IPv6 addresses
+    # are colon-delimited themselves, so an unbracketed "::1:5432" cannot be
+    # read as host-vs-port. Restore them: an ambiguous line is not visibility.
+    if ":" in host:
+        host = f"[{host}]"
     return f"{host}{port}/{dbname}"
