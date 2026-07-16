@@ -67,14 +67,22 @@ def temp_postgres_store():
 
 @pytest.fixture
 def pg_client(temp_postgres_store, monkeypatch):
+    import dashboard.backend.api.auth as auth_module
     import dashboard.backend.users as users_module
 
     monkeypatch.setattr(users_module, "user_store", temp_postgres_store)
+    # api/auth.py binds the singleton into its own namespace at import time
+    # (`from dashboard.backend.users import user_store`), so patching
+    # users_module alone leaves every auth route on the original SQLite
+    # store -- which is how this "postgres" test silently exercised SQLite
+    # until CI first ran the live tier and it collided with test_auth.py's
+    # alice@example.com (409 instead of 200).
+    monkeypatch.setattr(auth_module, "user_store", temp_postgres_store)
     return TestClient(app)
 
 
 @pg_only
-def test_signup_login_me_logout_flow_postgres(pg_client):
+def test_signup_login_me_logout_flow_postgres(pg_client, temp_postgres_store):
     signup = pg_client.post(
         "/api/auth/signup",
         json={"email": "alice@example.com", "display_name": "Alice", "password": "securepass1"},
@@ -86,6 +94,12 @@ def test_signup_login_me_logout_flow_postgres(pg_client):
     assert signup_data["user"]["role"] == "user"
     assert "password_hash" not in signup_data["user"]
     assert signup_data["token"]
+
+    # Prove the route's write actually landed in Postgres. Without this, a
+    # regression that re-detaches the routes from the patched store would
+    # leave this test green while testing SQLite -- which is exactly the
+    # state it shipped in.
+    assert temp_postgres_store.get_user_by_email("alice@example.com") is not None
 
     duplicate = pg_client.post(
         "/api/auth/signup",
