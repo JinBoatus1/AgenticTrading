@@ -105,6 +105,32 @@ class _Spy:
         self.last_args = a
 
 
+def _run_record(metadata=None):
+    return {
+        "run_id": "run_source",
+        "agent_name": "Agent",
+        "mode": "backtest",
+        "start_date": "2026-04-01",
+        "end_date": "2026-04-23",
+        "initial_equity": 100_000,
+        "num_trades": 1,
+        "created_at": "2026-04-23T16:00:00",
+        "metadata": metadata,
+    }
+
+
+def test_run_metadata_response_exposes_simulation_source():
+    response = bt._run_metadata_response(
+        _run_record({"data_source": "vnpy_simulation"})
+    )
+
+    assert response.data_source == "vnpy_simulation"
+
+
+def test_run_metadata_response_defaults_legacy_runs_to_alpaca():
+    assert bt._run_metadata_response(_run_record()).data_source == "alpaca"
+
+
 @pytest.fixture(autouse=True)
 def _reset_backtest_guards(monkeypatch):
     bt._backtest_rate_limiter.reset()

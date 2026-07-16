@@ -25,7 +25,10 @@ _APP_FILE = _BACKEND / "app.py"
 
 EXPECTED_HEALTH_ROUTES = {("GET", "/health", "health")}
 EXPECTED_MARKET_ROUTES = {("GET", "/ticker", "get_ticker")}
-EXPECTED_CONFIG_ROUTES = {("GET", "/config/defaults", "get_defaults")}
+EXPECTED_CONFIG_ROUTES = {
+    ("GET", "/config/defaults", "get_defaults"),
+    ("GET", "/config/features", "get_features"),
+}
 EXPECTED_ADMIN_ROUTES = {
     ("DELETE", "/admin/clear", "admin_clear_all"),
     ("DELETE", "/admin/runs/{run_id}", "admin_delete_run"),
@@ -130,6 +133,7 @@ EXPECTED_FULL_CONTRACT = {
     ("GET", "/backtest/status"),
     ("GET", "/compare"),
     ("GET", "/config/defaults"),
+    ("GET", "/config/features"),
     ("GET", "/health"),
     ("GET", "/favicon.ico"),
     ("GET", "/favicon.svg"),

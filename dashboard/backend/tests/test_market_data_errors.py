@@ -41,10 +41,11 @@ def test_alpaca_loader_missing_credentials_raises_not_exits(monkeypatch, tmp_pat
         AlpacaDataLoader()
 
 
-def test_baseline_generator_missing_credentials_raises_not_exits(monkeypatch, tmp_path):
+def test_baseline_fetch_missing_credentials_raises_not_exits(monkeypatch, tmp_path):
     _clear_creds(monkeypatch, tmp_path, bg_mod)
+    generator = BaselineGenerator()
     with pytest.raises(MarketDataUnavailableError):
-        BaselineGenerator()
+        generator._ensure_credentials()
 
 
 def test_engine_load_data_empty_raises_not_exits():
@@ -56,6 +57,7 @@ def test_engine_load_data_empty_raises_not_exits():
     )()
     backtester.start_date = "2026-01-01"
     backtester.end_date = "2026-01-02"
+    backtester.data_source = "alpaca"
     with pytest.raises(MarketDataUnavailableError):
         backtester.load_data()
 

@@ -20,7 +20,7 @@ import uuid
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import pytz
 from datetime import datetime
@@ -38,6 +38,14 @@ matplotlib.use("Agg")
 from dashboard.backend.database import db, DB_PATH
 from dashboard.backend.paths import DASHBOARD_DIR, REPO_ROOT, SCRIPTS_DIR
 from dashboard.backend.middleware import get_session_id_from_request
+from dashboard.backend.infrastructure.market_data.provider import (
+    ALPACA,
+    VNPY_SIMULATION,
+    MarketDataDependencyError,
+    MarketDataSourceDisabled,
+    UnsupportedMarketDataSource,
+    ensure_market_data_source_available,
+)
 from dashboard.backend.api.rate_limit import FixedWindowRateLimiter, client_key
 from dashboard.backend.domain.agents.service import agent_service
 from dashboard.backend.domain.backtesting.constants import resolve_initial_capital
@@ -132,6 +140,7 @@ class RunMetadata(BaseModel):
     baseline_djia_run_id: Optional[str] = None
     baseline_buyhold_run_id: Optional[str] = None
     llm_model: Optional[str] = None
+    data_source: str = ALPACA
 
 
 class EquityCurve(BaseModel):
@@ -159,6 +168,15 @@ class BacktestChartData(BaseModel):
     timestamps: List[str]
     x_labels: List[str]
     series: List[ChartSeries]
+
+
+def _run_metadata_response(run: Dict[str, Any]) -> RunMetadata:
+    """Expose data provenance while keeping historical runs backward compatible."""
+    metadata = run.get("metadata")
+    data_source = metadata.get("data_source") if isinstance(metadata, dict) else None
+    payload = dict(run)
+    payload["data_source"] = data_source or ALPACA
+    return RunMetadata(**payload)
 
 
 # ============================================================================
@@ -199,6 +217,7 @@ def run_backtest_background(
     model: Optional[str] = None,
     pipeline: Optional[List[Dict[str, Any]]] = None,
     agent_id: Optional[str] = None,
+    data_source: str = ALPACA,
 ):
     """Run backtest in background thread."""
     global backtest_status, backtest_session_id
@@ -243,10 +262,11 @@ def run_backtest_background(
         print(f"📁 Database dir exists: {db_path.parent.exists()}", flush=True)
         print(f"📁 Can write to {db_path.parent}: {os.access(db_path.parent, os.W_OK)}", flush=True)
         
-        # Run backtest script with LLM enabled
-        # Set environment variables for LLM
+        # Set environment variables for LLM-backed Alpaca runs.
         env = os.environ.copy()
-        if "ANTHROPIC_API_KEY" not in env:
+        if data_source == VNPY_SIMULATION:
+            print("Simulation data selected; LLM is disabled", flush=True)
+        elif "ANTHROPIC_API_KEY" not in env:
             print("⚠️ Warning: ANTHROPIC_API_KEY not set, LLM will be disabled", flush=True)
         else:
             print(f"✅ ANTHROPIC_API_KEY is set, LLM enabled", flush=True)
@@ -255,8 +275,9 @@ def run_backtest_background(
             python_exe, str(script_path),
             "--start", start_date, "--end", end_date,
             "--session-id", session_id,
-            "--use-llm",  # Enable LLM for real agent trading
+            "--data-source", data_source,
         ]
+        cmd.append("--no-llm" if data_source == VNPY_SIMULATION else "--use-llm")
 
         # Optional free-form strategy prompt: written to a temp file (avoids
         # shell-escaping a long prompt) and passed via --strategy-prompt-file.
@@ -389,6 +410,7 @@ class BacktestRunRequest(BaseModel):
     model: Optional[str] = None
     agent_id: Optional[str] = None
     pipeline: Optional[List[Dict[str, Any]]] = None
+    data_source: Optional[Literal["alpaca", "vnpy_simulation"]] = None
 
 
 # /backtest/run spends real operator LLM credits per trading hour of the run, on
@@ -515,6 +537,7 @@ async def run_backtest_endpoint(
     end_date: str = "2026-05-07",
     strategy_prompt: Optional[str] = None,
     model: Optional[str] = None,
+    data_source: str = ALPACA,
     body: Optional[BacktestRunRequest] = None,
 ):
     """
@@ -534,6 +557,7 @@ async def run_backtest_endpoint(
         end_date = body.end_date or end_date
         strategy_prompt = body.strategy_prompt or strategy_prompt
         model = body.model or model
+        data_source = body.data_source or data_source
         agent_id = body.agent_id
         if body.pipeline is not None:
             pipeline = body.pipeline
@@ -549,6 +573,15 @@ async def run_backtest_endpoint(
     # caller correcting a bad request isn't charged rate budget for a typo), then
     # the per-client run budget.
     _validate_backtest_params(start_date, end_date, strategy_prompt, model, pipeline)
+    try:
+        ensure_market_data_source_available(data_source)
+    except UnsupportedMarketDataSource as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except MarketDataSourceDisabled as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except MarketDataDependencyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     if not _backtest_rate_limiter.allow(client_key(request)):
         raise HTTPException(
             status_code=429,
@@ -558,6 +591,7 @@ async def run_backtest_endpoint(
     session_id = _resolve_backtest_session(request, agent_id)
     print(f"📌 /backtest/run endpoint called: start_date={start_date}, end_date={end_date}", flush=True)
     print(f"   Session: {session_id[:8]}...", flush=True)
+    print(f"   Market data: {data_source}", flush=True)
     if strategy_prompt and not pipeline:
         print(f"   Custom strategy prompt: {len(strategy_prompt)} chars", flush=True)
     if pipeline:
@@ -576,7 +610,16 @@ async def run_backtest_endpoint(
     print(f"🧵 Starting background thread for backtest", flush=True)
     thread = threading.Thread(
         target=run_backtest_background,
-        args=(start_date, end_date, session_id, strategy_prompt, model, pipeline, agent_id),
+        args=(
+            start_date,
+            end_date,
+            session_id,
+            strategy_prompt,
+            model,
+            pipeline,
+            agent_id,
+            data_source,
+        ),
         daemon=True
     )
     thread.start()
@@ -586,6 +629,7 @@ async def run_backtest_endpoint(
         "message": "Backtest started in background. Check /backtest/status for progress.",
         "status_url": "/backtest/status",
         "session_id": session_id,
+        "data_source": data_source,
     }
 
 @router.get("/backtest/status")
@@ -654,7 +698,7 @@ async def get_backtest_runs(request: Request):
     session_id = get_session_id_from_request(request)
     runs = db.get_runs_by_session(session_id)
     runs = [r for r in runs if r['mode'] == 'backtest']
-    return [RunMetadata(**run) for run in runs]
+    return [_run_metadata_response(run) for run in runs]
 
 
 # IMPORTANT: Register /compare/latest BEFORE /{run_id} to prevent {run_id} from matching "compare/latest"
@@ -786,7 +830,7 @@ async def get_latest_metrics(request: Request):
         raise HTTPException(status_code=404, detail="No Agent backtest runs found for this session")
     
     latest_run = max(runs, key=lambda r: r['created_at'])
-    return RunMetadata(**latest_run)
+    return _run_metadata_response(latest_run)
 
 
 @router.get("/runs", response_model=List[RunMetadata])
@@ -809,7 +853,7 @@ async def get_runs(request: Request, mode: Optional[str] = None):
     
     print(f"\n📍 /runs: returning {len(runs)} backtest runs")
     
-    return [RunMetadata(**run) for run in runs]
+    return [_run_metadata_response(run) for run in runs]
 
 
 @router.get("/runs/{run_id}", response_model=RunMetadata)
@@ -819,7 +863,7 @@ async def get_run(run_id: str, request: Request):
     run = db.get_run_with_session(run_id, session_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found or not yours")
-    return RunMetadata(**run)
+    return _run_metadata_response(run)
 
 
 @router.get("/runs/{run_id}/equity", response_model=EquityCurve)

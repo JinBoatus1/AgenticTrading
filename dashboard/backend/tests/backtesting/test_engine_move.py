@@ -62,6 +62,10 @@ class _FakeDB:
         self.trades.append((run_id, list(trades)))
 
 
+def _fake_provider_factory(data_source="alpaca"):
+    return _FakeLoader()
+
+
 def _make_bars(symbols, n_hours=70):
     """Deterministic OHLCV bars on tz-aware ET market-hour timestamps."""
     et = pytz.timezone("US/Eastern")
@@ -97,7 +101,7 @@ def _make_bars(symbols, n_hours=70):
 def patched_engine(monkeypatch):
     """Patch the loader + db so the engine never touches network or the real DB."""
     _FakeLoader.bars = _make_bars(["AAPL", "MSFT", "JPM"], n_hours=70)
-    monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+    monkeypatch.setattr(engine_mod, "create_market_data_provider", _fake_provider_factory)
     fake_db = _FakeDB()
     monkeypatch.setattr(engine_mod, "db", fake_db)
     return fake_db
@@ -155,12 +159,13 @@ def test_external_backtest_service_uses_canonical_engine():
 # ---------------------------------------------------------------------------
 
 def test_constructor_attributes(monkeypatch):
-    monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+    monkeypatch.setattr(engine_mod, "create_market_data_provider", _fake_provider_factory)
     bt = HourlyBacktester("2026-03-01", "2026-04-01", "sess-1", use_llm=False, mode="safe_trading")
     assert bt.start_date == "2026-03-01"
     assert bt.end_date == "2026-04-01"
     assert bt.session_id == "sess-1"
     assert bt.mode == "safe_trading"
+    assert bt.data_source == "alpaca"
     assert bt.use_llm is False
     assert bt.llm_client is None
     assert bt.all_data == {}
@@ -168,7 +173,7 @@ def test_constructor_attributes(monkeypatch):
 
 
 def test_constructor_swaps_backwards_dates(monkeypatch):
-    monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+    monkeypatch.setattr(engine_mod, "create_market_data_provider", _fake_provider_factory)
     bt = HourlyBacktester("2026-04-01", "2026-03-01", use_llm=False)
     assert bt.start_date == "2026-03-01"
     assert bt.end_date == "2026-04-01"
@@ -235,7 +240,7 @@ def test_run_agent_backtest_deterministic(monkeypatch):
 
     def _run_once():
         _FakeLoader.bars = bars
-        monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+        monkeypatch.setattr(engine_mod, "create_market_data_provider", _fake_provider_factory)
         monkeypatch.setattr(engine_mod, "db", _FakeDB())
         bt = HourlyBacktester("2026-03-01", "2026-04-01", use_llm=False)
         bt.load_data()
@@ -251,7 +256,7 @@ def test_run_agent_backtest_deterministic(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_buyhold_baseline_schema(monkeypatch):
-    monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+    monkeypatch.setattr(engine_mod, "create_market_data_provider", _fake_provider_factory)
     fake_db = _FakeDB()
     monkeypatch.setattr(engine_mod, "db", fake_db)
     fake_curve = [
@@ -271,7 +276,7 @@ def test_buyhold_baseline_schema(monkeypatch):
 
 
 def test_djia_baseline_schema(monkeypatch):
-    monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+    monkeypatch.setattr(engine_mod, "create_market_data_provider", _fake_provider_factory)
     fake_db = _FakeDB()
     monkeypatch.setattr(engine_mod, "db", fake_db)
     fake_curve = [
@@ -290,7 +295,7 @@ def test_djia_baseline_schema(monkeypatch):
 
 
 def test_baselines_empty_data(monkeypatch):
-    monkeypatch.setattr(engine_mod, "AlpacaDataLoader", _FakeLoader)
+    monkeypatch.setattr(engine_mod, "create_market_data_provider", _fake_provider_factory)
     monkeypatch.setattr(engine_mod, "db", _FakeDB())
     monkeypatch.setattr(engine_mod, "generate_baselines", lambda **kw: ([], []))
 

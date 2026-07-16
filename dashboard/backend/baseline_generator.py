@@ -49,7 +49,15 @@ class BaselineGenerator:
     """Generates baseline equity curves from real historical data."""
     
     def __init__(self):
-        """Initialize with Alpaca credentials."""
+        """Initialize without touching credentials or the network."""
+        self.api_key = None
+        self.secret_key = None
+        self.headers = None
+
+    def _ensure_credentials(self):
+        """Load Alpaca credentials only for methods that fetch remote bars."""
+        if self.api_key and self.secret_key:
+            return
         self._load_credentials()
     
     def _load_credentials(self):
@@ -105,6 +113,8 @@ class BaselineGenerator:
         Returns:
             DataFrame with OHLCV data, indexed by timestamp
         """
+        self._ensure_credentials()
+
         try:
             from alpaca.data.historical import StockHistoricalDataClient
             from alpaca.data.requests import StockBarsRequest
