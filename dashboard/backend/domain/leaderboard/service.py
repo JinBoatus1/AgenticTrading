@@ -489,9 +489,17 @@ def deploy_model_run(
         }
 
     strategy_impl = get_strategy(entry)
-    bars = fetch_hourly_bars(strategy_impl.required_symbols(), start_date, end_date)
+    # LLM prompts need indicator lookback; for a 1-day daily window that means
+    # fetching prior bars while only trading inside [start_date, end_date].
+    bars_start = reference_start_date(start_date, config)
+    if bars_start > start_date:
+        bars_start = start_date
+    bars = fetch_hourly_bars(strategy_impl.required_symbols(), bars_start, end_date)
     if not bars:
-        raise RuntimeError("No market data returned for the contest window")
+        raise RuntimeError(
+            f"No market data returned for bars window {bars_start} → {end_date}"
+        )
+    print(f"  bars fetch: {bars_start} → {end_date} (trade window {start_date} → {end_date})")
 
     curve = strategy_impl.run(bars, start_date, end_date, initial_capital)
     if not curve:
