@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 import bcrypt
 
 from dashboard.backend.database import DB_PATH
+from dashboard.backend.db_url import describe_database_url
 
 SESSION_TTL_DAYS = 7
 BCRYPT_ROUNDS = 12
@@ -310,11 +311,21 @@ class UserStore:
 
 
 def _build_user_store():
+    # USERS_DATABASE_URL only, deliberately: CONTENT_DATABASE_URL is scoped to
+    # agents/versions/strategies and must not select the account database
+    # (spec, Decision 2). Do not "simplify" this into a fallback chain.
     database_url = os.getenv("USERS_DATABASE_URL")
     if database_url:
         from dashboard.backend.users_postgres import PostgresUserStore
 
+        # print(), not logger.info(): dashboard.backend.* loggers sit at WARNING
+        # in every real deployment (nothing here configures logging; uvicorn's
+        # LOGGING_CONFIG has no 'root' key), so an info() line would be invisible
+        # exactly where it matters. Name the target too -- "postgres" alone reads
+        # the same whether this is the intended Neon DB or a typo'd/staging URL.
+        print(f"user_store backend: postgres ({describe_database_url(database_url)})")
         return PostgresUserStore(database_url)
+    print("user_store backend: sqlite (ephemeral on Render)")
     return UserStore()
 
 
