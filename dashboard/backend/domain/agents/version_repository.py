@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -22,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dashboard.backend.database import DB_PATH
+from dashboard.backend.db_url import describe_database_url
 
 VALID_EXECUTION_MODES = {"external", "hosted"}
 VALID_VERIFICATION_LEVELS = {"self_reported", "platform_verified", "code_audited"}
@@ -195,4 +197,21 @@ class AgentVersionStore:
         return [_public_version(row) for row in rows]
 
 
-agent_version_store = AgentVersionStore()
+def _build_agent_version_store():
+    database_url = os.getenv("CONTENT_DATABASE_URL")
+    if database_url:
+        from dashboard.backend.domain.agents.version_repository_postgres import (
+            PostgresAgentVersionStore,
+        )
+
+        # print(), not logger.info() -- see users.py's _build_user_store.
+        print(
+            "agent_version_store backend: postgres "
+            f"({describe_database_url(database_url)})"
+        )
+        return PostgresAgentVersionStore(database_url)
+    print("agent_version_store backend: sqlite (ephemeral on Render)")
+    return AgentVersionStore()
+
+
+agent_version_store = _build_agent_version_store()

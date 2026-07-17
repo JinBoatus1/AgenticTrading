@@ -189,3 +189,98 @@ def test_builtin_listing_and_delete_postgres(pg_agent_store):
     assert pg_agent_store.delete_agent(builtin["agent_id"]) is True
     assert pg_agent_store.delete_agent(builtin["agent_id"]) is False
     assert pg_agent_store.get_agent(builtin["agent_id"]) is None
+
+
+# --- dispatch tests (agent version store) ------------------------------------
+
+def test_build_agent_version_store_defaults_to_sqlite(monkeypatch, capsys):
+    import dashboard.backend.domain.agents.version_repository as vrepo_module
+
+    monkeypatch.delenv("CONTENT_DATABASE_URL", raising=False)
+    store = vrepo_module._build_agent_version_store()
+    assert isinstance(store, vrepo_module.AgentVersionStore)
+    assert (
+        "agent_version_store backend: sqlite (ephemeral on Render)"
+        in capsys.readouterr().out
+    )
+
+
+def test_build_agent_version_store_picks_postgres_when_url_set(monkeypatch, capsys):
+    import dashboard.backend.domain.agents.version_repository as vrepo_module
+    import dashboard.backend.domain.agents.version_repository_postgres as vrepo_pg_module
+
+    created = {}
+
+    class FakePostgresAgentVersionStore:
+        def __init__(self, database_url):
+            created["database_url"] = database_url
+
+    monkeypatch.setattr(
+        vrepo_pg_module, "PostgresAgentVersionStore", FakePostgresAgentVersionStore
+    )
+    monkeypatch.setenv("CONTENT_DATABASE_URL", "postgresql://fake/db")
+
+    store = vrepo_module._build_agent_version_store()
+
+    assert isinstance(store, FakePostgresAgentVersionStore)
+    assert created["database_url"] == "postgresql://fake/db"
+    assert "agent_version_store backend: postgres (fake/db)" in capsys.readouterr().out
+
+
+def test_unreachable_postgres_version_store_raises_instead_of_falling_back():
+    """Fail loud — see the agent-store twin of this test above."""
+    import psycopg
+
+    from dashboard.backend.domain.agents.version_repository_postgres import (
+        PostgresAgentVersionStore,
+    )
+
+    with pytest.raises(psycopg.OperationalError):
+        PostgresAgentVersionStore("postgresql://u:p@127.0.0.1:1/nope?connect_timeout=2")
+
+
+# --- live-Postgres behavioral tests (agent version store) --------------------
+
+@pytest.fixture
+def pg_version_store():
+    from dashboard.backend.domain.agents.version_repository_postgres import (
+        PostgresAgentVersionStore,
+    )
+
+    store = PostgresAgentVersionStore(TEST_POSTGRES_URL)
+    with store._get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM agent_versions")
+    yield store
+
+
+@pg_only
+def test_version_create_get_list_postgres(pg_version_store):
+    v1 = pg_version_store.create_version(
+        agent_id="agent_x",
+        version="1.0",
+        model_backbones=["claude-sonnet-5"],
+        prompt="You are a trader.",
+        config={"risk": "low"},
+    )
+    assert v1["agent_version_id"].startswith("agv_")
+    assert v1["model_backbones"] == ["claude-sonnet-5"]
+    # Hashes derived from raw prompt/config when not passed explicitly.
+    assert v1["prompt_hash"] and len(v1["prompt_hash"]) == 16
+    assert v1["config_hash"] and len(v1["config_hash"]) == 16
+
+    v2 = pg_version_store.create_version(agent_id="agent_x", version="1.1")
+    listed = pg_version_store.list_versions("agent_x")
+    # Both creates can land in the same second (1s timestamp resolution), and
+    # the tiebreak is agent_version_id DESC (random hex) — so assert membership
+    # and count, not a specific order.
+    assert {v["agent_version_id"] for v in listed} == {
+        v1["agent_version_id"],
+        v2["agent_version_id"],
+    }
+    assert len(listed) == 2
+
+    fetched = pg_version_store.get_version(v1["agent_version_id"])
+    assert fetched == v1
+    assert pg_version_store.get_version("agv_missing") is None
+    assert pg_version_store.list_versions("agent_other") == []
