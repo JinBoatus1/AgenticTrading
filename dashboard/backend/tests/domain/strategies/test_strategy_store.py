@@ -11,6 +11,7 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
+import dashboard.backend.domain.strategies.repository as strategies_module
 from dashboard.backend.app import app
 from dashboard.backend.domain.strategies.repository import StrategyStore
 
@@ -80,6 +81,71 @@ def test_codes_are_unique(tmp_path):
     store = _store(tmp_path)
     codes = {store.create(prompt=f"strategy {i}")["code"] for i in range(25)}
     assert len(codes) == 25
+
+
+# ----------------------------------------------------------------------
+# Share-code collision retry.
+#
+# test_codes_are_unique above can't reach this: random 8-hex codes never
+# collide by chance, so the retry loop has been dead code to the suite until
+# now. These force the collision instead of mocking the insert. The Postgres
+# twin mirrors them exactly (test_strategy_store_postgres.py) -- its loop is
+# structurally different (ON CONFLICT DO NOTHING + rowcount rather than
+# catching IntegrityError, since a UniqueViolation would abort the whole
+# transaction) and must behave identically.
+# ----------------------------------------------------------------------
+
+
+def test_create_retries_past_a_code_collision(tmp_path, monkeypatch):
+    store = _store(tmp_path)
+    first = store.create(prompt="first strategy")
+
+    codes = iter([first["code"], "fresh456"])
+    # NB: strategies_module.secrets IS the stdlib secrets module, so this
+    # patches token_hex process-wide rather than just this module's view of
+    # it. Harmless -- monkeypatch restores it and nothing else in this test
+    # calls token_hex -- but don't read it as module-scoped.
+    monkeypatch.setattr(
+        strategies_module.secrets, "token_hex", lambda nbytes: next(codes)
+    )
+
+    second = store.create(prompt="second strategy")
+    assert second["code"] == "fresh456"
+    assert store.get(first["code"])["prompt"] == "first strategy"
+    assert store.get("fresh456")["prompt"] == "second strategy"
+
+
+def test_create_widens_code_space_after_20_collisions(tmp_path, monkeypatch):
+    store = _store(tmp_path)
+    first = store.create(prompt="first strategy")
+
+    calls = {"n": 0}
+
+    def fake_token_hex(nbytes):
+        calls["n"] += 1
+        if calls["n"] <= 20:
+            return first["code"]  # every narrow attempt collides
+        return "w" * 16  # the widened attempt succeeds
+
+    monkeypatch.setattr(strategies_module.secrets, "token_hex", fake_token_hex)
+
+    second = store.create(prompt="second strategy")
+    assert second["code"] == "w" * 16
+    # 20 narrow attempts (token_hex(_CODE_LENGTH // 2) -> 8 chars) + 1 widened
+    # (token_hex(_CODE_LENGTH) -> 16 chars). See repository.py:112-124.
+    assert calls["n"] == 21
+
+
+def test_create_raises_when_even_widened_code_collides(tmp_path, monkeypatch):
+    store = _store(tmp_path)
+    first = store.create(prompt="first strategy")
+
+    monkeypatch.setattr(
+        strategies_module.secrets, "token_hex", lambda nbytes: first["code"]
+    )
+
+    with pytest.raises(RuntimeError):
+        store.create(prompt="second strategy")
 
 
 # ----------------------------------------------------------------------
