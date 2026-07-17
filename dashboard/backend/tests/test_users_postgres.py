@@ -204,3 +204,16 @@ def test_unreachable_postgres_raises_instead_of_falling_back():
 
     with pytest.raises(psycopg.OperationalError):
         PostgresUserStore("postgresql://u:p@127.0.0.1:1/nope?connect_timeout=2")
+
+
+def test_malformed_url_is_rejected_before_psycopg_can_echo_it():
+    """See the agent-store twin of this test (test_agent_store_postgres.py).
+
+    USERS_DATABASE_URL has held a live Neon credential in prod since the account
+    persistence fix shipped, so this store had the longest exposure to the leak.
+    """
+    from dashboard.backend.users_postgres import PostgresUserStore
+
+    with pytest.raises(ValueError) as excinfo:
+        PostgresUserStore('"postgresql://u:sup3r-s3cret@ep-x.neon.tech/atl"')
+    assert "sup3r-s3cret" not in str(excinfo.value)

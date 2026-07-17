@@ -91,6 +91,23 @@ def test_unreachable_postgres_agent_store_raises_instead_of_falling_back():
         PostgresAgentStore("postgresql://u:p@127.0.0.1:1/nope?connect_timeout=2")
 
 
+def test_malformed_url_is_rejected_before_psycopg_can_echo_it():
+    """A typo'd CONTENT_DATABASE_URL must not put the password in the log.
+
+    psycopg parses anything not starting with postgresql:// as a keyword DSN and
+    quotes the whole input back ('missing "=" after "<the entire URL>"'). This
+    runs at import time with no try/except, so that message is the boot failure
+    and it lands in Render's log. require_postgres_url must therefore be wired
+    into __init__ -- testing the helper alone would not catch it being dropped
+    from the constructor.
+    """
+    from dashboard.backend.domain.agents.repository_postgres import PostgresAgentStore
+
+    with pytest.raises(ValueError) as excinfo:
+        PostgresAgentStore('"postgresql://u:sup3r-s3cret@ep-x.neon.tech/atl"')
+    assert "sup3r-s3cret" not in str(excinfo.value)
+
+
 # --- live-Postgres behavioral tests (agent store) ---------------------------
 
 @pytest.fixture
@@ -237,6 +254,17 @@ def test_unreachable_postgres_version_store_raises_instead_of_falling_back():
 
     with pytest.raises(psycopg.OperationalError):
         PostgresAgentVersionStore("postgresql://u:p@127.0.0.1:1/nope?connect_timeout=2")
+
+
+def test_malformed_url_is_rejected_before_psycopg_can_echo_it_version_store():
+    """See the agent-store twin of this test above."""
+    from dashboard.backend.domain.agents.version_repository_postgres import (
+        PostgresAgentVersionStore,
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        PostgresAgentVersionStore('"postgresql://u:sup3r-s3cret@ep-x.neon.tech/atl"')
+    assert "sup3r-s3cret" not in str(excinfo.value)
 
 
 # --- live-Postgres behavioral tests (agent version store) --------------------

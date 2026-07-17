@@ -18,6 +18,46 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit
 
+# psycopg reads a connection string as a URL only when it starts with one of
+# these; anything else is parsed as a keyword DSN. See require_postgres_url.
+_POSTGRES_URL_SCHEMES = ("postgresql://", "postgres://")
+
+
+def require_postgres_url(database_url: str) -> str:
+    """Return ``database_url``, or raise if psycopg would read it as a keyword DSN.
+
+    psycopg treats a connection string as a URL only when it starts with
+    ``postgresql://`` or ``postgres://``. Anything else is parsed as a keyword
+    DSN (``host=... password=...``) and the resulting ProgrammingError quotes
+    the *entire* input back::
+
+        missing "=" after ""postgresql://u:hunter2@ep-x.neon.tech/atl"" in
+        connection info string
+
+    The store factories construct their twin at import time with no try/except
+    -- fail-loud is deliberate -- so that message *is* the boot failure, and it
+    carries the live password into the deploy log. Every malformed shape
+    observed leaks (a value pasted with wrapping quotes, an uppercase scheme,
+    ``postgre://``, a single slash, a leading space, no scheme at all) and every
+    well-formed one does not, so the scheme check is the exact boundary rather
+    than a heuristic.
+
+    Still fail-loud: a bad value raises here instead of reaching psycopg. The
+    message quotes no part of the input, for the same reason
+    describe_database_url echoes nothing it could not parse.
+    """
+    if not isinstance(database_url, str) or not database_url.startswith(
+        _POSTGRES_URL_SCHEMES
+    ):
+        raise ValueError(
+            "database URL must start with 'postgresql://' or 'postgres://'. "
+            "Refusing to hand it to psycopg, which parses a non-URL as a "
+            "keyword DSN and quotes the whole value -- password included -- "
+            "into the error it raises. Check the env var for wrapping quotes "
+            "or a typo'd scheme."
+        )
+    return database_url
+
 
 def describe_database_url(database_url: str) -> str:
     """Return ``host[:port]/dbname`` for ``database_url``, never its credentials.

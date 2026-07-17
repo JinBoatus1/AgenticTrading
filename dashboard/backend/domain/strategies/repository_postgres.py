@@ -20,6 +20,7 @@ from typing import Any, Optional
 import psycopg
 from psycopg.rows import dict_row
 
+from dashboard.backend.db_url import require_postgres_url
 from dashboard.backend.domain.strategies.repository import (
     _CODE_LENGTH,
     _now_iso,
@@ -31,7 +32,7 @@ class PostgresStrategyStore:
     """Persist free-form strategy prompts, backed by Postgres."""
 
     def __init__(self, database_url: str):
-        self.database_url = database_url
+        self.database_url = require_postgres_url(database_url)
         self._init_schema()
 
     def _get_connection(self) -> psycopg.Connection:

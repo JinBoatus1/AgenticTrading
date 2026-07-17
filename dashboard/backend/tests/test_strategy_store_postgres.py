@@ -65,6 +65,17 @@ def test_unreachable_postgres_strategy_store_raises_instead_of_falling_back():
         PostgresStrategyStore("postgresql://u:p@127.0.0.1:1/nope?connect_timeout=2")
 
 
+def test_malformed_url_is_rejected_before_psycopg_can_echo_it():
+    """See the agent-store twin of this test (test_agent_store_postgres.py)."""
+    from dashboard.backend.domain.strategies.repository_postgres import (
+        PostgresStrategyStore,
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        PostgresStrategyStore('"postgresql://u:sup3r-s3cret@ep-x.neon.tech/atl"')
+    assert "sup3r-s3cret" not in str(excinfo.value)
+
+
 # --- live-Postgres behavioral tests ------------------------------------------
 
 @pytest.fixture
