@@ -1,0 +1,462 @@
+"""Postgres-backed AgentStore implementation.
+
+Selected instead of the default SQLite AgentStore when CONTENT_DATABASE_URL is set
+(see repository.py's _build_agent_store). Exists because the SQLite store
+lives in DATABASE_PATH, which resets to the committed seed database on every
+deploy of the disk-less Render free-tier host -- silently deleting every
+registered agent and invalidating every issued API key (resolve_api_key is
+the sole auth path for /api/v1 and /api/v2). Method surface, return schemas,
+and behavior are identical to AgentStore; only the SQL dialect differs.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from typing import Any, Dict, List, Optional
+
+import psycopg
+from psycopg.rows import dict_row
+
+from dashboard.backend.domain.agents.repository import (
+    DEFAULT_SCOPES,
+    _UNSET,
+    _hash_api_key,
+    _new_api_key,
+    _public_agent,
+    _utcnow_iso,
+)
+
+
+class PostgresAgentStore:
+    """Persist external agents and their trading session IDs, backed by Postgres."""
+
+    def __init__(self, database_url: str):
+        self.database_url = database_url
+        self._init_schema()
+
+    def _get_connection(self) -> psycopg.Connection:
+        return psycopg.connect(self.database_url, row_factory=dict_row)
+
+    def _init_schema(self) -> None:
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                # owner_user_id is deliberately a plain INTEGER with no FK to
+                # users(id): SQLite never enforced the declared FK (no PRAGMA
+                # foreign_keys anywhere), the app owns this integrity
+                # (owns_agent / claim_browser_agents_to_user), and a FK would
+                # break the split config where USERS_DATABASE_URL points at a
+                # different database (Postgres has no cross-database FKs).
+                cur.execute(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS external_agents (
+                        agent_id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        session_id TEXT NOT NULL UNIQUE,
+                        api_key_hash TEXT NOT NULL UNIQUE,
+                        api_key_prefix TEXT NOT NULL,
+                        model_name TEXT NOT NULL DEFAULT 'local-model',
+                        scopes TEXT NOT NULL DEFAULT '{DEFAULT_SCOPES}',
+                        owner_user_id INTEGER,
+                        owner_browser_session TEXT,
+                        created_at TEXT,
+                        last_used_at TEXT,
+                        agent_type TEXT NOT NULL DEFAULT 'external',
+                        description TEXT,
+                        pipeline_config TEXT,
+                        cash_allocation DOUBLE PRECISION
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_external_agents_owner_user
+                    ON external_agents(owner_user_id)
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_external_agents_owner_browser
+                    ON external_agents(owner_browser_session)
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_external_agents_type
+                    ON external_agents(agent_type)
+                    """
+                )
+
+    def create_agent(
+        self,
+        *,
+        name: str,
+        model_name: str = "local-model",
+        owner_user_id: Optional[int] = None,
+        owner_browser_session: Optional[str] = None,
+        session_id: Optional[str] = None,
+        agent_type: str = "external",
+        description: Optional[str] = None,
+        cash_allocation: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        agent_id = f"agent_{uuid.uuid4().hex[:12]}"
+        session_id = session_id or str(uuid.uuid4())
+        api_key = _new_api_key()
+        api_key_hash = _hash_api_key(api_key)
+        api_key_prefix = api_key[:12]
+        now = _utcnow_iso()
+
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO external_agents (
+                        agent_id, name, session_id, api_key_hash, api_key_prefix,
+                        model_name, agent_type, description, cash_allocation,
+                        owner_user_id, owner_browser_session, created_at, last_used_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING *
+                    """,
+                    (
+                        agent_id,
+                        name.strip(),
+                        session_id,
+                        api_key_hash,
+                        api_key_prefix,
+                        model_name.strip() or "local-model",
+                        (agent_type or "external").strip() or "external",
+                        (description or None),
+                        cash_allocation,
+                        owner_user_id,
+                        owner_browser_session,
+                        now,
+                        now,
+                    ),
+                )
+                row = cur.fetchone()
+
+        agent = _public_agent(row)
+        agent["api_key"] = api_key
+        return agent
+
+    def register_or_get_agent(
+        self,
+        *,
+        session_id: str,
+        name: str,
+        model_name: str = "local-model",
+        owner_user_id: Optional[int] = None,
+        owner_browser_session: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Link an existing trading session to an agent (idempotent)."""
+        existing = self.get_agent_by_session(session_id)
+        if existing:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE external_agents
+                        SET name = %s, model_name = %s, last_used_at = %s,
+                            owner_user_id = COALESCE(%s, owner_user_id),
+                            owner_browser_session = COALESCE(%s, owner_browser_session)
+                        WHERE session_id = %s
+                        """,
+                        (
+                            name.strip(),
+                            model_name.strip() or "local-model",
+                            _utcnow_iso(),
+                            owner_user_id,
+                            owner_browser_session,
+                            session_id,
+                        ),
+                    )
+            return self.get_agent_by_session(session_id) or existing
+
+        return self.create_agent(
+            name=name,
+            model_name=model_name,
+            owner_user_id=owner_user_id,
+            owner_browser_session=owner_browser_session,
+            session_id=session_id,
+        )
+
+    def list_agents(
+        self,
+        *,
+        owner_user_id: Optional[int] = None,
+        owner_browser_session: Optional[str] = None,
+        trading_session_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        seen: set = set()
+
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+
+                def _add_rows(query: str, params: tuple) -> None:
+                    cur.execute(query, params)
+                    for row in cur.fetchall():
+                        if row["agent_id"] not in seen:
+                            seen.add(row["agent_id"])
+                            rows.append(row)
+
+                if owner_user_id is not None:
+                    _add_rows(
+                        """
+                        SELECT * FROM external_agents
+                        WHERE owner_user_id = %s
+                        ORDER BY created_at DESC
+                        """,
+                        (owner_user_id,),
+                    )
+                elif owner_browser_session:
+                    _add_rows(
+                        """
+                        SELECT * FROM external_agents
+                        WHERE owner_browser_session = %s
+                        ORDER BY created_at DESC
+                        """,
+                        (owner_browser_session,),
+                    )
+
+                if trading_session_id:
+                    _add_rows(
+                        """
+                        SELECT * FROM external_agents
+                        WHERE session_id = %s
+                        ORDER BY created_at DESC
+                        """,
+                        (trading_session_id,),
+                    )
+
+        return [_public_agent(row) for row in rows]
+
+    def list_builtin_agents(self) -> List[Dict[str, Any]]:
+        """List every built-in (platform-hosted) agent, newest first.
+
+        Built-in agents are globally discoverable (e.g. from the Discord
+        ``/agent`` command) regardless of which account created them.
+        """
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT * FROM external_agents
+                    WHERE agent_type = 'builtin'
+                    ORDER BY created_at DESC
+                    """
+                )
+                rows = cur.fetchall()
+        return [_public_agent(row) for row in rows]
+
+    def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM external_agents WHERE agent_id = %s", (agent_id,)
+                )
+                row = cur.fetchone()
+        return _public_agent(row) if row else None
+
+    def get_agent_by_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM external_agents WHERE session_id = %s", (session_id,)
+                )
+                row = cur.fetchone()
+        return _public_agent(row) if row else None
+
+    def resolve_api_key(self, api_key: str) -> Optional[Dict[str, Any]]:
+        if not api_key or not api_key.strip():
+            return None
+        key_hash = _hash_api_key(api_key.strip())
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM external_agents WHERE api_key_hash = %s",
+                    (key_hash,),
+                )
+                row = cur.fetchone()
+                if row:
+                    cur.execute(
+                        "UPDATE external_agents SET last_used_at = %s WHERE agent_id = %s",
+                        (_utcnow_iso(), row["agent_id"]),
+                    )
+        return _public_agent(row) if row else None
+
+    def claim_browser_agents_to_user(
+        self,
+        browser_session: str,
+        user_id: int,
+    ) -> int:
+        """Attach all browser-owned agents to a logged-in user account."""
+        if not browser_session or user_id is None:
+            return 0
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE external_agents
+                    SET owner_user_id = %s,
+                        owner_browser_session = COALESCE(owner_browser_session, %s),
+                        last_used_at = %s
+                    WHERE owner_browser_session = %s
+                      AND (owner_user_id IS NULL OR owner_user_id = %s)
+                    """,
+                    (user_id, browser_session, _utcnow_iso(), browser_session, user_id),
+                )
+                updated = cur.rowcount
+        return updated
+
+    def claim_agent(
+        self,
+        agent_id: str,
+        *,
+        owner_user_id: Optional[int] = None,
+        owner_browser_session: Optional[str] = None,
+    ) -> None:
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE external_agents
+                    SET owner_user_id = COALESCE(%s, owner_user_id),
+                        owner_browser_session = COALESCE(%s, owner_browser_session),
+                        last_used_at = %s
+                    WHERE agent_id = %s
+                    """,
+                    (owner_user_id, owner_browser_session, _utcnow_iso(), agent_id),
+                )
+
+    def reclaim_agent(
+        self,
+        agent_id: str,
+        *,
+        owner_user_id: Optional[int] = None,
+        owner_browser_session: Optional[str] = None,
+    ) -> None:
+        """Re-bind an agent to the current browser/user (dashboard session proof)."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE external_agents
+                    SET owner_user_id = COALESCE(%s, owner_user_id),
+                        owner_browser_session = %s,
+                        last_used_at = %s
+                    WHERE agent_id = %s
+                    """,
+                    (owner_user_id, owner_browser_session, _utcnow_iso(), agent_id),
+                )
+
+    def rotate_api_key(self, agent_id: str) -> Optional[str]:
+        """Issue a new API key for an agent. Returns the raw key once."""
+        api_key = _new_api_key()
+        api_key_hash = _hash_api_key(api_key)
+        api_key_prefix = api_key[:12]
+        now = _utcnow_iso()
+
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE external_agents
+                    SET api_key_hash = %s,
+                        api_key_prefix = %s,
+                        last_used_at = %s
+                    WHERE agent_id = %s
+                    """,
+                    (api_key_hash, api_key_prefix, now, agent_id),
+                )
+                updated = cur.rowcount > 0
+        return api_key if updated else None
+
+    def update_agent(
+        self,
+        agent_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        pipeline: Any = _UNSET,
+        cash_allocation: Any = _UNSET,
+    ) -> Optional[Dict[str, Any]]:
+        """Update display fields for an agent. Returns the updated record or None.
+
+        ``pipeline`` uses a sentinel default so callers can distinguish "leave
+        the stored pipeline untouched" (omit the arg) from "clear it" (pass
+        ``None``). A list is serialized to JSON.
+        """
+        sets: list[str] = []
+        params: list[Any] = []
+        if name is not None:
+            sets.append("name = %s")
+            params.append(name.strip())
+        if description is not None:
+            sets.append("description = %s")
+            params.append(description.strip() if description else None)
+        if pipeline is not _UNSET:
+            sets.append("pipeline_config = %s")
+            params.append(json.dumps(pipeline) if pipeline else None)
+        if cash_allocation is not _UNSET:
+            sets.append("cash_allocation = %s")
+            params.append(cash_allocation)
+        if not sets:
+            return self.get_agent(agent_id)
+        sets.append("last_used_at = %s")
+        params.append(_utcnow_iso())
+        params.append(agent_id)
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE external_agents SET {', '.join(sets)} "
+                    "WHERE agent_id = %s RETURNING *",
+                    params,
+                )
+                row = cur.fetchone()
+        return _public_agent(row) if row else None
+
+    def delete_agent(self, agent_id: str) -> bool:
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM external_agents WHERE agent_id = %s", (agent_id,)
+                )
+                deleted = cur.rowcount > 0
+        return deleted
+
+    def owns_agent(
+        self,
+        agent: Dict[str, Any],
+        *,
+        owner_user_id: Optional[int] = None,
+        owner_browser_session: Optional[str] = None,
+    ) -> bool:
+        agent_id = agent.get("agent_id") if isinstance(agent, dict) else agent
+        if not agent_id:
+            return False
+        # Read the ownership columns straight from the row. owner_browser_session
+        # is deliberately omitted from the public agent dict (it is a private
+        # credential), so we must NOT rely on the passed-in dict for it — doing so
+        # is why owner_browser_session ownership silently never matched.
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT owner_user_id, owner_browser_session "
+                    "FROM external_agents WHERE agent_id = %s",
+                    (agent_id,),
+                )
+                row = cur.fetchone()
+        if not row:
+            return False
+        if owner_user_id is not None and row["owner_user_id"] == owner_user_id:
+            return True
+        if owner_browser_session and row["owner_browser_session"] == owner_browser_session:
+            return True
+        # NOTE: session_id is NOT an ownership credential. It is an internal
+        # trading-session identifier that is discoverable (it used to be returned
+        # by the public /builtin listing), so matching it against a caller-supplied
+        # session would let anyone who learned it take over the agent. Ownership
+        # requires owner_user_id or owner_browser_session (a real, private
+        # credential), or the agent API key (checked at the route layer).
+        return False
