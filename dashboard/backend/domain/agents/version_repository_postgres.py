@@ -36,6 +36,9 @@ class PostgresAgentVersionStore:
         return psycopg.connect(self.database_url, row_factory=dict_row)
 
     def _init_schema(self) -> None:
+        # Adding a column later requires an `ALTER TABLE ... ADD COLUMN IF NOT
+        # EXISTS` below, not just an edit to the CREATE -- see the same note in
+        # repository_postgres.py for why nothing would catch the omission.
         with self._get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(

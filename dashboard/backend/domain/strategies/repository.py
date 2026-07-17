@@ -36,7 +36,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _public(row: sqlite3.Row) -> dict[str, Any]:
+def _public(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
     return {
         "code": row["code"],
         "prompt": row["prompt"],

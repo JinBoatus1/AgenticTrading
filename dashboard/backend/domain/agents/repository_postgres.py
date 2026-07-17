@@ -40,6 +40,17 @@ class PostgresAgentStore:
         return psycopg.connect(self.database_url, row_factory=dict_row)
 
     def _init_schema(self) -> None:
+        # ADDING A COLUMN LATER? It must go in an `ALTER TABLE ... ADD COLUMN IF
+        # NOT EXISTS` below, *not* only in the CREATE above. CREATE TABLE IF NOT
+        # EXISTS silently no-ops once the table exists, so an existing
+        # deployment would never gain the column, and every query naming it
+        # would raise UndefinedColumn -- 500ing this whole surface while /health
+        # stays green. Nothing catches it first: the SQLite tier is the default
+        # in tests, and CI's Postgres service container is empty on every run,
+        # so the @pg_only tier only ever exercises the CREATE path, never the
+        # migrate path. The columns below fold in the SQLite store's five lazy
+        # ALTERs because this table starts empty; that is why there is no
+        # migration here yet. users_postgres.py has the pattern to copy.
         with self._get_connection() as conn:
             with conn.cursor() as cur:
                 # owner_user_id is deliberately a plain INTEGER with no FK to
