@@ -1,7 +1,12 @@
 # Durable agent & strategy storage (`CONTENT_DATABASE_URL` Postgres backends)
 
 **Date:** 2026-07-15
-**Status:** Approved design, pre-implementation
+**Status:** **implemented** — shipped in #134, deployed, and verified live in prod on 2026-07-17 (all four stores report `backend: postgres` in the Render log; prod DDL matches this design's 15/12/8 columns). This document is a point-in-time design record, not a status page: it is accurate as *design*, but read the code as the source of truth on behaviour. Two things the build changed or added that are **not** described below — both filed as issues:
+> - The twins have **no lazy-migration path**, and CI structurally cannot catch it (an empty Postgres container only ever exercises the `CREATE TABLE` path). Adding a column to `_init_schema` alone will not reach an existing deployment — see **#135** and the comment at each `_init_schema`.
+> - A `require_postgres_url()` scheme guard (`dashboard/backend/db_url.py`) was added to every twin: `psycopg` parses a non-URL as a keyword DSN and quotes the whole value — password included — into its error, which the fail-loud factories put straight in the deploy log.
+>
+> Remaining follow-ups: **#136–#141**. Notably run history (`agent_runs`) is still ephemeral per Decision 1 below (**#140**).
+
 **Precedent:** `docs/superpowers/plans/2026-07-08-user-account-persistence-fix.md` (the `USERS_DATABASE_URL` users fix — this design extends that exact pattern to agents and strategies)
 
 ## Problem
