@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 import psycopg
 from psycopg.rows import dict_row
 
+from dashboard.backend.db_url import require_postgres_url
 from dashboard.backend.users import _utcnow, _utcnow_iso, hash_password, public_user, verify_password
 
 SESSION_TTL_DAYS = 7
@@ -24,7 +25,7 @@ class PostgresUserStore:
     """Minimal user + auth session persistence, backed by Postgres."""
 
     def __init__(self, database_url: str):
-        self.database_url = database_url
+        self.database_url = require_postgres_url(database_url)
         self._init_schema()
 
     def _get_connection(self) -> psycopg.Connection:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
 import sqlite3
 import uuid
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dashboard.backend.database import DB_PATH
+from dashboard.backend.db_url import describe_database_url
 
 DEFAULT_SCOPES = "agents:register,runs:write,context:read,decisions:write,runs:read"
 
@@ -548,4 +550,17 @@ class AgentStore:
         return False
 
 
-agent_store = AgentStore()
+def _build_agent_store():
+    database_url = os.getenv("CONTENT_DATABASE_URL")
+    if database_url:
+        from dashboard.backend.domain.agents.repository_postgres import PostgresAgentStore
+
+        # print(), not logger.info() -- info is invisible under the prod logging
+        # config. See users.py's _build_user_store for the full rationale.
+        print(f"agent_store backend: postgres ({describe_database_url(database_url)})")
+        return PostgresAgentStore(database_url)
+    print("agent_store backend: sqlite (ephemeral on Render)")
+    return AgentStore()
+
+
+agent_store = _build_agent_store()

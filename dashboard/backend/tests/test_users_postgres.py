@@ -67,14 +67,22 @@ def temp_postgres_store():
 
 @pytest.fixture
 def pg_client(temp_postgres_store, monkeypatch):
+    import dashboard.backend.api.auth as auth_module
     import dashboard.backend.users as users_module
 
     monkeypatch.setattr(users_module, "user_store", temp_postgres_store)
+    # api/auth.py binds the singleton into its own namespace at import time
+    # (`from dashboard.backend.users import user_store`), so patching
+    # users_module alone leaves every auth route on the original SQLite
+    # store -- which is how this "postgres" test silently exercised SQLite
+    # until CI first ran the live tier and it collided with test_auth.py's
+    # alice@example.com (409 instead of 200).
+    monkeypatch.setattr(auth_module, "user_store", temp_postgres_store)
     return TestClient(app)
 
 
 @pg_only
-def test_signup_login_me_logout_flow_postgres(pg_client):
+def test_signup_login_me_logout_flow_postgres(pg_client, temp_postgres_store):
     signup = pg_client.post(
         "/api/auth/signup",
         json={"email": "alice@example.com", "display_name": "Alice", "password": "securepass1"},
@@ -86,6 +94,12 @@ def test_signup_login_me_logout_flow_postgres(pg_client):
     assert signup_data["user"]["role"] == "user"
     assert "password_hash" not in signup_data["user"]
     assert signup_data["token"]
+
+    # Prove the route's write actually landed in Postgres. Without this, a
+    # regression that re-detaches the routes from the patched store would
+    # leave this test green while testing SQLite -- which is exactly the
+    # state it shipped in.
+    assert temp_postgres_store.get_user_by_email("alice@example.com") is not None
 
     duplicate = pg_client.post(
         "/api/auth/signup",
@@ -122,3 +136,84 @@ def test_login_invalid_password_postgres(pg_client):
         json={"email": "bob@example.com", "password": "wrong-password"},
     )
     assert response.status_code == 401
+
+
+def test_build_user_store_ignores_content_database_url(monkeypatch, capsys):
+    """The two URLs are scoped per store (spec, Decision 2), and that separation
+    is only a claim until something asserts it.
+
+    This is the inverse of the precedence test the fallback design would have
+    needed: CONTENT_DATABASE_URL must not reach the users store at all, not
+    merely lose to USERS_DATABASE_URL. Without this, re-adding the fallback --
+    a one-line "convenience" a future contributor could plausibly think is an
+    improvement -- keeps the suite green while silently binding accounts to the
+    content database.
+    """
+    import dashboard.backend.users as users_module
+
+    monkeypatch.delenv("USERS_DATABASE_URL", raising=False)
+    monkeypatch.setenv("CONTENT_DATABASE_URL", "postgresql://fake/content")
+
+    store = users_module._build_user_store()
+
+    assert isinstance(store, users_module.UserStore)
+    # capsys, not caplog: the factory print()s. A caplog test would pass even if
+    # the line were invisible in prod -- see the plan's Global Constraints.
+    assert "user_store backend: sqlite (ephemeral on Render)" in capsys.readouterr().out
+
+
+def test_build_user_store_announces_sqlite_backend(monkeypatch, capsys):
+    import dashboard.backend.users as users_module
+
+    monkeypatch.delenv("USERS_DATABASE_URL", raising=False)
+    monkeypatch.delenv("CONTENT_DATABASE_URL", raising=False)
+    store = users_module._build_user_store()
+    assert isinstance(store, users_module.UserStore)
+    assert "user_store backend: sqlite (ephemeral on Render)" in capsys.readouterr().out
+
+
+def test_build_user_store_never_prints_the_credentials(monkeypatch, capsys):
+    import dashboard.backend.users as users_module
+    import dashboard.backend.users_postgres as users_postgres_module
+
+    class FakePostgresUserStore:
+        def __init__(self, database_url):
+            pass
+
+    monkeypatch.setattr(users_postgres_module, "PostgresUserStore", FakePostgresUserStore)
+    monkeypatch.setenv("USERS_DATABASE_URL", "postgresql://admin:sup3r-s3cret@host/db")
+
+    users_module._build_user_store()
+
+    out = capsys.readouterr().out
+    assert "sup3r-s3cret" not in out
+    assert "user_store backend: postgres (host/db)" in out
+
+
+def test_unreachable_postgres_raises_instead_of_falling_back():
+    """Fail loud: a set-but-unreachable URL must not silently degrade to SQLite.
+
+    This is the tier that exercises PostgresUserStore.__init__ for real -- the
+    dispatch tests above monkeypatch the class away, so nothing else does. Needs
+    no live Postgres: a closed port refuses instantly. connect_timeout keeps a
+    firewall that DROPs rather than REJECTs from hanging the suite.
+    """
+    import psycopg
+
+    from dashboard.backend.users_postgres import PostgresUserStore
+
+    with pytest.raises(psycopg.OperationalError):
+        PostgresUserStore("postgresql://u:p@127.0.0.1:1/nope?connect_timeout=2")
+
+
+def test_malformed_url_is_rejected_before_psycopg_can_echo_it():
+    """See the agent-store twin of this test (test_agent_store_postgres.py).
+
+    USERS_DATABASE_URL has held a live Neon credential in prod since the account
+    persistence fix shipped, so this store had the longest exposure to the leak.
+    """
+    from dashboard.backend.users_postgres import PostgresUserStore
+
+    with pytest.raises(ValueError) as excinfo:
+        PostgresUserStore('"postgresql://u:sup3r-s3cret@ep-x.neon.tech/atl"')
+    assert "sup3r-s3cret" not in str(excinfo.value)

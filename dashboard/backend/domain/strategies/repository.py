@@ -17,6 +17,7 @@ The public module-level functions (``create_strategy`` / ``get_strategy`` /
 
 from __future__ import annotations
 
+import os
 import secrets
 import sqlite3
 from datetime import datetime, timezone
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from dashboard.backend.database import DB_PATH
+from dashboard.backend.db_url import describe_database_url
 
 # Length of the generated share code (hex chars). 8 hex chars = 32 bits, plenty
 # for human-shareable, non-guessable-enough codes at this scale.
@@ -34,7 +36,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _public(row: sqlite3.Row) -> dict[str, Any]:
+def _public(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
     return {
         "code": row["code"],
         "prompt": row["prompt"],
@@ -153,7 +155,21 @@ class StrategyStore:
             conn.close()
 
 
-strategy_store = StrategyStore()
+def _build_strategy_store():
+    database_url = os.getenv("CONTENT_DATABASE_URL")
+    if database_url:
+        from dashboard.backend.domain.strategies.repository_postgres import (
+            PostgresStrategyStore,
+        )
+
+        # print(), not logger.info() -- see users.py's _build_user_store.
+        print(f"strategy_store backend: postgres ({describe_database_url(database_url)})")
+        return PostgresStrategyStore(database_url)
+    print("strategy_store backend: sqlite (ephemeral on Render)")
+    return StrategyStore()
+
+
+strategy_store = _build_strategy_store()
 
 
 # ----------------------------------------------------------------------

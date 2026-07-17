@@ -21,6 +21,23 @@ jobs:
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
+    # A real Postgres for the @pg_only tier. Without it those tests skip and the
+    # Postgres store backends would reach prod never having executed -- where the
+    # first run is _init_schema() at import time, and a DDL error means the app
+    # does not boot. Cheap insurance: the container starts in a couple of seconds.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: atl_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -41,6 +58,11 @@ jobs:
         # regresses, this keeps CI from writing into the committed seed DB.
         env:
           DATABASE_PATH: ${{ runner.temp }}/ci-backtest.db
+          # Selects the live tier of the *_postgres.py tests. Note this is NOT
+          # CONTENT_DATABASE_URL: conftest.py strips that so the suite's own stores stay
+          # on SQLite. This URL is only ever passed explicitly to a twin's
+          # constructor by a @pg_only fixture.
+          TEST_POSTGRES_URL: postgresql://postgres:test@localhost:5432/atl_test
         run: pytest dashboard/backend/tests/ --timeout=180 -p no:cacheprovider
 
   packaging-tests:
