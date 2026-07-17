@@ -57,6 +57,26 @@ def test_build_agent_store_picks_postgres_when_url_set(monkeypatch, capsys):
     assert "agent_store backend: postgres (fake/db)" in capsys.readouterr().out
 
 
+def test_build_agent_store_ignores_users_database_url(monkeypatch, capsys):
+    """The mirror of test_users_postgres.py's ignores_content_database_url.
+
+    The two vars are scoped per store and neither falls back to the other (spec,
+    Decision 2). That was guarded in one direction only -- nothing stopped a
+    future "convenience" fallback from quietly binding agents to the *accounts*
+    database, which is exactly the kind of one-line change that reads like an
+    improvement and keeps the suite green.
+    """
+    import dashboard.backend.domain.agents.repository as repo_module
+
+    monkeypatch.delenv("CONTENT_DATABASE_URL", raising=False)
+    monkeypatch.setenv("USERS_DATABASE_URL", "postgresql://fake/users")
+
+    store = repo_module._build_agent_store()
+
+    assert isinstance(store, repo_module.AgentStore)
+    assert "agent_store backend: sqlite (ephemeral on Render)" in capsys.readouterr().out
+
+
 def test_build_agent_store_never_prints_the_credentials(monkeypatch, capsys):
     import dashboard.backend.domain.agents.repository as repo_module
     import dashboard.backend.domain.agents.repository_postgres as repo_pg_module
@@ -195,6 +215,34 @@ def test_update_agent_partial_updates_postgres(pg_agent_store):
 
 
 @pg_only
+def test_cash_allocation_round_trips_as_a_float_postgres(pg_agent_store):
+    """Pin the feature's only non-TEXT column against a real Postgres.
+
+    Every other @pg_only test leaves cash_allocation NULL, yet service.py
+    defaults it to float(DEFAULT_AGENT_CASH_ALLOCATION) when a caller omits it
+    -- so every real agent registration writes a float on a column nothing here
+    exercised. Declare it TEXT (the type the other 14 columns have) and the whole
+    tier still passes; the first prod registration is what finds out.
+    """
+    created = pg_agent_store.create_agent(name="Funded", cash_allocation=25000.5)
+    assert created["cash_allocation"] == 25000.5
+    assert isinstance(created["cash_allocation"], float)
+
+    assert pg_agent_store.get_agent(created["agent_id"])["cash_allocation"] == 25000.5
+
+    updated = pg_agent_store.update_agent(created["agent_id"], cash_allocation=100.25)
+    assert updated["cash_allocation"] == 100.25
+
+    # _UNSET vs None: omitting it leaves the stored value, passing None clears it.
+    assert pg_agent_store.update_agent(created["agent_id"], name="Renamed")[
+        "cash_allocation"
+    ] == 100.25
+    assert pg_agent_store.update_agent(created["agent_id"], cash_allocation=None)[
+        "cash_allocation"
+    ] is None
+
+
+@pg_only
 def test_builtin_listing_and_delete_postgres(pg_agent_store):
     builtin = pg_agent_store.create_agent(name="Builtin", agent_type="builtin")
     external = pg_agent_store.create_agent(name="External")
@@ -242,6 +290,22 @@ def test_build_agent_version_store_picks_postgres_when_url_set(monkeypatch, caps
     assert isinstance(store, FakePostgresAgentVersionStore)
     assert created["database_url"] == "postgresql://fake/db"
     assert "agent_version_store backend: postgres (fake/db)" in capsys.readouterr().out
+
+
+def test_build_agent_version_store_ignores_users_database_url(monkeypatch, capsys):
+    """See the agent-store twin of this test above."""
+    import dashboard.backend.domain.agents.version_repository as vrepo_module
+
+    monkeypatch.delenv("CONTENT_DATABASE_URL", raising=False)
+    monkeypatch.setenv("USERS_DATABASE_URL", "postgresql://fake/users")
+
+    store = vrepo_module._build_agent_version_store()
+
+    assert isinstance(store, vrepo_module.AgentVersionStore)
+    assert (
+        "agent_version_store backend: sqlite (ephemeral on Render)"
+        in capsys.readouterr().out
+    )
 
 
 def test_unreachable_postgres_version_store_raises_instead_of_falling_back():

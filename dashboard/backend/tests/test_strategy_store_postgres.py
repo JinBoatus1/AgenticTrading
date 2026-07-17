@@ -53,6 +53,22 @@ def test_build_strategy_store_picks_postgres_when_url_set(monkeypatch, capsys):
     assert "strategy_store backend: postgres (fake/db)" in capsys.readouterr().out
 
 
+def test_build_strategy_store_ignores_users_database_url(monkeypatch, capsys):
+    """See the agent-store twin of this test (test_agent_store_postgres.py)."""
+    import dashboard.backend.domain.strategies.repository as strategies_module
+
+    monkeypatch.delenv("CONTENT_DATABASE_URL", raising=False)
+    monkeypatch.setenv("USERS_DATABASE_URL", "postgresql://fake/users")
+
+    store = strategies_module._build_strategy_store()
+
+    assert isinstance(store, strategies_module.StrategyStore)
+    assert (
+        "strategy_store backend: sqlite (ephemeral on Render)"
+        in capsys.readouterr().out
+    )
+
+
 def test_unreachable_postgres_strategy_store_raises_instead_of_falling_back():
     """Fail loud — see the agent-store twin of this test."""
     import psycopg
