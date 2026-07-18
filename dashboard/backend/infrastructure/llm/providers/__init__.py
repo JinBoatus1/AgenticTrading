@@ -23,6 +23,7 @@ from . import anthropic_native, commonstack, openrouter
 # optional-import side effects / print noise from the harness.
 try:
     from anthropic import Anthropic as _Anthropic
+
     HAS_ANTHROPIC = True
 except ImportError:  # pragma: no cover - exercised when SDK missing
     _Anthropic = None
@@ -58,7 +59,11 @@ def resolve_integration(integration: Optional[str] = None) -> str:
     return anthropic_native.INTEGRATION_ID
 
 
-def make_llm_client(integration: Optional[str] = None) -> Optional[Any]:
+def make_llm_client(
+    integration: Optional[str] = None,
+    *,
+    reasoning_effort: Optional[str] = None,
+) -> Optional[Any]:
     """Create an Anthropic-compatible client for the chosen integration.
 
     Returns ``None`` when the SDK is missing or the integration's API key is
@@ -67,6 +72,11 @@ def make_llm_client(integration: Optional[str] = None) -> Optional[Any]:
     if not HAS_ANTHROPIC or _Anthropic is None:
         return None
     resolved = resolve_integration(integration)
+    if resolved == openrouter.INTEGRATION_ID:
+        return openrouter.make_client(
+            _Anthropic,
+            reasoning_effort=reasoning_effort,
+        )
     return PROVIDERS[resolved].make_client(_Anthropic)
 
 

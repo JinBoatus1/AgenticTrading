@@ -82,6 +82,37 @@ def test_make_llm_client_openrouter_uses_openrouter_key(monkeypatch):
     assert captured["default_headers"]["X-Title"] == "ATL Test"
 
 
+def test_make_llm_client_passes_reasoning_only_to_openrouter(monkeypatch):
+    captured = {}
+
+    def _openrouter_client(anthropic_cls, *, reasoning_effort=None):
+        captured["openrouter"] = (anthropic_cls, reasoning_effort)
+        return "openrouter-client"
+
+    def _commonstack_client(anthropic_cls):
+        captured["commonstack"] = anthropic_cls
+        return "commonstack-client"
+
+    def _anthropic_client(anthropic_cls):
+        captured["anthropic"] = anthropic_cls
+        return "anthropic-client"
+
+    monkeypatch.setattr(openrouter, "make_client", _openrouter_client)
+    monkeypatch.setattr(commonstack, "make_client", _commonstack_client)
+    monkeypatch.setattr(anthropic_native, "make_client", _anthropic_client)
+
+    assert make_llm_client("openrouter", reasoning_effort="none") == "openrouter-client"
+    assert captured["openrouter"] == (providers_pkg._Anthropic, "none")
+
+    assert (
+        make_llm_client("commonstack", reasoning_effort="none") == "commonstack-client"
+    )
+    assert captured["commonstack"] is providers_pkg._Anthropic
+
+    assert make_llm_client("anthropic", reasoning_effort="none") == "anthropic-client"
+    assert captured["anthropic"] is providers_pkg._Anthropic
+
+
 def test_openrouter_messages_enable_medium_reasoning_by_default(monkeypatch):
     """Default maps medium → reasoning.max_tokens=2048 so JSON still fits."""
     monkeypatch.delenv("OPENROUTER_REASONING_EFFORT", raising=False)
@@ -97,6 +128,55 @@ def test_openrouter_messages_enable_medium_reasoning_by_default(monkeypatch):
     assert proxy.create(model="nvidia/nemotron-3-nano-30b-a3b", max_tokens=8000) == "ok"
     assert recorded["extra_body"]["reasoning"] == {"max_tokens": 2048, "enabled": True}
     assert recorded["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+
+
+def test_openrouter_instance_reasoning_overrides_environment(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_REASONING_EFFORT", "medium")
+    recorded = {}
+
+    class _Inner:
+        def create(self, **kwargs):
+            recorded.update(kwargs)
+            return "ok"
+
+    proxy = openrouter._OpenRouterMessages(_Inner(), reasoning_effort="none")
+    assert proxy.create(model="nvidia/nemotron-3-nano-30b-a3b") == "ok"
+    assert recorded["extra_body"]["reasoning"] == {
+        "effort": "none",
+        "enabled": False,
+        "exclude": True,
+    }
+    assert recorded["thinking"] == {"type": "disabled"}
+
+
+def test_openrouter_instances_keep_reasoning_overrides_isolated(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_REASONING_EFFORT", "high")
+    disabled_recorded = {}
+    medium_recorded = {}
+
+    class _Inner:
+        def __init__(self, recorder):
+            self.recorder = recorder
+
+        def create(self, **kwargs):
+            self.recorder.update(kwargs)
+            return "ok"
+
+    disabled = openrouter._OpenRouterMessages(
+        _Inner(disabled_recorded), reasoning_effort="none"
+    )
+    medium = openrouter._OpenRouterMessages(
+        _Inner(medium_recorded), reasoning_effort="medium"
+    )
+
+    assert disabled.create(model="nemotron") == "ok"
+    assert medium.create(model="nemotron") == "ok"
+
+    assert disabled_recorded["thinking"] == {"type": "disabled"}
+    assert medium_recorded["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 2048,
+    }
 
 
 def test_openrouter_messages_inject_reasoning_none_when_disabled(monkeypatch):
@@ -126,7 +206,9 @@ def test_openrouter_messages_respect_caller_reasoning(monkeypatch):
             return "ok"
 
     proxy = openrouter._OpenRouterMessages(_Inner())
-    proxy.create(extra_body={"reasoning": {"effort": "high"}}, thinking={"type": "enabled"})
+    proxy.create(
+        extra_body={"reasoning": {"effort": "high"}}, thinking={"type": "enabled"}
+    )
     assert recorded["extra_body"] == {"reasoning": {"effort": "high"}}
     assert recorded["thinking"] == {"type": "enabled"}
 

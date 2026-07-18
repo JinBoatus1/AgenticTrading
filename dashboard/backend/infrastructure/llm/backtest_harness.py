@@ -72,7 +72,11 @@ OPENROUTER_MODEL_NAME = openrouter.DEFAULT_MODEL
 OPENROUTER_BASE_URL = openrouter.base_url()
 
 
-def make_llm_client(integration: Optional[str] = None):
+def make_llm_client(
+    integration: Optional[str] = None,
+    *,
+    reasoning_effort: Optional[str] = None,
+):
     """Create an Anthropic-compatible client for trading decisions.
 
     ``integration`` selects a gateway (``commonstack``, ``openrouter``, or
@@ -81,7 +85,10 @@ def make_llm_client(integration: Optional[str] = None):
     ``None`` when the SDK or the chosen integration's key is unavailable, so
     callers fall back to rule-based trading.
     """
-    return _providers_make_llm_client(integration)
+    return _providers_make_llm_client(
+        integration,
+        reasoning_effort=reasoning_effort,
+    )
 
 
 def default_model_name(integration: Optional[str] = None) -> str:
