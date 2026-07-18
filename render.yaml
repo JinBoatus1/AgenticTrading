@@ -29,6 +29,12 @@ services:
       # CLAUDE.md "Prod deploy reality").
       - key: CONTENT_DATABASE_URL
         sync: false
+      # Durable Postgres for user accounts + sessions (users, auth_sessions).
+      # Content is separate: CONTENT_DATABASE_URL. Documentation only, same as
+      # above -- set in the Render dashboard, not synced from this yaml. A fully
+      # durable deploy sets BOTH, pointed at the same Neon DB.
+      - key: USERS_DATABASE_URL
+        sync: false
       - key: DISCORD_BOT_API_SECRET
         sync: false
       - key: DISCORD_CLIENT_ID

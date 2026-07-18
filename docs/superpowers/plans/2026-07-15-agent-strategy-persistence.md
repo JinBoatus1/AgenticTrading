@@ -2216,10 +2216,12 @@ Expected: no output (conftest isolates `DATABASE_PATH`; if the file shows as mod
 `capsys` proves the factory emitted something; it does not prove prod will show it. Prove that against the real server, since the whole fail-visible mitigation rests on it:
 
 ```bash
-timeout 10 ~/atl-venv/bin/python -m uvicorn dashboard.backend.app:app --port 8123 2>&1 | grep "backend:"
+PYTHONUNBUFFERED=1 timeout 10 ~/atl-venv/bin/python -m uvicorn dashboard.backend.app:app --port 8123 2>&1 | grep "backend:"
 ```
 
-Expected: four `<store> backend: sqlite (ephemeral on Render)` lines in the output (SQLite locally, since `CONTENT_DATABASE_URL` is unset). If nothing matches, someone converted a `print()` back into `logger.info()` and the mitigation is dead — that is a blocking regression, not a nit. (This is a manual check, not a test: a pytest that reconfigures global logging to simulate uvicorn would corrupt the rest of the session.)
+Expected: four `<store> backend: sqlite (ephemeral on Render)` lines (SQLite locally, since `CONTENT_DATABASE_URL` is unset). If nothing matches, someone converted a `print()` back into `logger.info()` and the mitigation is dead — a blocking regression, not a nit.
+
+**`PYTHONUNBUFFERED=1` is load-bearing here — do not drop it.** The factory `print()`s run at import time; piped to `grep`, Python's stdout is *block*-buffered (a TTY would be line-buffered), so those four short lines sit in the buffer and `timeout`'s SIGTERM discards them before they flush — **zero matches on perfectly healthy code**, a false alarm indistinguishable from the regression above. (uvicorn's own "Application startup complete" still shows, because that is its logger writing to stderr — which is what makes the false alarm so convincing.) The env var forces an unbuffered flush, and it is *also* how prod shows these lines at all: `render.yaml` sets `PYTHONUNBUFFERED: true`, so this check reproduces the prod condition instead of a misleading local one. (This is a manual check, not a test: a pytest that reconfigures global logging to simulate uvicorn would corrupt the rest of the session.)
 
 - [ ] **Step 6: Confirm CI is green *with the live tier actually running* — this is the gate**
 
