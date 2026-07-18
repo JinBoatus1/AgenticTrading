@@ -154,13 +154,15 @@ def test_create_widens_code_space_after_20_collisions_postgres(
     pg_strategy_store, monkeypatch
 ):
     import dashboard.backend.domain.strategies.repository_postgres as strategies_pg_module
+    from dashboard.backend.domain.strategies.repository import _CODE_LENGTH
 
     first = pg_strategy_store.create(prompt="first strategy")
 
-    calls = {"n": 0}
+    calls = {"n": 0, "nbytes": []}
 
     def fake_token_hex(nbytes):
         calls["n"] += 1
+        calls["nbytes"].append(nbytes)
         if calls["n"] <= 20:
             return first["code"]
         return "w" * 16
@@ -170,6 +172,11 @@ def test_create_widens_code_space_after_20_collisions_postgres(
     second = pg_strategy_store.create(prompt="second strategy")
     assert second["code"] == "w" * 16
     assert calls["n"] == 21
+    # #137 gap 5: the 20 narrow attempts request _CODE_LENGTH // 2 bytes; only the
+    # widened 21st requests the full _CODE_LENGTH. Swapping the two call sites is
+    # otherwise invisible -- both still produce a valid code.
+    assert calls["nbytes"][:20] == [_CODE_LENGTH // 2] * 20
+    assert calls["nbytes"][20] == _CODE_LENGTH
 
 
 @pg_only

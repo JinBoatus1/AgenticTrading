@@ -259,6 +259,166 @@ def test_builtin_listing_and_delete_postgres(pg_agent_store):
     assert pg_agent_store.get_agent(builtin["agent_id"]) is None
 
 
+@pg_only
+def test_agent_schema_lazily_migrates_an_old_table_postgres(pg_agent_store):
+    """#135: the twin must ADD COLUMN IF NOT EXISTS for post-ship columns.
+
+    Simulate a deployment created before the five lazy-migration columns
+    (agent_type, description, pipeline_config, cash_allocation, scopes) existed:
+    a table with only the original base schema. Re-running _init_schema() -- what
+    every redeploy does -- must bring it up to the current shape. CREATE TABLE IF
+    NOT EXISTS no-ops on the existing table, so without an ALTER path the columns
+    never appear and the first real create_agent (which names them) raises
+    UndefinedColumn: exactly the silent prod-500 this issue describes.
+    """
+    from dashboard.backend.domain.agents.repository_postgres import PostgresAgentStore
+
+    with pg_agent_store._get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS external_agents CASCADE")
+            cur.execute(
+                """
+                CREATE TABLE external_agents (
+                    agent_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    session_id TEXT NOT NULL UNIQUE,
+                    api_key_hash TEXT NOT NULL UNIQUE,
+                    api_key_prefix TEXT NOT NULL,
+                    model_name TEXT NOT NULL DEFAULT 'local-model',
+                    owner_user_id INTEGER,
+                    owner_browser_session TEXT,
+                    created_at TEXT,
+                    last_used_at TEXT
+                )
+                """
+            )
+
+    # A redeploy re-runs _init_schema() against the existing "old" table.
+    PostgresAgentStore(TEST_POSTGRES_URL)
+
+    with pg_agent_store._get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'external_agents'"
+            )
+            columns = {r["column_name"] for r in cur.fetchall()}
+    assert {
+        "agent_type",
+        "description",
+        "pipeline_config",
+        "cash_allocation",
+        "scopes",
+    } <= columns
+
+    # The store is actually usable after the migration: a real registration
+    # writes every migrated column, and the scopes column default applies.
+    created = pg_agent_store.create_agent(name="Post-migration", cash_allocation=123.0)
+    assert created["cash_allocation"] == 123.0
+
+
+@pg_only
+def test_claim_and_reclaim_agent_postgres(pg_agent_store):
+    """#137 gap 1: claim_agent / reclaim_agent had zero Postgres coverage.
+
+    claim_agent COALESCEs owner_browser_session (a None arg keeps the stored
+    one); reclaim_agent overwrites it unconditionally. Swapping those two
+    semantics is the mutation this pins.
+    """
+    created = pg_agent_store.create_agent(
+        name="Claimable2", owner_browser_session="bs_old"
+    )
+
+    pg_agent_store.claim_agent(created["agent_id"], owner_user_id=7)
+    assert pg_agent_store.owns_agent(created, owner_user_id=7) is True
+    # COALESCE kept the original browser session (no owner_browser_session arg).
+    assert pg_agent_store.owns_agent(created, owner_browser_session="bs_old") is True
+
+    pg_agent_store.reclaim_agent(created["agent_id"], owner_browser_session="bs_new")
+    # reclaim overwrote it: the new session matches, the old one no longer does.
+    assert pg_agent_store.owns_agent(created, owner_browser_session="bs_new") is True
+    assert pg_agent_store.owns_agent(created, owner_browser_session="bs_old") is False
+    # The user binding from claim survives reclaim (owner_user_id is COALESCEd).
+    assert pg_agent_store.owns_agent(created, owner_user_id=7) is True
+
+
+@pg_only
+def test_create_agent_stores_default_scopes_verbatim_postgres(pg_agent_store):
+    """#137 gap 2: scopes is an authorization surface with no @pg_only assertion.
+
+    create_agent omits scopes from its INSERT, so the column DEFAULT fills it.
+    Read the raw column, not the public dict: _public_agent does
+    ``data.get("scopes") or DEFAULT_SCOPES``, so an empty/dropped default is
+    masked back to DEFAULT_SCOPES in the public view -- only the stored value
+    proves the column default itself is right.
+    """
+    from dashboard.backend.domain.agents.repository import DEFAULT_SCOPES
+
+    created = pg_agent_store.create_agent(name="Scoped")  # no scopes passed
+    with pg_agent_store._get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT scopes FROM external_agents WHERE agent_id = %s",
+                (created["agent_id"],),
+            )
+            raw = cur.fetchone()["scopes"]
+    assert raw == DEFAULT_SCOPES
+
+
+@pg_only
+def test_resolve_api_key_touches_last_used_at_postgres(pg_agent_store, monkeypatch):
+    """#137 gap 3: touch-on-use was only asserted `is not None`.
+
+    create_agent already sets last_used_at non-None, so a dropped touch-on-use
+    UPDATE in resolve_api_key would go uncaught. Force a distinct, strictly-later
+    timestamp so the assertion can't hide behind 1-second timestamp resolution
+    (create and resolve otherwise land in the same second).
+    """
+    import dashboard.backend.domain.agents.repository_postgres as repo_pg
+
+    created = pg_agent_store.create_agent(name="Toucher")
+    before = pg_agent_store.get_agent(created["agent_id"])["last_used_at"]
+
+    monkeypatch.setattr(repo_pg, "_utcnow_iso", lambda: "2099-01-01T00:00:00+00:00")
+    pg_agent_store.resolve_api_key(created["api_key"])
+
+    after = pg_agent_store.get_agent(created["agent_id"])["last_used_at"]
+    assert after == "2099-01-01T00:00:00+00:00"
+    assert after != before
+
+
+@pg_only
+def test_listings_order_newest_first_postgres(pg_agent_store, monkeypatch):
+    """#137 gap 4: nothing exercised ORDER BY on list_agents / list_builtin_agents.
+
+    Both queries are ``ORDER BY created_at DESC``; an ASC/DESC swap in either was
+    invisible. Feed monotonically increasing created_at values -- 1s resolution
+    would otherwise make same-second ties non-deterministic.
+    """
+    import dashboard.backend.domain.agents.repository_postgres as repo_pg
+
+    times = iter([f"2020-01-0{n}T00:00:00+00:00" for n in range(1, 7)])
+    monkeypatch.setattr(repo_pg, "_utcnow_iso", lambda: next(times))
+
+    a = pg_agent_store.create_agent(name="A", owner_user_id=99)
+    b = pg_agent_store.create_agent(name="B", owner_user_id=99)
+    c = pg_agent_store.create_agent(name="C", owner_user_id=99)
+    assert [x["agent_id"] for x in pg_agent_store.list_agents(owner_user_id=99)] == [
+        c["agent_id"],
+        b["agent_id"],
+        a["agent_id"],
+    ]
+
+    d = pg_agent_store.create_agent(name="D", agent_type="builtin")
+    e = pg_agent_store.create_agent(name="E", agent_type="builtin")
+    f = pg_agent_store.create_agent(name="F", agent_type="builtin")
+    assert [x["agent_id"] for x in pg_agent_store.list_builtin_agents()] == [
+        f["agent_id"],
+        e["agent_id"],
+        d["agent_id"],
+    ]
+
+
 # --- dispatch tests (agent version store) ------------------------------------
 
 def test_build_agent_version_store_defaults_to_sqlite(monkeypatch, capsys):

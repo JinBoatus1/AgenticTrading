@@ -47,10 +47,14 @@ class PostgresAgentStore:
         # would raise UndefinedColumn -- 500ing this whole surface while /health
         # stays green. Nothing catches it first: the SQLite tier is the default
         # in tests, and CI's Postgres service container is empty on every run,
-        # so the @pg_only tier only ever exercises the CREATE path, never the
-        # migrate path. The columns below fold in the SQLite store's five lazy
-        # ALTERs because this table starts empty; that is why there is no
-        # migration here yet. users_postgres.py has the pattern to copy.
+        # so the @pg_only tier only ever exercises the CREATE path -- except
+        # test_agent_schema_lazily_migrates_an_old_table_postgres, which recreates
+        # the pre-migration table to force the migrate path. The five ALTER ...
+        # ADD COLUMN IF NOT EXISTS statements below re-add the columns the SQLite
+        # store accreted as lazy migrations, so a deployment whose table predates
+        # them is brought up to shape on the next boot; on a fresh or current
+        # table they no-op. Add the next column the same way (Postgres supports
+        # ADD COLUMN IF NOT EXISTS natively; users_postgres.py has the pattern).
         with self._get_connection() as conn:
             with conn.cursor() as cur:
                 # owner_user_id is deliberately a plain INTEGER with no FK to
@@ -79,6 +83,29 @@ class PostgresAgentStore:
                         cash_allocation DOUBLE PRECISION
                     )
                     """
+                )
+                # Lazy migrations for a table created before these columns
+                # existed (mirrors the SQLite store's five post-ship ALTERs).
+                # Each no-ops on a fresh or already-current table. Must run
+                # before idx_external_agents_type, which indexes agent_type.
+                cur.execute(
+                    "ALTER TABLE external_agents "
+                    "ADD COLUMN IF NOT EXISTS agent_type TEXT NOT NULL DEFAULT 'external'"
+                )
+                cur.execute(
+                    "ALTER TABLE external_agents ADD COLUMN IF NOT EXISTS description TEXT"
+                )
+                cur.execute(
+                    "ALTER TABLE external_agents "
+                    "ADD COLUMN IF NOT EXISTS pipeline_config TEXT"
+                )
+                cur.execute(
+                    "ALTER TABLE external_agents "
+                    "ADD COLUMN IF NOT EXISTS cash_allocation DOUBLE PRECISION"
+                )
+                cur.execute(
+                    "ALTER TABLE external_agents "
+                    f"ADD COLUMN IF NOT EXISTS scopes TEXT NOT NULL DEFAULT '{DEFAULT_SCOPES}'"
                 )
                 cur.execute(
                     """
