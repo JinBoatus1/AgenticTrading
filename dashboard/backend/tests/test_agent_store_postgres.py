@@ -6,7 +6,7 @@ Two tiers, mirroring test_users_postgres.py:
 2. Behavioral tests against a real Postgres - skipped unless
    TEST_POSTGRES_URL is set. Point it at a throwaway database, e.g.:
      docker run --rm -e POSTGRES_PASSWORD=test -e POSTGRES_DB=atl_test \
-       -p 5433:5432 postgres:16-alpine
+       -p 5433:5432 postgres:18-alpine
      export TEST_POSTGRES_URL=postgresql://postgres:test@localhost:5433/atl_test
 
 Do NOT copy the raw-SQL fixture pattern from test_v2_http_runs.py /
