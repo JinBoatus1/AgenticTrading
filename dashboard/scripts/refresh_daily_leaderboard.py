@@ -4,6 +4,13 @@
 1. Recomputes cheap baselines (indices + rule-based strategies) for the daily window.
 2. Optionally redeploys every ``llm_agent`` entry (real API calls — pass ``--models``).
 
+NOTE: nothing in this repo runs this script automatically yet — there is no cron
+or CI schedule wired up. Until one exists, the daily board shows baselines and
+index lines only (those recompute on load); LLM entries will not appear. It must
+also run somewhere that writes the *live* leaderboard DB: on the current
+free-tier Render deploy that DB is ephemeral (no persistent disk), so a schedule
+that runs off-instance won't reach prod without a persistent/shared DB.
+
 Schedule nightly after US market close, e.g.:
 
     # Baselines only (cheap):

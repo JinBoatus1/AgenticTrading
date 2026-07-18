@@ -269,3 +269,50 @@ def test_ensure_leaderboard_runs_skips_refetch_after_empty_curve(tmp_path, monke
     assert second.get("cache_hit") is True
     assert second["created"] == 0
     assert fetch_calls["n"] == 1  # no second Alpaca pull
+
+
+def test_prune_stale_window_skips_bounds_daily_sidecar(tmp_path, monkeypatch):
+    """Rolling daily windows must not accumulate skip entries forever."""
+    import json as _json
+
+    monkeypatch.setattr(lb_service, "_SKIP_CACHE_PATH", tmp_path / "skips.json")
+
+    cache = {
+        # stale daily windows — should be dropped
+        "leaderboard-daily|2026-07-10|2026-07-10|mean_variance_djia": "empty_curve",
+        "leaderboard-daily|2026-07-13|2026-07-13|mean_variance_djia": "no_bars",
+        # current daily window — must be kept
+        "leaderboard-daily|2026-07-14|2026-07-14|mean_variance_djia": "empty_curve",
+        # a different session (contest) — must always be kept
+        "leaderboard|2025-01-01|2025-03-31|mean_variance_djia": "no_bars",
+    }
+
+    kept = lb_service._prune_stale_window_skips(
+        "leaderboard-daily", "2026-07-14", "2026-07-14", cache
+    )
+
+    assert set(kept) == {
+        "leaderboard-daily|2026-07-14|2026-07-14|mean_variance_djia",
+        "leaderboard|2025-01-01|2025-03-31|mean_variance_djia",
+    }
+    # the reduced set was persisted to disk
+    on_disk = _json.loads((tmp_path / "skips.json").read_text(encoding="utf-8"))
+    assert set(on_disk) == set(kept)
+
+
+def test_prune_stale_window_skips_noop_for_fixed_window(tmp_path, monkeypatch):
+    """A fixed-window (contest) board has no other-window keys under its session,
+    so nothing is pruned and no needless disk write happens."""
+    monkeypatch.setattr(lb_service, "_SKIP_CACHE_PATH", tmp_path / "skips.json")
+
+    cache = {
+        "leaderboard|2025-01-01|2025-03-31|mean_variance_djia": "no_bars",
+        # a daily entry is a *different* session (the trailing '|' guards against
+        # the "leaderboard" prefix matching "leaderboard-daily") → preserved.
+        "leaderboard-daily|2026-07-13|2026-07-13|mean_variance_djia": "empty_curve",
+    }
+    kept = lb_service._prune_stale_window_skips(
+        "leaderboard", "2025-01-01", "2025-03-31", dict(cache)
+    )
+    assert kept == cache  # unchanged
+    assert not (tmp_path / "skips.json").exists()  # no write when nothing pruned

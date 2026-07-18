@@ -150,7 +150,7 @@ def isolated_service(tmp_path, monkeypatch):
     monkeypatch.setattr(
         canon_service,
         "ensure_leaderboard_runs",
-        lambda force_refresh=False: {
+        lambda force_refresh=False, period="contest", config=None: {
             "session_id": _CONFIG["session_id"],
             "start_date": _CONFIG["start_date"],
             "end_date": _CONFIG["end_date"],
@@ -194,7 +194,10 @@ def test_get_leaderboard_schema_and_ranking(isolated_service):
     result = canon_service.get_leaderboard()
     assert set(result.keys()) == {
         "window", "updated_at", "total_entries", "leader", "entries", "display_capital",
+        # period + board labelling fields (contest vs daily)
+        "period", "board_title", "phase_label", "standings_label",
     }
+    assert result["period"] == "contest"
     assert result["total_entries"] == 2
     assert result["window"]["label"] == "2026-04-15 → 2026-05-15"
     assert result["display_capital"] == 100000

@@ -11,6 +11,8 @@ moved.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -68,6 +70,10 @@ def _normalize_period(period: Optional[str]) -> str:
 
 def daily_window_dates(as_of: Optional[date] = None) -> Tuple[str, str]:
     """Most recently completed weekday (Mon–Fri), used as the daily board window."""
+    # UTC "yesterday" is intentionally conservative: for the ~4h between a
+    # weekday's 16:00 ET close and 00:00 UTC the board still shows the prior
+    # completed session rather than a partial/in-progress one. Same-day
+    # freshness is driven by the nightly deploy job, not this boundary.
     d = as_of or datetime.now(timezone.utc).date()
     d = d - timedelta(days=1)
     while d.weekday() >= 5:  # Sat/Sun → roll back to Friday
@@ -96,7 +102,7 @@ def resolve_leaderboard_config(period: Optional[str] = "contest") -> Dict[str, A
             "reference_start_date": reference_start_date(start_date, None),
             "description": (
                 f"Daily leaderboard for {start_date} (last completed US weekday). "
-                "Baselines recompute on load; LLM models are refreshed by the daily deploy job."
+                "Baselines recompute on load; LLM entries appear once the daily deploy job runs."
             ),
             "period": "daily",
             "board_title": "Daily Leaderboard",
@@ -110,7 +116,6 @@ def resolve_leaderboard_config(period: Optional[str] = "contest") -> Dict[str, A
         "phase_label": "Preseason",
         "standings_label": "Preseason Standings",
     }
-
 
 
 def _run_id(strategy_id: str, start_date: str, end_date: str) -> str:
@@ -133,9 +138,30 @@ def _load_skip_cache() -> Dict[str, str]:
 
 
 def _save_skip_cache(cache: Dict[str, str]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(_SKIP_CACHE_PATH, "w", encoding="utf-8") as f:
-        json.dump(cache, f, indent=2, sort_keys=True)
+    """Persist the skip cache.
+
+    Best-effort optimization only: this sidecar just avoids re-fetching a
+    baseline already known to be uncomputable for a window. Concurrent writers
+    race last-write-wins, and a lost write merely costs one extra recompute
+    (``_load_skip_cache`` already tolerates a missing/corrupt file). We still
+    write to a unique temp file and ``os.replace`` so a crash mid-write can
+    never leave a truncated, unparseable JSON file behind for readers.
+    """
+    # The temp file must sit in the destination's own directory so os.replace
+    # is an atomic same-filesystem rename (a cross-device rename raises OSError).
+    dest_dir = _SKIP_CACHE_PATH.parent
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(dest_dir), prefix=".skip_cache_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2, sort_keys=True)
+        os.replace(tmp, _SKIP_CACHE_PATH)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _is_skipped(
@@ -162,6 +188,31 @@ def _clear_skips_for_window(
 ) -> Dict[str, str]:
     prefix = f"{session_id}|{start_date}|{end_date}|"
     kept = {k: v for k, v in cache.items() if not k.startswith(prefix)}
+    if len(kept) != len(cache):
+        _save_skip_cache(kept)
+    return kept
+
+
+def _prune_stale_window_skips(
+    session_id: str, start_date: str, end_date: str, cache: Dict[str, str]
+) -> Dict[str, str]:
+    """Drop skip entries for *earlier* windows of this same session.
+
+    The daily board's window rolls every trading day, so yesterday's
+    ``leaderboard-daily|<old-window>|...`` keys are dead the moment the window
+    advances. Without pruning, the sidecar would gain one entry per failing
+    baseline per day forever (a slow leak on a persistent disk). For a
+    fixed-window board like the contest there are no other-window keys under
+    its ``session_id``, so this is a no-op there. Entries from *other* sessions
+    are always preserved.
+    """
+    session_prefix = f"{session_id}|"
+    current_prefix = f"{session_id}|{start_date}|{end_date}|"
+    kept = {
+        k: v
+        for k, v in cache.items()
+        if not k.startswith(session_prefix) or k.startswith(current_prefix)
+    }
     if len(kept) != len(cache):
         _save_skip_cache(kept)
     return kept
@@ -231,6 +282,9 @@ def ensure_leaderboard_runs(
     end_date = config["end_date"]
     initial_capital = float(config.get("initial_capital", INITIAL_CAPITAL))
     skip_cache = _load_skip_cache()
+    # Bound the sidecar: forget skip entries for now-stale windows of this
+    # rolling board before doing anything else (no-op for fixed-window boards).
+    skip_cache = _prune_stale_window_skips(session_id, start_date, end_date, skip_cache)
     if force_refresh:
         skip_cache = _clear_skips_for_window(session_id, start_date, end_date, skip_cache)
 

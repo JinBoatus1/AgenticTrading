@@ -70,6 +70,7 @@
     html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="leaderboard"] .competition-subtabs [data-competition-tab="leaderboard"],
     html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="participants"] .competition-subtabs [data-competition-tab="participants"],
     html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="about"] .competition-subtabs [data-competition-tab="about"] { background: var(--info-color); color: white; }
+    html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="daily"] #leaderboardView,
     html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="leaderboard"] #leaderboardView { display: flex !important; }
     html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="participants"] #competitionParticipantsPanel { display: block !important; }
     html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="about"] #competitionAboutPanel { display: block !important; }
@@ -1265,7 +1266,7 @@
                 </div>
                 <div class="section-card">
                     <h3 class="section-title">Daily Leaderboard</h3>
-                    <p class="about-text">The Daily Leaderboard is the same chart + standings UI as Competition, but each entry is an hourly backtest over the <strong>last completed US weekday</strong>. Baselines refresh automatically; LLM models are redeployed by the daily job so the board updates every trading day.</p>
+                    <p class="about-text">The Daily Leaderboard is the same chart + standings UI as Competition, but each entry is an hourly backtest over the <strong>last completed US weekday</strong>. Baseline and index lines refresh automatically on load. LLM entries are added when the daily deploy job runs.</p>
                 </div>
                 <div class="section-card">
                     <h3 class="section-title">Competition Leaderboard</h3>
