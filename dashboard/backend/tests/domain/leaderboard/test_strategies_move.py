@@ -5,9 +5,15 @@ package and characterizes registry lookup, aliases, and unknown-strategy
 behavior.
 """
 
+import json
+
 import pytest
 
+from dashboard.backend.paths import CONFIG_DIR
 from dashboard.backend.domain.leaderboard import strategies as canon
+from dashboard.backend.domain.leaderboard.strategies import (
+    llm_agent as llm_agent_module,
+)
 from dashboard.backend.domain.leaderboard.strategies.base import BaselineStrategy
 from dashboard.backend.domain.leaderboard.strategies.buy_hold import BuyHoldStrategy
 from dashboard.backend.domain.leaderboard.strategies.equal_weight_buyhold import (
@@ -80,3 +86,64 @@ def test_required_symbols_defaults_and_overrides():
     assert custom == ["AAPL", "MSFT"]
     # market_index excludes ^-prefixed index symbols from the Alpaca fetch.
     assert MarketIndexStrategy({"symbols": ["^DJI"]}).required_symbols() == []
+
+
+def test_llm_agent_passes_model_reasoning_to_client_factory(monkeypatch):
+    captured = {}
+    expected_client = object()
+
+    def _fake_factory(integration=None, *, reasoning_effort=None):
+        captured["integration"] = integration
+        captured["reasoning_effort"] = reasoning_effort
+        return expected_client
+
+    monkeypatch.setattr(llm_agent_module, "HAS_ANTHROPIC", True)
+    monkeypatch.setattr(llm_agent_module, "make_llm_client", _fake_factory)
+
+    strategy = LLMAgentStrategy(
+        {
+            "integration": "openrouter",
+            "reasoning_effort": "none",
+        }
+    )
+
+    assert strategy.reasoning_effort == "none"
+    assert strategy._make_client() is expected_client
+    assert captured == {
+        "integration": "openrouter",
+        "reasoning_effort": "none",
+    }
+
+
+def test_llm_agent_without_reasoning_keeps_legacy_factory_behavior(monkeypatch):
+    captured = {}
+
+    def _fake_factory(integration=None, *, reasoning_effort=None):
+        captured["integration"] = integration
+        captured["reasoning_effort"] = reasoning_effort
+        return object()
+
+    monkeypatch.setattr(llm_agent_module, "HAS_ANTHROPIC", True)
+    monkeypatch.setattr(llm_agent_module, "make_llm_client", _fake_factory)
+
+    strategy = LLMAgentStrategy({"integration": "commonstack"})
+    strategy._make_client()
+
+    assert strategy.reasoning_effort is None
+    assert captured == {
+        "integration": "commonstack",
+        "reasoning_effort": None,
+    }
+
+
+def test_only_nemotron_leaderboard_entry_disables_reasoning():
+    config = json.loads((CONFIG_DIR / "leaderboard.json").read_text(encoding="utf-8"))
+    strategies = config["strategies"]
+    nemotron = next(s for s in strategies if s["id"] == "nemotron_3_nano_30b")
+
+    assert nemotron["reasoning_effort"] == "none"
+    assert all(
+        "reasoning_effort" not in strategy
+        for strategy in strategies
+        if strategy["id"] != "nemotron_3_nano_30b"
+    )

@@ -138,6 +138,7 @@
       "strategy": "llm_agent",
       "integration": "openrouter",
       "model_id": "nvidia/nemotron-3-nano-30b-a3b",
+      "reasoning_effort": "none",
       "mode": "safe_trading",
       "symbols": [],
       "auto_compute": false

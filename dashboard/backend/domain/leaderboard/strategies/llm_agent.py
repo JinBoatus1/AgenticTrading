@@ -41,6 +41,7 @@ class LLMAgentStrategy(BaselineStrategy):
         # Gateway selection: "commonstack" | "openrouter" | "anthropic".
         # Omitted → env auto-detect (CommonStack key prefers CommonStack).
         self.integration = self.config.get("integration")
+        self.reasoning_effort = self.config.get("reasoning_effort")
         # Populated during run() for reporting / cost tracking.
         self.llm_calls = 0
         self.llm_decisions = 0  # steps the model actually drove (H6 guard numerator)
@@ -58,7 +59,10 @@ class LLMAgentStrategy(BaselineStrategy):
         if not HAS_ANTHROPIC:
             print("⚠️  Anthropic SDK unavailable — llm_agent falls back to rule-based.")
             return None
-        client = make_llm_client(self.integration)
+        client = make_llm_client(
+            self.integration,
+            reasoning_effort=self.reasoning_effort,
+        )
         if client is None:
             chosen = self.integration or "auto"
             print(
