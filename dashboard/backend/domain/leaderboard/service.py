@@ -11,8 +11,10 @@ moved.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+import os
+import tempfile
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 import dashboard.backend.infrastructure.llm.token_cost as token_cost
 from dashboard.backend.database import db
@@ -26,9 +28,11 @@ from dashboard.backend.domain.leaderboard.baselines import (
 )
 from dashboard.backend.domain.leaderboard.strategies._common import reference_start_date
 from dashboard.backend.domain.leaderboard.strategies import get_strategy
-from dashboard.backend.paths import CONFIG_DIR
+from dashboard.backend.paths import CONFIG_DIR, DATA_DIR
 
 LEADERBOARD_MODE = "leaderboard"
+VALID_PERIODS = ("contest", "daily")
+_SKIP_CACHE_PATH = DATA_DIR / "leaderboard_skip_cache.json"
 
 # H6 integrity threshold: an LLM entry must have decided at least this fraction
 # of its steps with the model itself. Below it, the curve is mostly a rule-based
@@ -59,8 +63,159 @@ def load_leaderboard_config() -> Dict[str, Any]:
         return json.load(f)
 
 
+def _normalize_period(period: Optional[str]) -> str:
+    value = (period or "contest").strip().lower()
+    return value if value in VALID_PERIODS else "contest"
+
+
+def daily_window_dates(as_of: Optional[date] = None) -> Tuple[str, str]:
+    """Most recently completed weekday (Mon–Fri), used as the daily board window."""
+    # UTC "yesterday" is intentionally conservative: for the ~4h between a
+    # weekday's 16:00 ET close and 00:00 UTC the board still shows the prior
+    # completed session rather than a partial/in-progress one. Same-day
+    # freshness is driven by the nightly deploy job, not this boundary.
+    d = as_of or datetime.now(timezone.utc).date()
+    d = d - timedelta(days=1)
+    while d.weekday() >= 5:  # Sat/Sun → roll back to Friday
+        d -= timedelta(days=1)
+    iso = d.isoformat()
+    return iso, iso
+
+
+def resolve_leaderboard_config(period: Optional[str] = "contest") -> Dict[str, Any]:
+    """Return the effective leaderboard config for ``contest`` or ``daily``.
+
+    Daily reuses the same strategy roster as the contest board, but caches under
+    a separate session and a rolling 1-day (last completed weekday) window.
+    """
+    base = load_leaderboard_config()
+    period_key = _normalize_period(period)
+    if period_key == "daily":
+        start_date, end_date = daily_window_dates()
+        # Drop fixed contest reference so mean-variance gets a fresh prior month.
+        daily_base = {k: v for k, v in base.items() if k != "reference_start_date"}
+        return {
+            **daily_base,
+            "session_id": base.get("daily_session_id", "leaderboard-daily"),
+            "start_date": start_date,
+            "end_date": end_date,
+            "reference_start_date": reference_start_date(start_date, None),
+            "description": (
+                f"Daily leaderboard for {start_date} (last completed US weekday). "
+                "Baselines recompute on load; LLM entries appear once the daily deploy job runs."
+            ),
+            "period": "daily",
+            "board_title": "Daily Leaderboard",
+            "phase_label": "Daily",
+            "standings_label": "Daily Standings",
+        }
+    return {
+        **base,
+        "period": "contest",
+        "board_title": "Competition Leaderboard",
+        "phase_label": "Preseason",
+        "standings_label": "Preseason Standings",
+    }
+
+
 def _run_id(strategy_id: str, start_date: str, end_date: str) -> str:
     return f"lb_{strategy_id}_{start_date.replace('-', '')}_{end_date.replace('-', '')}"
+
+
+def _skip_cache_key(session_id: str, start_date: str, end_date: str, strategy_id: str) -> str:
+    return f"{session_id}|{start_date}|{end_date}|{strategy_id}"
+
+
+def _load_skip_cache() -> Dict[str, str]:
+    if not _SKIP_CACHE_PATH.exists():
+        return {}
+    try:
+        with open(_SKIP_CACHE_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_skip_cache(cache: Dict[str, str]) -> None:
+    """Persist the skip cache.
+
+    Best-effort optimization only: this sidecar just avoids re-fetching a
+    baseline already known to be uncomputable for a window. Concurrent writers
+    race last-write-wins, and a lost write merely costs one extra recompute
+    (``_load_skip_cache`` already tolerates a missing/corrupt file). We still
+    write to a unique temp file and ``os.replace`` so a crash mid-write can
+    never leave a truncated, unparseable JSON file behind for readers.
+    """
+    # The temp file must sit in the destination's own directory so os.replace
+    # is an atomic same-filesystem rename (a cross-device rename raises OSError).
+    dest_dir = _SKIP_CACHE_PATH.parent
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(dest_dir), prefix=".skip_cache_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2, sort_keys=True)
+        os.replace(tmp, _SKIP_CACHE_PATH)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _is_skipped(
+    session_id: str, start_date: str, end_date: str, strategy_id: str, cache: Dict[str, str]
+) -> bool:
+    return _skip_cache_key(session_id, start_date, end_date, strategy_id) in cache
+
+
+def _record_skip(
+    session_id: str,
+    start_date: str,
+    end_date: str,
+    strategy_id: str,
+    reason: str,
+    cache: Dict[str, str],
+) -> None:
+    """Remember an uncomputable baseline for this window so we don't refetch daily."""
+    cache[_skip_cache_key(session_id, start_date, end_date, strategy_id)] = reason
+    _save_skip_cache(cache)
+
+
+def _clear_skips_for_window(
+    session_id: str, start_date: str, end_date: str, cache: Dict[str, str]
+) -> Dict[str, str]:
+    prefix = f"{session_id}|{start_date}|{end_date}|"
+    kept = {k: v for k, v in cache.items() if not k.startswith(prefix)}
+    if len(kept) != len(cache):
+        _save_skip_cache(kept)
+    return kept
+
+
+def _prune_stale_window_skips(
+    session_id: str, start_date: str, end_date: str, cache: Dict[str, str]
+) -> Dict[str, str]:
+    """Drop skip entries for *earlier* windows of this same session.
+
+    The daily board's window rolls every trading day, so yesterday's
+    ``leaderboard-daily|<old-window>|...`` keys are dead the moment the window
+    advances. Without pruning, the sidecar would gain one entry per failing
+    baseline per day forever (a slow leak on a persistent disk). For a
+    fixed-window board like the contest there are no other-window keys under
+    its ``session_id``, so this is a no-op there. Entries from *other* sessions
+    are always preserved.
+    """
+    session_prefix = f"{session_id}|"
+    current_prefix = f"{session_id}|{start_date}|{end_date}|"
+    kept = {
+        k: v
+        for k, v in cache.items()
+        if not k.startswith(session_prefix) or k.startswith(current_prefix)
+    }
+    if len(kept) != len(cache):
+        _save_skip_cache(kept)
+    return kept
 
 
 def _find_cached_run(strategy_id: str, start_date: str, end_date: str, session_id: str) -> Optional[Dict[str, Any]]:
@@ -109,24 +264,55 @@ def _config_needs_mean_variance(config: Dict[str, Any]) -> bool:
     return False
 
 
-def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
-    """Compute and persist leaderboard baselines if missing."""
-    config = load_leaderboard_config()
+def ensure_leaderboard_runs(
+    force_refresh: bool = False,
+    period: Optional[str] = "contest",
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Compute and persist leaderboard baselines if missing.
+
+    Successful runs are cached in SQLite. Strategies that fail for a given
+    window (empty curve / no bars) are recorded in a small skip cache so a
+    broken baseline like mean-variance cannot force an Alpaca refetch on every
+    page load — especially important for the daily board ("once per day").
+    """
+    config = config or resolve_leaderboard_config(period)
     session_id = config["session_id"]
     start_date = config["start_date"]
     end_date = config["end_date"]
     initial_capital = float(config.get("initial_capital", INITIAL_CAPITAL))
+    skip_cache = _load_skip_cache()
+    # Bound the sidecar: forget skip entries for now-stale windows of this
+    # rolling board before doing anything else (no-op for fixed-window boards).
+    skip_cache = _prune_stale_window_skips(session_id, start_date, end_date, skip_cache)
+    if force_refresh:
+        skip_cache = _clear_skips_for_window(session_id, start_date, end_date, skip_cache)
 
-    needs_fetch = force_refresh
+    missing: List[Dict[str, Any]] = []
     for strategy in config.get("strategies", []):
         if not _auto_compute(strategy):
             continue  # LLM models are deployed manually, never block a request
-        if force_refresh:
+        strategy_id = strategy["id"]
+        if not force_refresh and _find_cached_run(strategy_id, start_date, end_date, session_id):
             continue
-        if not _find_cached_run(strategy["id"], start_date, end_date, session_id):
-            needs_fetch = True
-            break
+        if not force_refresh and _is_skipped(session_id, start_date, end_date, strategy_id, skip_cache):
+            continue
+        missing.append(strategy)
 
+    # Nothing left to compute — serve cached board without touching Alpaca.
+    if not missing and not force_refresh:
+        return {
+            "session_id": session_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "period": config.get("period", "contest"),
+            "created": 0,
+            "skipped": 0,
+            "refreshed_at": _utcnow_iso(),
+            "cache_hit": True,
+        }
+
+    needs_fetch = bool(missing) or force_refresh
     bars_by_symbol: Optional[Dict[str, Any]] = None
     if needs_fetch:
         if _config_needs_alpaca(config):
@@ -145,7 +331,9 @@ def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
 
     created = 0
     skipped = 0
-    for strategy in config.get("strategies", []):
+    # Only iterate strategies that still need work (or everything on force refresh).
+    to_run = config.get("strategies", []) if force_refresh else missing
+    for strategy in to_run:
         strategy_id = strategy["id"]
         if not _auto_compute(strategy):
             continue  # deployed via deploy_model_run(), not on-demand
@@ -164,12 +352,18 @@ def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
 
         if required and not bars:
             print(f"⚠️ Skipping {strategy_id}: no Alpaca bars for contest window")
+            _record_skip(
+                session_id, start_date, end_date, strategy_id, "no_bars", skip_cache
+            )
             skipped += 1
             continue
 
         curve = strategy_impl.run(bars, start_date, end_date, initial_capital)
         if not curve:
             print(f"⚠️ Skipping {strategy_id}: empty equity curve")
+            _record_skip(
+                session_id, start_date, end_date, strategy_id, "empty_curve", skip_cache
+            )
             skipped += 1
             continue
 
@@ -212,9 +406,11 @@ def ensure_leaderboard_runs(force_refresh: bool = False) -> Dict[str, Any]:
         "session_id": session_id,
         "start_date": start_date,
         "end_date": end_date,
+        "period": config.get("period", "contest"),
         "created": created,
         "skipped": skipped,
         "refreshed_at": _utcnow_iso(),
+        "cache_hit": False,
     }
 
 
@@ -303,6 +499,7 @@ def deploy_model_run(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     allow_fallback: bool = False,
+    period: Optional[str] = "contest",
 ) -> Dict[str, Any]:
     """Compute and persist one (expensive) leaderboard model entry.
 
@@ -310,9 +507,10 @@ def deploy_model_run(
     leaderboard: it runs the model's hourly backtest over the contest window,
     stores the equity curve + metrics + token cost, and caches it so the web
     leaderboard can display it without recomputing. Pass start/end to test on a
-    shorter window (writes a separate cached run for that window).
+    shorter window (writes a separate cached run for that window). Pass
+    ``period="daily"`` to target the rolling daily board window.
     """
-    config = load_leaderboard_config()
+    config = resolve_leaderboard_config(period)
     session_id = config["session_id"]
     start_date = start_date or config["start_date"]
     end_date = end_date or config["end_date"]
@@ -345,9 +543,17 @@ def deploy_model_run(
         }
 
     strategy_impl = get_strategy(entry)
-    bars = fetch_hourly_bars(strategy_impl.required_symbols(), start_date, end_date)
+    # LLM prompts need indicator lookback; for a 1-day daily window that means
+    # fetching prior bars while only trading inside [start_date, end_date].
+    bars_start = reference_start_date(start_date, config)
+    if bars_start > start_date:
+        bars_start = start_date
+    bars = fetch_hourly_bars(strategy_impl.required_symbols(), bars_start, end_date)
     if not bars:
-        raise RuntimeError("No market data returned for the contest window")
+        raise RuntimeError(
+            f"No market data returned for bars window {bars_start} → {end_date}"
+        )
+    print(f"  bars fetch: {bars_start} → {end_date} (trade window {start_date} → {end_date})")
 
     curve = strategy_impl.run(bars, start_date, end_date, initial_capital)
     if not curve:
@@ -435,10 +641,13 @@ def _rank_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return entries
 
 
-def get_leaderboard(force_refresh: bool = False) -> Dict[str, Any]:
+def get_leaderboard(
+    force_refresh: bool = False,
+    period: Optional[str] = "contest",
+) -> Dict[str, Any]:
     """Return ranked leaderboard entries with chart-ready equity curves."""
-    meta = ensure_leaderboard_runs(force_refresh=force_refresh)
-    config = load_leaderboard_config()
+    config = resolve_leaderboard_config(period)
+    meta = ensure_leaderboard_runs(force_refresh=force_refresh, config=config)
     session_id = config["session_id"]
     start_date = config["start_date"]
     end_date = config["end_date"]
@@ -519,10 +728,14 @@ def get_leaderboard(force_refresh: bool = False) -> Dict[str, Any]:
         leader = entries[0]["team_name"] if entries else "—"
 
     return {
+        "period": config.get("period", "contest"),
+        "board_title": config.get("board_title", "Competition Leaderboard"),
+        "phase_label": config.get("phase_label", "Preseason"),
+        "standings_label": config.get("standings_label", "Preseason Standings"),
         "window": {
             "start_date": start_date,
             "end_date": end_date,
-            "label": f"{start_date} → {end_date}",
+            "label": f"{start_date} → {end_date}" if start_date != end_date else start_date,
             "description": config.get("description", ""),
         },
         "updated_at": meta.get("refreshed_at"),

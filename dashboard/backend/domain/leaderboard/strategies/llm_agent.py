@@ -28,7 +28,7 @@ from dashboard.backend.infrastructure.llm.backtest_harness import (
 from dashboard.backend.infrastructure.llm.providers import KNOWN_INTEGRATIONS
 
 from .base import BaselineStrategy
-from ._common import build_price_cache, market_timestamps, subset_bars
+from ._common import build_price_cache, market_timestamps, subset_bars, timestamps_in_contest
 
 
 class LLMAgentStrategy(BaselineStrategy):
@@ -82,12 +82,16 @@ class LLMAgentStrategy(BaselineStrategy):
             return []
 
         # Technical indicators are required for the LLM prompt context.
+        # Bars may include a lookback period before start_date (needed for a
+        # 1-day daily board); decision steps are clipped to the contest window.
         data = {
             sym: TechnicalIndicators.calculate_indicators(df)
             for sym, df in bars_subset.items()
         }
 
-        timestamps = market_timestamps(data)
+        timestamps = timestamps_in_contest(
+            market_timestamps(data), start_date, end_date
+        )
         if not timestamps:
             return []
         price_cache = build_price_cache(data, timestamps)

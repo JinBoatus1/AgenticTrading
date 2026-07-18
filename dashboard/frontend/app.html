@@ -24,7 +24,7 @@
                 community: { page: 'community' },
                 backtest: { page: 'playground', playgroundTab: 'backtest' },
                 paper: { page: 'playground', playgroundTab: 'paper' },
-                contest: { page: 'competition', competitionTab: 'leaderboard' },
+                contest: { page: 'competition', competitionTab: 'daily' },
                 'my-algo': { page: 'playground', playgroundTab: 'agents' },
             };
             // Discord / share deep links: open Playground backtest immediately.
@@ -44,7 +44,7 @@
         html.setAttribute('data-nav-boot', '');
         html.setAttribute('data-nav-page', nav.page);
         html.setAttribute('data-nav-playground-tab', nav.playgroundTab || 'agents');
-        html.setAttribute('data-nav-competition-tab', nav.competitionTab || 'leaderboard');
+        html.setAttribute('data-nav-competition-tab', nav.competitionTab || 'daily');
     })();
     </script>
     <style id="nav-boot-style">
@@ -66,9 +66,11 @@
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="backtest"] .main-container.playground-backtest-panel { display: grid !important; }
     html[data-nav-boot][data-nav-page="playground"][data-nav-playground-tab="paper"] #paperTradingView { display: block !important; }
     html[data-nav-boot][data-nav-page="competition"] .competition-subtabs .subtab-btn.active { background: transparent; color: var(--text-secondary); }
+    html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="daily"] .competition-subtabs [data-competition-tab="daily"],
     html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="leaderboard"] .competition-subtabs [data-competition-tab="leaderboard"],
     html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="participants"] .competition-subtabs [data-competition-tab="participants"],
     html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="about"] .competition-subtabs [data-competition-tab="about"] { background: var(--info-color); color: white; }
+    html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="daily"] #leaderboardView,
     html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="leaderboard"] #leaderboardView { display: flex !important; }
     html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="participants"] #competitionParticipantsPanel { display: block !important; }
     html[data-nav-boot][data-nav-page="competition"][data-nav-competition-tab="about"] #competitionAboutPanel { display: block !important; }
@@ -1253,7 +1255,8 @@
     <!-- Competition -->
     <div id="competitionView" class="page-view competition-view" style="display: none;">
         <div class="subtab-bar competition-subtabs">
-            <button class="subtab-btn active" data-competition-tab="leaderboard">Leaderboard</button>
+            <button class="subtab-btn active" data-competition-tab="daily">Daily Leaderboard</button>
+            <button class="subtab-btn" data-competition-tab="leaderboard">Competition Leaderboard</button>
             <button class="subtab-btn" data-competition-tab="participants">Participating Teams</button>
             <button class="subtab-btn" data-competition-tab="about">About</button>
         </div>
@@ -1273,7 +1276,11 @@
                     <p class="about-text">SecureFinAI Contest 2026 is a paper-trading competition for LLM-powered agents. The contest is currently in <strong>Preseason</strong>. Participating teams join when the season starts (registration Aug 2026).</p>
                 </div>
                 <div class="section-card">
-                    <h3 class="section-title">Current Leaderboard</h3>
+                    <h3 class="section-title">Daily Leaderboard</h3>
+                    <p class="about-text">The Daily Leaderboard is the same chart + standings UI as Competition, but each entry is an hourly backtest over the <strong>last completed US weekday</strong>. Baseline and index lines refresh automatically on load. LLM entries are added when the daily deploy job runs.</p>
+                </div>
+                <div class="section-card">
+                    <h3 class="section-title">Competition Leaderboard</h3>
                     <p class="about-text">Preseason Standings are a <strong>backtest leaderboard</strong>, not live trading. Each entry is an hourly backtest over <strong>2026-04-15 → 2026-05-15</strong> (one-month window), comparing provided LLM models, baseline strategies, and market indices. Official rank is by final portfolio value.</p>
                 </div>
                 <div class="section-card compact">
@@ -1396,7 +1403,7 @@
                 <!-- Left: Table -->
                 <section class="leaderboard-table-section compact">
                     <div class="table-header compact">
-                        <h3>Preseason Standings</h3>
+                        <h3 id="leaderboardStandingsTitle">Preseason Standings</h3>
                     </div>
                     <div class="table-wrapper compact">
                         <table class="leaderboard-table compact">

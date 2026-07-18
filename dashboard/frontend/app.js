@@ -1841,7 +1841,7 @@ let tradingLogFilter = 'all';
 let currentMode = "home";
 let currentPage = "home";
 let playgroundTab = "agents";
-let competitionTab = "leaderboard";
+let competitionTab = "daily";
 let allRuns = [];
 let comparisonData = null;
 let backtestChartData = null;
@@ -3409,7 +3409,7 @@ function applyInitialNavigation() {
     const initial = resolveInitialNavigation();
     navigateToPage(initial.page, {
         playgroundTab: initial.playgroundTab || 'agents',
-        competitionTab: initial.competitionTab || 'leaderboard',
+        competitionTab: initial.competitionTab || 'daily',
     });
     if (typeof initHomePage === 'function') {
         initHomePage();
@@ -3427,7 +3427,7 @@ function resolveInitialNavigation() {
         community: { page: 'community' },
         backtest: { page: 'playground', playgroundTab: 'backtest' },
         paper: { page: 'playground', playgroundTab: 'paper' },
-        contest: { page: 'competition', competitionTab: 'leaderboard' },
+        contest: { page: 'competition', competitionTab: 'daily' },
         'my-algo': { page: 'playground', playgroundTab: 'agents' },
     };
 
@@ -3573,14 +3573,15 @@ function showCompetitionPanel(tab) {
     const leaderboard = document.getElementById('leaderboardView');
     const participants = document.getElementById('competitionParticipantsPanel');
     const about = document.getElementById('competitionAboutPanel');
+    const showBoard = tab === 'leaderboard' || tab === 'daily';
 
-    if (leaderboard) leaderboard.style.display = tab === 'leaderboard' ? 'flex' : 'none';
+    if (leaderboard) leaderboard.style.display = showBoard ? 'flex' : 'none';
     if (participants) participants.style.display = tab === 'participants' ? 'block' : 'none';
     if (about) about.style.display = tab === 'about' ? 'block' : 'none';
 
-    if (tab === 'leaderboard') {
+    if (showBoard) {
         currentMode = 'contest';
-        loadLeaderboardData();
+        loadLeaderboardData(tab === 'daily' ? 'daily' : 'contest');
     } else {
         currentMode = tab;
     }
@@ -3712,7 +3713,7 @@ function initNavigation() {
     });
 
     document.getElementById('homeViewCompetitionBtn')?.addEventListener('click', () => {
-        navigateToPage('competition', { competitionTab: 'leaderboard' });
+        navigateToPage('competition', { competitionTab: 'daily' });
     });
 
     document.getElementById('homeViewMarketPulseBtn')?.addEventListener('click', () => {
@@ -3785,12 +3786,12 @@ function switchMode(mode) {
     const legacyMap = {
         backtest: { page: 'playground', playgroundTab: 'backtest' },
         paper: { page: 'playground', playgroundTab: 'paper' },
-        contest: { page: 'competition', competitionTab: 'leaderboard' },
+        contest: { page: 'competition', competitionTab: 'daily' },
         'my-algo': { page: 'playground', playgroundTab: 'agents' },
         home: { page: 'home' },
         agents: { page: 'playground', playgroundTab: 'agents' },
         playground: { page: 'playground', playgroundTab: 'agents' },
-        competition: { page: 'competition', competitionTab: 'leaderboard' },
+        competition: { page: 'competition', competitionTab: 'daily' },
     };
 
     const target = legacyMap[mode] || { page: mode };

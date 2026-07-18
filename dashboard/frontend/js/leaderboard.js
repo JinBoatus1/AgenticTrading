@@ -260,8 +260,10 @@ function updateLeaderboardHeader(payload) {
   const windowEl = document.getElementById('tradingWindow');
   const updatedEl = document.getElementById('lastUpdate');
   const leaderEl = document.getElementById('leaderTeam');
+  const standingsEl = document.getElementById('leaderboardStandingsTitle');
+  const subtitleEl = document.querySelector('#leaderboardView .contest-subtitle');
 
-  if (totalEl) totalEl.textContent = 'Preseason';
+  if (totalEl) totalEl.textContent = payload.phase_label || (payload.period === 'daily' ? 'Daily' : 'Preseason');
   if (windowEl) windowEl.textContent = payload.window?.label || '—';
   if (updatedEl) {
     updatedEl.textContent = payload.updated_at
@@ -274,7 +276,46 @@ function updateLeaderboardHeader(payload) {
       ? (top.model || top.team_name)
       : (payload.leader || '—');
   }
+  if (standingsEl) {
+    standingsEl.textContent = payload.standings_label
+      || (payload.period === 'daily' ? 'Daily Standings' : 'Preseason Standings');
+  }
+  if (subtitleEl) {
+    subtitleEl.textContent = payload.period === 'daily'
+      ? (payload.window?.label ? `Daily window · ${payload.window.label}` : 'Daily window · last completed weekday')
+      : 'Sep 1 – Oct 30, 2026';
+  }
   updateCurvePickerCount();
+}
+
+async function loadLeaderboardData(period = 'contest') {
+  console.log('Loading leaderboard from API...', period);
+  const boardPeriod = period === 'daily' ? 'daily' : 'contest';
+
+  try {
+    const url = `${API_BASE}/api/v1/leaderboard?period=${encodeURIComponent(boardPeriod)}&t=${Date.now()}`;
+    leaderboardPayload = await API.get(url);
+    const entries = leaderboardPayload.entries || [];
+    equityCurvesData = buildEquityCurvesFromEntries(entries);
+
+    // Reset chart visibility when switching boards so daily/contest don't share hide state.
+    hiddenSeries = new Set();
+    hiddenInitialized = true;
+
+    updateLeaderboardHeader(leaderboardPayload);
+    populateLeaderboardTable();
+    renderCurvePicker();
+
+    if (!leaderboardListenersInitialized) {
+      initLeaderboardListeners();
+      leaderboardListenersInitialized = true;
+    }
+
+    await renderEquityCurvesChart();
+  } catch (error) {
+    console.error('Error loading leaderboard:', error);
+    displayLeaderboardError(error.message);
+  }
 }
 
 function initLeaderboardListeners() {
@@ -487,37 +528,6 @@ function computeDefaultHidden(entries) {
     if (kind === 'strategy' && hasTeams) hidden.add(label);
   });
   return hidden;
-}
-
-async function loadLeaderboardData() {
-  console.log('Loading leaderboard from API...');
-
-  try {
-    const url = `${API_BASE}/api/v1/leaderboard?t=${Date.now()}`;
-    leaderboardPayload = await API.get(url);
-    const entries = leaderboardPayload.entries || [];
-    equityCurvesData = buildEquityCurvesFromEntries(entries);
-
-    if (!hiddenInitialized) {
-      // Chart picker defaults to all curves visible (user then trims via dropdown).
-      hiddenSeries = new Set();
-      hiddenInitialized = true;
-    }
-
-    updateLeaderboardHeader(leaderboardPayload);
-    populateLeaderboardTable();
-    renderCurvePicker();
-
-    if (!leaderboardListenersInitialized) {
-      initLeaderboardListeners();
-      leaderboardListenersInitialized = true;
-    }
-
-    await renderEquityCurvesChart();
-  } catch (error) {
-    console.error('Error loading leaderboard:', error);
-    displayLeaderboardError(error.message);
-  }
 }
 
 function updateLeaderboardSortHeaders() {
