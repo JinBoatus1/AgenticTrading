@@ -342,7 +342,7 @@ most important item in this section.
    runs at **import time** and this design mandates fail-loud, so a single DDL typo
    means the app raises on boot. Merging `main` auto-deploys, and the free tier has
    no zero-downtime deploys — so a typo plausibly takes prod down rather than merely
-   failing a deploy. Add a `postgres:16-alpine` service to the `backend-tests` job
+   failing a deploy. Add a `postgres:18-alpine` service to the `backend-tests` job
    and set `TEST_POSTGRES_URL` (~8 lines of YAML). This lands *early* in the plan, not
    at the end: it also switches on the shipped-but-never-CI-run
    `test_users_postgres.py` live tier, and that wants to shake out on its own commit
@@ -395,7 +395,7 @@ tests across two identically-named files.
   durable Postgres for user-created content).
 - `render.yaml`: optionally add `CONTENT_DATABASE_URL` with `sync: false` as documentation —
   the real mechanism is the Render dashboard (see Rollout).
-- `.github/workflows/ci.yml`: add a `postgres:16-alpine` service + `TEST_POSTGRES_URL`
+- `.github/workflows/ci.yml`: add a `postgres:18-alpine` service + `TEST_POSTGRES_URL`
   to the `backend-tests` job, so the `@pg_only` tier runs (Testing tier 0). Not
   cosmetic — this is the only thing that executes the new SQL before prod does.
 - CLAUDE.md: extend the env/credentials section and the user-account-persistence

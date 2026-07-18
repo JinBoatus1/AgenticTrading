@@ -265,12 +265,20 @@ def test_agent_schema_lazily_migrates_an_old_table_postgres(pg_agent_store):
 
     Simulate a deployment created before the five lazy-migration columns
     (agent_type, description, pipeline_config, cash_allocation, scopes) existed:
-    a table with only the original base schema. Re-running _init_schema() -- what
-    every redeploy does -- must bring it up to the current shape. CREATE TABLE IF
-    NOT EXISTS no-ops on the existing table, so without an ALTER path the columns
-    never appear and the first real create_agent (which names them) raises
+    a table with only the original base schema, already holding a real agent row
+    that predates those columns. Re-running _init_schema() -- what every redeploy
+    does -- must bring it up to the current shape. CREATE TABLE IF NOT EXISTS
+    no-ops on the existing table, so without an ALTER path the columns never
+    appear and the first real create_agent (which names them) raises
     UndefinedColumn: exactly the silent prod-500 this issue describes.
+
+    The pre-existing row -- not the empty table -- is the real prod scenario and
+    the real risk surface. `scopes` is an authorization input, so a legacy row
+    must emerge from the migration carrying the column DEFAULT; a NULL scopes
+    would be an authz hole. That backfill is precisely what ADD COLUMN ... NOT
+    NULL DEFAULT does for existing rows, and it is what this asserts.
     """
+    from dashboard.backend.domain.agents.repository import DEFAULT_SCOPES
     from dashboard.backend.domain.agents.repository_postgres import PostgresAgentStore
 
     with pg_agent_store._get_connection() as conn:
@@ -292,6 +300,15 @@ def test_agent_schema_lazily_migrates_an_old_table_postgres(pg_agent_store):
                 )
                 """
             )
+            # A real agent registered against the pre-migration schema.
+            cur.execute(
+                """
+                INSERT INTO external_agents (
+                    agent_id, name, session_id, api_key_hash, api_key_prefix
+                ) VALUES ('agent_legacy', 'Legacy', 'sess_legacy',
+                          'hash_legacy', 'ag_legacy')
+                """
+            )
 
     # A redeploy re-runs _init_schema() against the existing "old" table.
     PostgresAgentStore(TEST_POSTGRES_URL)
@@ -303,6 +320,15 @@ def test_agent_schema_lazily_migrates_an_old_table_postgres(pg_agent_store):
                 "WHERE table_name = 'external_agents'"
             )
             columns = {r["column_name"] for r in cur.fetchall()}
+            # Read the raw columns straight from the legacy row: _public_agent
+            # masks a NULL/empty scopes back to DEFAULT_SCOPES, so only the stored
+            # value proves the ADD COLUMN carried its NOT NULL DEFAULT for the
+            # pre-existing row rather than leaving it NULL.
+            cur.execute(
+                "SELECT agent_type, scopes FROM external_agents "
+                "WHERE agent_id = 'agent_legacy'"
+            )
+            legacy = cur.fetchone()
     assert {
         "agent_type",
         "description",
@@ -310,6 +336,9 @@ def test_agent_schema_lazily_migrates_an_old_table_postgres(pg_agent_store):
         "cash_allocation",
         "scopes",
     } <= columns
+    # The pre-existing row was backfilled with the column defaults, not NULL.
+    assert legacy["agent_type"] == "external"
+    assert legacy["scopes"] == DEFAULT_SCOPES
 
     # The store is actually usable after the migration: a real registration
     # writes every migrated column, and the scopes column default applies.
@@ -395,10 +424,17 @@ def test_listings_order_newest_first_postgres(pg_agent_store, monkeypatch):
     invisible. Feed monotonically increasing created_at values -- 1s resolution
     would otherwise make same-second ties non-deterministic.
     """
+    import itertools
+
     import dashboard.backend.domain.agents.repository_postgres as repo_pg
 
-    times = iter([f"2020-01-0{n}T00:00:00+00:00" for n in range(1, 7)])
-    monkeypatch.setattr(repo_pg, "_utcnow_iso", lambda: next(times))
+    # Unbounded monotonic clock: robust if create_agent ever calls _utcnow_iso a
+    # different number of times (a fixed-length iterator would raise an opaque
+    # StopIteration instead of a clean assertion failure).
+    day = itertools.count(1)
+    monkeypatch.setattr(
+        repo_pg, "_utcnow_iso", lambda: f"2020-01-{next(day):02d}T00:00:00+00:00"
+    )
 
     a = pg_agent_store.create_agent(name="A", owner_user_id=99)
     b = pg_agent_store.create_agent(name="B", owner_user_id=99)
