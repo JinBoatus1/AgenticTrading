@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dashboard.backend.app import app
+from dashboard.backend.tests._postgres_testing import require_local_postgres_url
 
 TEST_POSTGRES_URL = os.getenv("TEST_POSTGRES_URL")
 
@@ -55,6 +56,7 @@ def test_build_user_store_picks_postgres_when_url_set(monkeypatch):
 
 @pytest.fixture
 def temp_postgres_store():
+    require_local_postgres_url(TEST_POSTGRES_URL)
     from dashboard.backend.users_postgres import PostgresUserStore
 
     store = PostgresUserStore(TEST_POSTGRES_URL)

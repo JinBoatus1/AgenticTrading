@@ -12,6 +12,8 @@ import os
 
 import pytest
 
+from dashboard.backend.tests._postgres_testing import require_local_postgres_url
+
 TEST_POSTGRES_URL = os.getenv("TEST_POSTGRES_URL")
 
 pg_only = pytest.mark.skipif(
@@ -96,6 +98,7 @@ def test_malformed_url_is_rejected_before_psycopg_can_echo_it():
 
 @pytest.fixture
 def pg_strategy_store():
+    require_local_postgres_url(TEST_POSTGRES_URL)
     from dashboard.backend.domain.strategies.repository_postgres import (
         PostgresStrategyStore,
     )
