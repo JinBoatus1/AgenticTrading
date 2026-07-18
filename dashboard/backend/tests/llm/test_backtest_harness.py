@@ -68,6 +68,23 @@ def test_harness_imports_without_api_key():
     assert hasattr(harness, "request_trading_decision")
 
 
+def test_harness_forwards_reasoning_effort_to_provider_factory(monkeypatch):
+    captured = {}
+
+    def _fake_factory(integration=None, *, reasoning_effort=None):
+        captured["integration"] = integration
+        captured["reasoning_effort"] = reasoning_effort
+        return "client"
+
+    monkeypatch.setattr(harness, "_providers_make_llm_client", _fake_factory)
+
+    assert harness.make_llm_client("openrouter", reasoning_effort="none") == "client"
+    assert captured == {
+        "integration": "openrouter",
+        "reasoning_effort": "none",
+    }
+
+
 def test_script_reexports_symbols():
     assert hasattr(bha, "Anthropic")
     assert hasattr(bha, "HAS_ANTHROPIC")

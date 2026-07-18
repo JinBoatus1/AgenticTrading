@@ -53,8 +53,10 @@ def default_model_name() -> str:
     return DEFAULT_MODEL
 
 
-def _reasoning_effort() -> str:
-    raw = os.getenv("OPENROUTER_REASONING_EFFORT", _DEFAULT_REASONING_EFFORT)
+def _reasoning_effort(override: Optional[str] = None) -> str:
+    raw = override
+    if raw is None or not str(raw).strip():
+        raw = os.getenv("OPENROUTER_REASONING_EFFORT", _DEFAULT_REASONING_EFFORT)
     return (raw or "").strip().lower()
 
 
@@ -69,13 +71,13 @@ def _reasoning_max_tokens_override() -> Optional[int]:
     return value if value >= 1024 else None
 
 
-def reasoning_is_disabled() -> bool:
+def reasoning_is_disabled(override: Optional[str] = None) -> bool:
     """True when we force non-reasoning (``OPENROUTER_REASONING_EFFORT=none``)."""
-    effort = _reasoning_effort()
+    effort = _reasoning_effort(override)
     return effort in _OFF_VALUES
 
 
-def reasoning_extra_body() -> Optional[dict[str, Any]]:
+def reasoning_extra_body(override: Optional[str] = None) -> Optional[dict[str, Any]]:
     """OpenRouter ``reasoning`` payload to merge into ``extra_body``, or ``None``.
 
     ``OPENROUTER_REASONING_EFFORT``:
@@ -88,10 +90,10 @@ def reasoning_extra_body() -> Optional[dict[str, Any]]:
     ``OPENROUTER_REASONING_MAX_TOKENS`` (optional, ≥1024) overrides the mapped
     budget whenever reasoning is enabled.
     """
-    effort = _reasoning_effort()
+    effort = _reasoning_effort(override)
     if effort in _PASSTHROUGH_VALUES:
         return None
-    if reasoning_is_disabled():
+    if effort in _OFF_VALUES:
         # ``effort: none`` is the documented disable; ``enabled: false`` and
         # ``exclude: true`` cover providers that ignore effort alone.
         return {
@@ -110,19 +112,22 @@ def reasoning_extra_body() -> Optional[dict[str, Any]]:
     return {"reasoning": {"effort": effort, "enabled": True}}
 
 
-def _reasoning_budget_tokens() -> Optional[int]:
+def _reasoning_budget_tokens(override: Optional[str] = None) -> Optional[int]:
     """Resolved thinking budget (≥1024), or None when passthrough/disabled."""
-    if reasoning_is_disabled():
+    effort = _reasoning_effort(override)
+    if effort in _OFF_VALUES:
         return None
-    if _reasoning_effort() in _PASSTHROUGH_VALUES:
+    if effort in _PASSTHROUGH_VALUES:
         return None
-    override = _reasoning_max_tokens_override()
-    if override is not None:
-        return override
-    return _EFFORT_TO_REASONING_BUDGET.get(_reasoning_effort(), 2048)
+    max_tokens_override = _reasoning_max_tokens_override()
+    if max_tokens_override is not None:
+        return max_tokens_override
+    return _EFFORT_TO_REASONING_BUDGET.get(effort, 2048)
 
 
-def anthropic_thinking_kwarg() -> Optional[dict[str, Any]]:
+def anthropic_thinking_kwarg(
+    override: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
     """Anthropic Messages ``thinking`` kwarg for OpenRouter's Anthropic skin.
 
     When reasoning is disabled → ``{"type": "disabled"}``.
@@ -130,9 +135,9 @@ def anthropic_thinking_kwarg() -> Optional[dict[str, Any]]:
     so thinking cannot consume the entire ``max_tokens`` ceiling (Nemotron
     otherwise often returns only thinking/redacted_thinking).
     """
-    if reasoning_is_disabled():
+    if reasoning_is_disabled(override):
         return {"type": "disabled"}
-    budget = _reasoning_budget_tokens()
+    budget = _reasoning_budget_tokens(override)
     if budget is None:
         return None
     return {"type": "enabled", "budget_tokens": budget}
@@ -153,17 +158,18 @@ def _default_headers() -> dict[str, str]:
 class _OpenRouterMessages:
     """Proxy that injects OpenRouter reasoning-off defaults when unset by caller."""
 
-    def __init__(self, inner: Any):
+    def __init__(self, inner: Any, reasoning_effort: Optional[str] = None):
         self._inner = inner
+        self._reasoning_effort = reasoning_effort
 
     def create(self, **kwargs: Any) -> Any:
-        extras = reasoning_extra_body()
+        extras = reasoning_extra_body(self._reasoning_effort)
         if extras:
             body = dict(kwargs.get("extra_body") or {})
             if "reasoning" not in body:
                 body.update(extras)
                 kwargs["extra_body"] = body
-        thinking = anthropic_thinking_kwarg()
+        thinking = anthropic_thinking_kwarg(self._reasoning_effort)
         if thinking is not None and "thinking" not in kwargs:
             kwargs["thinking"] = thinking
         return self._inner.create(**kwargs)
@@ -172,15 +178,22 @@ class _OpenRouterMessages:
 class OpenRouterClient:
     """Anthropic client wrapper with OpenRouter-specific ``messages.create`` defaults."""
 
-    def __init__(self, client: Any):
+    def __init__(self, client: Any, reasoning_effort: Optional[str] = None):
         self._client = client
-        self.messages = _OpenRouterMessages(client.messages)
+        self.messages = _OpenRouterMessages(
+            client.messages,
+            reasoning_effort=reasoning_effort,
+        )
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._client, name)
 
 
-def make_client(anthropic_cls: Any) -> Optional[Any]:
+def make_client(
+    anthropic_cls: Any,
+    *,
+    reasoning_effort: Optional[str] = None,
+) -> Optional[Any]:
     """Build an Anthropic-compatible OpenRouter client, or ``None``."""
     key = os.getenv("OPENROUTER_API_KEY")
     if not key:
@@ -193,14 +206,17 @@ def make_client(anthropic_cls: Any) -> Optional[Any]:
     if headers:
         kwargs["default_headers"] = headers
     try:
-        client = OpenRouterClient(anthropic_cls(**kwargs))
-        if reasoning_is_disabled():
+        client = OpenRouterClient(
+            anthropic_cls(**kwargs),
+            reasoning_effort=reasoning_effort,
+        )
+        if reasoning_is_disabled(reasoning_effort):
             print(
                 "ℹ️  OpenRouter: reasoning disabled "
                 "(OPENROUTER_REASONING_EFFORT=none)"
             )
         else:
-            effort = _reasoning_effort() or _DEFAULT_REASONING_EFFORT
+            effort = _reasoning_effort(reasoning_effort) or _DEFAULT_REASONING_EFFORT
             print(
                 f"ℹ️  OpenRouter: reasoning on "
                 f"(OPENROUTER_REASONING_EFFORT={effort}; "
