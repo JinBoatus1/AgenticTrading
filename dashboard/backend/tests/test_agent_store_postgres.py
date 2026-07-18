@@ -17,6 +17,8 @@ import os
 
 import pytest
 
+from dashboard.backend.tests._postgres_testing import require_local_postgres_url
+
 TEST_POSTGRES_URL = os.getenv("TEST_POSTGRES_URL")
 
 pg_only = pytest.mark.skipif(
@@ -132,6 +134,7 @@ def test_malformed_url_is_rejected_before_psycopg_can_echo_it():
 
 @pytest.fixture
 def pg_agent_store():
+    require_local_postgres_url(TEST_POSTGRES_URL)
     from dashboard.backend.domain.agents.repository_postgres import PostgresAgentStore
 
     store = PostgresAgentStore(TEST_POSTGRES_URL)
@@ -335,6 +338,7 @@ def test_malformed_url_is_rejected_before_psycopg_can_echo_it_version_store():
 
 @pytest.fixture
 def pg_version_store():
+    require_local_postgres_url(TEST_POSTGRES_URL)
     from dashboard.backend.domain.agents.version_repository_postgres import (
         PostgresAgentVersionStore,
     )
