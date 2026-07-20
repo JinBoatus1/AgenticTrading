@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { MessageSquare, Bot, Hash } from "lucide-react";
+import { MessageSquare, Bot, Hash, User } from "lucide-react";
 import { STORY_PROMPT, STORY_SPECS } from "./storyline";
 
 const DISCORD_URL = "https://discord.gg/9HnQ6XDG98";
@@ -7,7 +7,9 @@ const DISCORD_URL = "https://discord.gg/9HnQ6XDG98";
 function YouBubble({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex gap-3 flex-row-reverse">
-      <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0 text-xs font-bold">You</div>
+      <div className="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center shrink-0">
+        <User className="w-3 h-3" />
+      </div>
       <div className="bg-muted p-3 rounded-l-lg rounded-br-lg text-foreground max-w-[85%]">{children}</div>
     </div>
   );
@@ -16,7 +18,9 @@ function YouBubble({ children }: { children: React.ReactNode }) {
 function BotBubble({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex gap-3">
-      <div className="w-8 h-8 rounded-full bg-secondary-border flex items-center justify-center shrink-0 text-xs">ATL</div>
+      <div className="w-6 h-6 rounded bg-secondary-border flex items-center justify-center shrink-0">
+        <Bot className="w-3 h-3 text-muted-foreground" />
+      </div>
       <div className="bg-card border border-card-border p-3 rounded-r-lg rounded-bl-lg text-muted-foreground max-w-[85%] space-y-2">
         {children}
       </div>
