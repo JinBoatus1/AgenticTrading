@@ -100,6 +100,27 @@
   }
 }
 
+/* Fixed chrome: navbar + market ticker (same stack as /app). */
+.landing-chrome {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+}
+
+.landing-hero {
+  /* header (~84px) + ticker bar + info row ≈ 140px; keep a tight gap below */
+  --landing-chrome-height: 140px;
+  padding-top: calc(var(--landing-chrome-height) + 0.75rem);
+}
+
+@media (min-width: 768px) {
+  .landing-hero {
+    padding-top: calc(var(--landing-chrome-height) + 1rem);
+  }
+}
+
 /* Match dashboard `.header` chrome so brand sits on the same viewport center rail. */
 .landing-header {
   display: grid;
@@ -108,6 +129,164 @@
   gap: 12px;
   padding: 10px 24px;
   position: relative;
+}
+
+/* Market ticker — mirror dashboard `.ticker-bar` / `.ticker-info` */
+.landing-ticker {
+  background-color: hsl(var(--card));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.landing-ticker-bar {
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.landing-ticker-marquee {
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+  position: relative;
+}
+
+.landing-ticker-marquee::before,
+.landing-ticker-marquee::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 32px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.landing-ticker-marquee::before {
+  left: 0;
+  background: linear-gradient(to right, hsl(var(--card)), transparent);
+}
+
+.landing-ticker-marquee::after {
+  right: 0;
+  background: linear-gradient(to left, hsl(var(--card)), transparent);
+}
+
+.landing-ticker-track {
+  display: flex;
+  width: max-content;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+}
+
+.landing-ticker-track:has(.landing-ticker-placeholder) {
+  width: 100%;
+  transform: none;
+}
+
+.landing-ticker-set {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.landing-ticker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-right: 1px solid rgba(148, 163, 184, 0.16);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.landing-ticker-item .symbol {
+  font-size: 12px;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  min-width: 42px;
+  letter-spacing: 0.02em;
+}
+
+.landing-ticker-item .price {
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.landing-ticker-item .change {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+}
+
+.landing-ticker-item .change.positive {
+  color: hsl(var(--positive));
+}
+
+.landing-ticker-item .change.negative {
+  color: hsl(var(--destructive));
+}
+
+.landing-ticker-chart {
+  width: 24px;
+  height: 10px;
+  color: hsl(var(--muted-foreground));
+}
+
+.landing-ticker-chart.positive {
+  color: hsl(var(--positive));
+}
+
+.landing-ticker-chart.negative {
+  color: hsl(var(--destructive));
+}
+
+.landing-ticker-placeholder {
+  padding: 10px 12px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  width: 100%;
+}
+
+.landing-ticker-info {
+  padding: 4px 12px;
+  border-top: 1px solid hsl(var(--border));
+  font-size: 9px;
+  color: hsl(var(--muted-foreground));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.landing-ticker-markets {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: hsl(var(--positive));
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.landing-ticker-markets.is-closed {
+  color: hsl(var(--muted-foreground));
+}
+
+.landing-ticker-markets-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--positive));
+  box-shadow: 0 0 6px rgba(34, 211, 238, 0.45);
+}
+
+.landing-ticker-markets.is-closed .landing-ticker-markets-dot {
+  background: hsl(var(--muted-foreground));
+  box-shadow: none;
 }
 
 .landing-header > .brand-lockup {

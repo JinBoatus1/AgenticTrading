@@ -52,7 +52,7 @@ function LiveBadge() {
 
 export function Race() {
   return (
-    <section id="race" className="py-24 bg-muted/20 border-y border-border scroll-mt-24">
+    <section id="race" className="py-24 bg-muted/20 border-y border-border scroll-mt-40">
       <div className="container mx-auto px-6">
         <div className="grid lg:grid-cols-2 gap-12 items-start mb-12">
           <div>

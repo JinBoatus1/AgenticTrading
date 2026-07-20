@@ -17,7 +17,7 @@ function YouBubble({ children }: { children: React.ReactNode }) {
   );
 }
 
-function BotBubble({ children }: { children: React.ReactNode }) {
+function AgentBubble({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex gap-3">
       <div className="w-6 h-6 rounded bg-secondary-border flex items-center justify-center shrink-0">
@@ -32,7 +32,7 @@ function BotBubble({ children }: { children: React.ReactNode }) {
 
 export function Talk() {
   return (
-    <section id="talk" className="py-24 bg-muted/20 border-y border-border scroll-mt-24">
+    <section id="talk" className="py-24 bg-muted/20 border-y border-border scroll-mt-40">
       {/* Hero scroll target — do not remove; Hero.tsx still anchors here */}
       <div id="landing-stats" className="h-0 w-0 overflow-hidden" aria-hidden="true" />
 
@@ -42,7 +42,7 @@ export function Talk() {
             <p className="text-base md:text-lg font-mono uppercase tracking-widest text-primary mb-3">01 — Talk</p>
             <h2 className="text-3xl md:text-4xl font-bold mb-3">Talk to agents on Discord</h2>
             <p className="text-muted-foreground mb-8 text-lg">
-              Describe your trading idea. The bot runs it.
+              Describe your trading idea. The agent runs it.
             </p>
             <ol className="space-y-3 mb-8 text-sm text-muted-foreground">
               <li className="flex items-start gap-3">
@@ -51,7 +51,7 @@ export function Talk() {
               </li>
               <li className="flex items-start gap-3">
                 <MessageSquare className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                <span><span className="text-foreground font-medium">2.</span> Talk to the bot</span>
+                <span><span className="text-foreground font-medium">2.</span> Talk to the agent</span>
               </li>
               <li className="flex items-start gap-3">
                 <Bot className="w-4 h-4 text-primary mt-0.5 shrink-0" />
@@ -73,22 +73,22 @@ export function Talk() {
             <div className="p-5 space-y-3 font-mono text-sm max-h-[420px] overflow-y-auto">
               <YouBubble>{STORY_PROMPT}</YouBubble>
 
-              <BotBubble>
+              <AgentBubble>
                 <p className="text-foreground">
                   Got it — when Berkshire files a change, copy those buys and sells?
                 </p>
-              </BotBubble>
+              </AgentBubble>
 
               <YouBubble>Yes. Use the last two years.</YouBubble>
 
-              <BotBubble>
+              <AgentBubble>
                 <p className="text-foreground">Copy-trade rules set · 6 tickers from recent 13Fs.</p>
                 <p>Want me to backtest that first?</p>
-              </BotBubble>
+              </AgentBubble>
 
               <YouBubble>Yeah, run it.</YouBubble>
 
-              <BotBubble>
+              <AgentBubble>
                 <div>Running backtest…</div>
                 <div>
                   <span className="text-positive font-semibold">{STORY_SPECS.returnPct}</span>
@@ -97,7 +97,7 @@ export function Talk() {
                   {" · "}
                   <a href="#test" className="text-primary hover:underline">See full result ↓</a>
                 </div>
-              </BotBubble>
+              </AgentBubble>
             </div>
           </div>
         </div>

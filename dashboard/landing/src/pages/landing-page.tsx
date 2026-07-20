@@ -1,4 +1,5 @@
 import { Navbar } from "../components/home/Navbar";
+import { MarketTicker } from "../components/home/MarketTicker";
 import { Hero } from "../components/home/Hero";
 import { Talk } from "../components/home/Talk";
 import { Test } from "../components/home/Test";
@@ -8,7 +9,10 @@ import { FooterCTA } from "../components/home/FooterCTA";
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-background text-foreground font-sans">
-      <Navbar />
+      <div className="landing-chrome">
+        <Navbar />
+        <MarketTicker />
+      </div>
       <main>
         <Hero />
         <Talk />

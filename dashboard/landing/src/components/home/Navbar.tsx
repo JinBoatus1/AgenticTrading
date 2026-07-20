@@ -10,7 +10,7 @@ const NAV_LINKS = [
 /** Same 3-column chrome as dashboard `.header` so the brand sits on the viewport center. */
 export function Navbar() {
   return (
-    <nav className="landing-header fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
+    <nav className="landing-header border-b border-border bg-background/80 backdrop-blur-md">
       <div className="hidden md:flex items-center gap-3 text-[15px] font-semibold text-muted-foreground min-w-0">
         {NAV_LINKS.map((link) => (
           <a key={link.href} href={link.href} className="hover:text-foreground transition-colors whitespace-nowrap">

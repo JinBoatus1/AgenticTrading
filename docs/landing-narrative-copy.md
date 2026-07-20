@@ -22,16 +22,14 @@ Scroll target `#landing-stats` is preserved as a hidden anchor inside Talk.
 |------|------|
 | Label | 01 — Talk |
 | H2 | Talk to agents on Discord |
-| Body (1 line) | Describe a strategy. The bot runs it. |
-| Steps | 1 Join the server · 2 Message the bot · 3 Get a backtest back |
+| Body (1 line) | Describe your trading idea. The agent runs it. |
+| Steps | 1. Join the server · 2. Talk to the agent · 3. Get your backtest result |
 | Primary CTA | Join Discord |
-| Secondary | Bot commands → docs |
-| Mock footer | Demo replay · real flow |
 
 **Mock dialogue (keep short)**
 - You: `I want to follow Warren Buffett. If Berkshire makes a move, copy the move and tell me how it goes.`
-- Bot: `Running backtest…`
-- Bot: `+14.2% · Sharpe 1.84 → Open in Lab`
+- Agent: `Running backtest…`
+- Agent: `+14.2% · Sharpe 1.84 → See full result`
 
 ### 02 — Test
 | Slot | Copy |
@@ -98,9 +96,9 @@ Scroll target `#landing-stats` is preserved as a hidden anchor inside Talk.
 ### Phase C — Talk polish
 | Action | Source |
 |--------|--------|
-| Hero visual → Discord-shaped | real bot transcript or labeled demo |
+| Hero visual → Discord-shaped | real agent transcript or labeled demo |
 | Talk mock = same script as Hero (or shorter) | Discord export, scrubbed |
-| Commands link | Discord bot docs / README |
+| Commands link | Discord agent docs / README |
 
 ### Phase D — tracking
 | Event | Where |
