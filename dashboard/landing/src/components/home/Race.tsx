@@ -114,16 +114,13 @@ export function Race() {
         </div>
 
         <div className="bg-card border border-card-border rounded-xl shadow-xl p-6 md:p-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
-            <h3 className="text-lg font-bold">Live Leaderboard</h3>
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+            <div className="flex items-center gap-3 min-w-0">
               <LiveBadge />
-              <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded w-fit">EXAMPLE</span>
+              <h3 className="text-lg font-bold">Leaderboard (live)</h3>
             </div>
+            <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded w-fit">EXAMPLE</span>
           </div>
-          <p className="text-xs font-mono text-muted-foreground mb-6">
-            Equity vs the field · updating through Now
-          </p>
 
           <div className="h-[320px] md:h-[400px] w-full">
             <ResponsiveContainer width="100%" height="100%">
