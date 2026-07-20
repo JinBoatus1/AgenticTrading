@@ -4,6 +4,26 @@ import { STORY_PROMPT, STORY_SPECS } from "./storyline";
 
 const DISCORD_URL = "https://discord.gg/9HnQ6XDG98";
 
+function YouBubble({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex gap-3 flex-row-reverse">
+      <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0 text-xs font-bold">You</div>
+      <div className="bg-muted p-3 rounded-l-lg rounded-br-lg text-foreground max-w-[85%]">{children}</div>
+    </div>
+  );
+}
+
+function BotBubble({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <div className="w-8 h-8 rounded-full bg-secondary-border flex items-center justify-center shrink-0 text-xs">ATL</div>
+      <div className="bg-card border border-card-border p-3 rounded-r-lg rounded-bl-lg text-muted-foreground max-w-[85%] space-y-2">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function Talk() {
   return (
     <section id="talk" className="py-24 bg-muted/20 border-y border-border scroll-mt-24">
@@ -44,26 +64,34 @@ export function Talk() {
               <div className="w-3 h-3 rounded-full bg-positive/80" />
               <span className="ml-3 text-xs font-mono text-muted-foreground">#agent-trading-lab</span>
             </div>
-            <div className="p-5 space-y-4 font-mono text-sm">
-              <div className="flex gap-3 flex-row-reverse">
-                <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center shrink-0 text-xs font-bold">You</div>
-                <div className="bg-muted p-3 rounded-l-lg rounded-br-lg text-foreground max-w-[85%]">
-                  {STORY_PROMPT}
+            <div className="p-5 space-y-3 font-mono text-sm max-h-[420px] overflow-y-auto">
+              <YouBubble>{STORY_PROMPT}</YouBubble>
+
+              <BotBubble>
+                <p className="text-foreground">
+                  Got it — when Berkshire files a change, copy those buys and sells?
+                </p>
+              </BotBubble>
+
+              <YouBubble>Yes. Use the last two years.</YouBubble>
+
+              <BotBubble>
+                <p className="text-foreground">Copy-trade rules set · 6 tickers from recent 13Fs.</p>
+                <p>Want me to backtest that first?</p>
+              </BotBubble>
+
+              <YouBubble>Yeah, run it.</YouBubble>
+
+              <BotBubble>
+                <div>Running backtest…</div>
+                <div>
+                  <span className="text-positive font-semibold">{STORY_SPECS.returnPct}</span>
+                  {" · "}
+                  Sharpe {STORY_SPECS.sharpe}
+                  {" · "}
+                  <a href="#test" className="text-primary hover:underline">See full result ↓</a>
                 </div>
-              </div>
-              <div className="flex gap-3">
-                <div className="w-8 h-8 rounded-full bg-secondary-border flex items-center justify-center shrink-0 text-xs">ATL</div>
-                <div className="bg-card border border-card-border p-3 rounded-r-lg rounded-bl-lg text-muted-foreground max-w-[85%] space-y-2">
-                  <div>Running backtest…</div>
-                  <div>
-                    <span className="text-positive font-semibold">{STORY_SPECS.returnPct}</span>
-                    {" · "}
-                    Sharpe {STORY_SPECS.sharpe}
-                    {" · "}
-                    <a href="#test" className="text-primary hover:underline">See full result ↓</a>
-                  </div>
-                </div>
-              </div>
+              </BotBubble>
             </div>
             <p className="px-5 pb-4 text-xs font-mono text-muted-foreground">Demo replay · continues below</p>
           </div>
