@@ -18,23 +18,6 @@ function apiBase(): string {
   return "https://agentictrading.onrender.com";
 }
 
-function isUsEquitySessionOpen(now = new Date()): boolean {
-  // Rough NYSE hours in America/New_York (weekdays 9:30–16:00).
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    weekday: "short",
-    hour: "numeric",
-    minute: "numeric",
-    hour12: false,
-  }).formatToParts(now);
-  const weekday = parts.find((p) => p.type === "weekday")?.value ?? "";
-  if (weekday === "Sat" || weekday === "Sun") return false;
-  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
-  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
-  const mins = hour * 60 + minute;
-  return mins >= 9 * 60 + 30 && mins < 16 * 60;
-}
-
 function sortQuotes(quotes: Quote[]): Quote[] {
   const order = new Map(MAG7.map((s, i) => [s, i]));
   return [...quotes].sort((a, b) => (order.get(a.symbol as (typeof MAG7)[number]) ?? 99) - (order.get(b.symbol as (typeof MAG7)[number]) ?? 99));
@@ -80,7 +63,6 @@ function QuoteItem({ quote }: { quote: Quote }) {
 export function MarketTicker() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [status, setStatus] = useState("Loading market data...");
-  const [marketsOpen, setMarketsOpen] = useState(isUsEquitySessionOpen);
   const marqueeRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const offsetRef = useRef(0);
@@ -128,11 +110,9 @@ export function MarketTicker() {
 
     load();
     const poll = setInterval(load, REFRESH_MS);
-    const clock = setInterval(() => setMarketsOpen(isUsEquitySessionOpen()), 60_000);
     return () => {
       cancelled = true;
       clearInterval(poll);
-      clearInterval(clock);
     };
   }, []);
 
@@ -224,17 +204,6 @@ export function MarketTicker() {
             )}
           </div>
         </div>
-      </div>
-      <div className="landing-ticker-info">
-        <span title="Stock prices and daily % change from Yahoo Finance.">Data: Yahoo Finance</span>
-        <span
-          className={`landing-ticker-markets${marketsOpen ? "" : " is-closed"}`}
-          role="status"
-          aria-live="polite"
-        >
-          <span className="landing-ticker-markets-dot" aria-hidden="true" />
-          <span>{marketsOpen ? "Markets open" : "Markets closed"}</span>
-        </span>
       </div>
     </div>
   );

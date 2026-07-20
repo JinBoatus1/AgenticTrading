@@ -110,8 +110,8 @@
 }
 
 .landing-hero {
-  /* header (~84px) + ticker bar + info row ≈ 140px; keep a tight gap below */
-  --landing-chrome-height: 140px;
+  /* header (~84px) + ticker bar ≈ 118px */
+  --landing-chrome-height: 120px;
   padding-top: calc(var(--landing-chrome-height) + 0.75rem);
 }
 
@@ -249,44 +249,6 @@
   color: hsl(var(--muted-foreground));
   font-size: 11px;
   width: 100%;
-}
-
-.landing-ticker-info {
-  padding: 4px 12px;
-  border-top: 1px solid hsl(var(--border));
-  font-size: 9px;
-  color: hsl(var(--muted-foreground));
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-
-.landing-ticker-markets {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: hsl(var(--positive));
-  font-size: 9px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.landing-ticker-markets.is-closed {
-  color: hsl(var(--muted-foreground));
-}
-
-.landing-ticker-markets-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: hsl(var(--positive));
-  box-shadow: 0 0 6px rgba(34, 211, 238, 0.45);
-}
-
-.landing-ticker-markets.is-closed .landing-ticker-markets-dot {
-  background: hsl(var(--muted-foreground));
-  box-shadow: none;
 }
 
 .landing-header > .brand-lockup {
