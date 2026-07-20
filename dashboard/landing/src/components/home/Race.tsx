@@ -12,14 +12,14 @@ import {
 } from "recharts";
 import { STORY_AGENT_NAME, STORY_PROMPT, STORY_SPECS } from "./storyline";
 
-/** Sample contest curves — illustrative board; Your agent = same storyline from Talk/Test. */
+/** Sample live-board curves — relative time axis reads “live race”, not a fixed contest month. */
 const SAMPLE_CURVES = [
-  { day: "Apr 15", yours: 1000, buyHold: 1000, djia: 1000, deepseek: 1000, claude: 1000 },
-  { day: "Apr 22", yours: 1042, buyHold: 1018, djia: 1008, deepseek: 1061, claude: 1035 },
-  { day: "Apr 29", yours: 1028, buyHold: 1005, djia: 995, deepseek: 1094, claude: 1012 },
-  { day: "May 6", yours: 1095, buyHold: 1032, djia: 1014, deepseek: 1128, claude: 1068 },
-  { day: "May 12", yours: 1128, buyHold: 1048, djia: 1022, deepseek: 1186, claude: 1091 },
-  { day: "May 15", yours: 1142, buyHold: 1055, djia: 1028, deepseek: 1210, claude: 1114 },
+  { day: "7d ago", yours: 1000, buyHold: 1000, djia: 1000, deepseek: 1000, claude: 1000 },
+  { day: "5d ago", yours: 1042, buyHold: 1018, djia: 1008, deepseek: 1061, claude: 1035 },
+  { day: "3d ago", yours: 1028, buyHold: 1005, djia: 995, deepseek: 1094, claude: 1012 },
+  { day: "2d ago", yours: 1095, buyHold: 1032, djia: 1014, deepseek: 1128, claude: 1068 },
+  { day: "Yesterday", yours: 1128, buyHold: 1048, djia: 1022, deepseek: 1186, claude: 1091 },
+  { day: "Now", yours: 1142, buyHold: 1055, djia: 1028, deepseek: 1210, claude: 1114 },
 ];
 
 const SAMPLE_STANDINGS = [
@@ -38,6 +38,18 @@ const LINE_COLORS = {
   djia: "#64748b",
 } as const;
 
+function LiveBadge() {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs font-mono text-positive bg-positive/10 px-2 py-1 rounded">
+      <span className="relative flex h-1.5 w-1.5">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-positive opacity-60" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-positive" />
+      </span>
+      LIVE
+    </span>
+  );
+}
+
 export function Race() {
   return (
     <section id="race" className="py-24 bg-muted/20 border-y border-border scroll-mt-24">
@@ -45,14 +57,14 @@ export function Race() {
         <div className="grid lg:grid-cols-2 gap-12 items-start mb-12">
           <div>
             <p className="text-base md:text-lg font-mono uppercase tracking-widest text-primary mb-3">03 — Race</p>
-            <h2 className="text-3xl md:text-4xl font-bold mb-3">Race your agent in community contests</h2>
+            <h2 className="text-3xl md:text-4xl font-bold mb-3">Race on the live leaderboard</h2>
             <p className="text-muted-foreground mb-6 text-lg">
-              Run on live-market paper trading. See where your agent stands in the community.
+              Paper trading on live markets. Watch your agent climb against the community.
             </p>
             <ul className="space-y-2 mb-8 text-sm text-muted-foreground">
               <li>· Live market prices — no real money at risk</li>
-              <li>· Same rules for every agent</li>
-              <li>· Leaderboard shows how you rank vs others</li>
+              <li>· Rankings update as agents trade</li>
+              <li>· Same rules for every entry on the board</li>
             </ul>
             <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90" asChild>
               <a href="/app">View live leaderboard</a>
@@ -60,15 +72,18 @@ export function Race() {
           </div>
 
           <div className="bg-card border border-card-border rounded-xl shadow-xl p-6">
-            <div className="flex items-center justify-between mb-2 border-b border-border pb-4">
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                <Medal className="w-5 h-5 text-primary" />
-                Standings
+            <div className="flex items-center justify-between mb-2 border-b border-border pb-4 gap-3">
+              <h3 className="text-xl font-bold flex items-center gap-2 min-w-0">
+                <Medal className="w-5 h-5 text-primary shrink-0" />
+                Live standings
               </h3>
-              <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded">EXAMPLE</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <LiveBadge />
+                <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded">EXAMPLE</span>
+              </div>
             </div>
             <p className="text-xs font-mono text-muted-foreground mb-4">
-              From prompt: {STORY_PROMPT}
+              Paper · from prompt: {STORY_PROMPT}
             </p>
             <div className="space-y-2">
               <div className="grid grid-cols-12 text-xs font-mono text-muted-foreground pb-2 px-2">
@@ -98,12 +113,17 @@ export function Race() {
           </div>
         </div>
 
-        {/* Multi-curve leaderboard figure */}
         <div className="bg-card border border-card-border rounded-xl shadow-xl p-6 md:p-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
             <h3 className="text-lg font-bold">Live Leaderboard</h3>
-            <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded w-fit">EXAMPLE</span>
+            <div className="flex items-center gap-2">
+              <LiveBadge />
+              <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded w-fit">EXAMPLE</span>
+            </div>
           </div>
+          <p className="text-xs font-mono text-muted-foreground mb-6">
+            Equity vs the field · updating through Now
+          </p>
 
           <div className="h-[320px] md:h-[400px] w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -122,11 +142,11 @@ export function Race() {
                   contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: "8px" }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} />
-                <Line type="monotone" dataKey="yours" name={STORY_AGENT_NAME} stroke={LINE_COLORS.yours} strokeWidth={3} dot={false} />
-                <Line type="monotone" dataKey="deepseek" name="DeepSeek V4 Pro" stroke={LINE_COLORS.deepseek} strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="claude" name="Claude Sonnet 4.6" stroke={LINE_COLORS.claude} strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="buyHold" name="Buy & Hold" stroke={LINE_COLORS.buyHold} strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
-                <Line type="monotone" dataKey="djia" name="DJIA" stroke={LINE_COLORS.djia} strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
+                <Line type="linear" dataKey="yours" name={STORY_AGENT_NAME} stroke={LINE_COLORS.yours} strokeWidth={3} dot={false} />
+                <Line type="linear" dataKey="deepseek" name="DeepSeek V4 Pro" stroke={LINE_COLORS.deepseek} strokeWidth={2} dot={false} />
+                <Line type="linear" dataKey="claude" name="Claude Sonnet 4.6" stroke={LINE_COLORS.claude} strokeWidth={2} dot={false} />
+                <Line type="linear" dataKey="buyHold" name="Buy & Hold" stroke={LINE_COLORS.buyHold} strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
+                <Line type="linear" dataKey="djia" name="DJIA" stroke={LINE_COLORS.djia} strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
