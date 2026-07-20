@@ -75,7 +75,7 @@ export function Race() {
             <div className="flex items-center justify-between mb-2 border-b border-border pb-4 gap-3">
               <h3 className="text-xl font-bold flex items-center gap-2 min-w-0">
                 <Medal className="w-5 h-5 text-primary shrink-0" />
-                Live standings
+                Standings
               </h3>
               <div className="flex items-center gap-2 shrink-0">
                 <LiveBadge />
@@ -115,11 +115,11 @@ export function Race() {
 
         <div className="bg-card border border-card-border rounded-xl shadow-xl p-6 md:p-8">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-            <div className="flex items-center gap-3 min-w-0">
+            <h3 className="text-lg font-bold">Leaderboard</h3>
+            <div className="flex items-center gap-2 shrink-0">
               <LiveBadge />
-              <h3 className="text-lg font-bold">Leaderboard (live)</h3>
+              <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded w-fit">EXAMPLE</span>
             </div>
-            <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded w-fit">EXAMPLE</span>
           </div>
 
           <div className="h-[320px] md:h-[400px] w-full">
