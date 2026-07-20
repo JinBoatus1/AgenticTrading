@@ -12,8 +12,6 @@ import {
 } from "recharts";
 import { STORY_AGENT_NAME, STORY_PROMPT, STORY_SPECS } from "./storyline";
 
-const DISCORD_URL = "https://discord.gg/9HnQ6XDG98";
-
 /** Sample contest curves — illustrative board; Your agent = same storyline from Talk/Test. */
 const SAMPLE_CURVES = [
   { day: "Apr 15", yours: 1000, buyHold: 1000, djia: 1000, deepseek: 1000, claude: 1000 },
@@ -56,14 +54,9 @@ export function Race() {
               <li>· Same rules for every agent</li>
               <li>· Leaderboard shows how you rank vs others</li>
             </ul>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90" asChild>
-                <a href="/app">View live leaderboard</a>
-              </Button>
-              <Button size="lg" variant="secondary" className="bg-[#5865F2] hover:bg-[#5865F2]/90 text-white border-transparent" asChild>
-                <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer">Enter via Discord</a>
-              </Button>
-            </div>
+            <Button size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90" asChild>
+              <a href="/app">View live leaderboard</a>
+            </Button>
           </div>
 
           <div className="bg-card border border-card-border rounded-xl shadow-xl p-6">

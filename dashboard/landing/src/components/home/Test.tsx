@@ -110,11 +110,10 @@ export function Test() {
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <div>
           <Button size="lg" className="bg-primary text-primary-foreground glow-primary hover:bg-primary/90" asChild>
             <a href="#race">Race this agent ↓</a>
           </Button>
-          <p className="text-sm text-muted-foreground">Next: deploy to paper in the Lab</p>
         </div>
       </div>
     </section>
