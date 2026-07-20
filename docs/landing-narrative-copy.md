@@ -29,7 +29,7 @@ Scroll target `#landing-stats` is preserved as a hidden anchor inside Talk.
 | Mock footer | Demo replay · real flow |
 
 **Mock dialogue (keep short)**
-- You: `Momentum on NVDA — buy RSI>55, sell <45`
+- You: `I want to follow Warren Buffett. If Berkshire makes a move, copy the move and tell me how it goes.`
 - Bot: `Running backtest…`
 - Bot: `+14.2% · Sharpe 1.84 → Open in Lab`
 

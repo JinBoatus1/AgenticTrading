@@ -1,14 +1,14 @@
 /** Shared demo storyline across Talk → Test → Race. Keep phrases identical. */
 
-/** Plain-language idea — no tickers, indicators, or finance jargon. */
+/** Same plain-language idea as the /app home playground demo. */
 export const STORY_PROMPT =
-  "Follow Trump on X and buy whatever he tweets about";
+  "I want to follow Warren Buffett. If Berkshire makes a move, copy the move and tell me how it goes.";
 
 export const STORY_AGENT_NAME = "Your agent";
 
 export const STORY_SPECS = {
   window: "May 4–12, 2026",
-  universe: "US stocks he mentions",
+  universe: "Berkshire holdings",
   returnPct: "+14.2%",
   sharpe: "1.84",
   maxDd: "-8.6%",
@@ -18,20 +18,20 @@ export const STORY_SPECS = {
 export const STORY_DECISIONS = [
   {
     action: "BUY" as const,
-    symbol: "DJT",
-    detail: "New post mentioned the stock — bought a small position",
+    symbol: "OXY",
+    detail: "Berkshire added — copied the buy",
     type: "positive" as const,
   },
   {
     action: "HOLD" as const,
-    symbol: "Cash",
-    detail: "No new stock names in today's posts",
+    symbol: "AAPL",
+    detail: "No new Berkshire move this step",
     type: "muted" as const,
   },
   {
     action: "SELL" as const,
-    symbol: "TSLA",
-    detail: "He walked back yesterday's mention — exited",
+    symbol: "PARA",
+    detail: "Berkshire trimmed — copied the exit",
     type: "destructive" as const,
   },
 ];
