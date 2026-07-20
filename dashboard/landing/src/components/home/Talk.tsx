@@ -47,15 +47,15 @@ export function Talk() {
             <ol className="space-y-3 mb-8 text-sm text-muted-foreground">
               <li className="flex items-start gap-3">
                 <Hash className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                <span><span className="text-foreground font-medium">1</span> Join the server</span>
+                <span><span className="text-foreground font-medium">1.</span> Join the server</span>
               </li>
               <li className="flex items-start gap-3">
                 <MessageSquare className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                <span><span className="text-foreground font-medium">2</span> Talk to the bot</span>
+                <span><span className="text-foreground font-medium">2.</span> Talk to the bot</span>
               </li>
               <li className="flex items-start gap-3">
                 <Bot className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                <span><span className="text-foreground font-medium">3</span> Get your backtest result</span>
+                <span><span className="text-foreground font-medium">3.</span> Get your backtest result</span>
               </li>
             </ol>
             <Button size="lg" className="bg-[#5865F2] hover:bg-[#5865F2]/90 text-white border-transparent" asChild>
