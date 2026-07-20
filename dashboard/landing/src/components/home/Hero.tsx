@@ -5,8 +5,12 @@ import { useState, useEffect } from "react";
 
 const HEADLINE_LINE_1 = ["Talk", "to", "Agents"] as const;
 const HEADLINE_LINE_2 = ["Test", "Trading", "Ideas"] as const;
-const WORD_STAGGER = 0.09;
-const WORD_DURATION = 0.45;
+/** Per-word fade cadence — slower reads clearer on first paint. */
+const WORD_STAGGER = 0.18;
+const WORD_DURATION = 0.7;
+/** Quiet beat after line 1 finishes before line 2 starts. */
+const LINE_GAP = 0.65;
+const LINE1_START = 0.1;
 const EASE = [0.22, 1, 0.36, 1] as const;
 
 function Word({
@@ -55,8 +59,17 @@ function HeadlineWords({
 
 export function Hero() {
   const [hintHidden, setHintHidden] = useState(false);
-  const line2Delay = 0.08 + HEADLINE_LINE_1.length * WORD_STAGGER;
-  const ctaDelay = line2Delay + HEADLINE_LINE_2.length * WORD_STAGGER + 0.18;
+  // Start line 2 only after line 1's last word has finished + LINE_GAP.
+  const line2Delay =
+    LINE1_START +
+    (HEADLINE_LINE_1.length - 1) * WORD_STAGGER +
+    WORD_DURATION +
+    LINE_GAP;
+  const ctaDelay =
+    line2Delay +
+    (HEADLINE_LINE_2.length - 1) * WORD_STAGGER +
+    WORD_DURATION +
+    0.25;
 
   useEffect(() => {
     const onScroll = () => {
@@ -79,7 +92,7 @@ export function Hero() {
         <div className="flex-1 text-center lg:text-left">
           <h1 className="mb-8 max-w-xl text-[clamp(2.85rem,3.9vw,4.25rem)] font-extrabold leading-[1.05] tracking-[-0.04em] text-[#e5e7eb] mx-auto lg:mx-0">
             <span className="block">
-              <HeadlineWords words={HEADLINE_LINE_1} startDelay={0.08} />
+              <HeadlineWords words={HEADLINE_LINE_1} startDelay={LINE1_START} />
             </span>
             <span className="block mt-[0.42em] text-[#22d3ee]">
               <HeadlineWords words={HEADLINE_LINE_2} startDelay={line2Delay} />
