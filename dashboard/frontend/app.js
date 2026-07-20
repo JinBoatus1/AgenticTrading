@@ -1821,8 +1821,10 @@ function initAuthUI() {
         })
         .catch((error) => {
           // Sign-in itself succeeded, so this must not reach the form's error
-          // slot; agents reload on the next refresh.
-          console.warn('Post-sign-in agent claim skipped:', error.message);
+          // slot; agents reload on the next refresh. Not named for the claim:
+          // claimAgentsForUser swallows the claim POST's own failure, so what
+          // lands here came from the reload leg after it.
+          console.warn('Post-sign-in agent reload failed:', error.message);
         });
     } catch (error) {
       if (errorEl) {
