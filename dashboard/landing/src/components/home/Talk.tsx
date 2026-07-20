@@ -40,7 +40,7 @@ export function Talk() {
             <p className="text-base md:text-lg font-mono uppercase tracking-widest text-primary mb-3">01 — Talk</p>
             <h2 className="text-3xl md:text-4xl font-bold mb-3">Talk to agents on Discord</h2>
             <p className="text-muted-foreground mb-8 text-lg">
-              Describe a strategy. The bot runs it.
+              Describe your trading idea. The bot runs it.
             </p>
             <ol className="space-y-3 mb-8 text-sm text-muted-foreground">
               <li className="flex items-start gap-3">
