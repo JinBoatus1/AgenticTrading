@@ -272,11 +272,20 @@ def test_agent_schema_lazily_migrates_an_old_table_postgres(pg_agent_store):
     appear and the first real create_agent (which names them) raises
     UndefinedColumn: exactly the silent prod-500 this issue describes.
 
-    The pre-existing row -- not the empty table -- is the real prod scenario and
-    the real risk surface. `scopes` is an authorization input, so a legacy row
-    must emerge from the migration carrying the column DEFAULT; a NULL scopes
-    would be an authz hole. That backfill is precisely what ADD COLUMN ... NOT
-    NULL DEFAULT does for existing rows, and it is what this asserts.
+    The pre-existing row -- not the empty table -- is the risk surface worth
+    asserting on. `scopes` is an authorization input, so a legacy row must emerge
+    from the migration carrying the column DEFAULT; a NULL scopes would be an
+    authz hole. That backfill is precisely what ADD COLUMN ... NOT NULL DEFAULT
+    does for existing rows, and it is what this asserts.
+
+    The legacy shape below is SYNTHETIC, not historical: the Postgres twin shipped
+    in #134 with all five columns already folded into its CREATE TABLE, so no Neon
+    deployment has ever had this table. What this pins is the ALTER statements
+    themselves -- drop any one of them, or its NOT NULL DEFAULT, and this goes red.
+    The forward risk #135 actually names -- a *sixth* column added to CREATE TABLE
+    only, never reaching an existing deployment -- cannot be covered by a test
+    written today; the ADDING A COLUMN LATER? comment in repository_postgres.py is
+    what guards that, and it is the thing to keep alive.
     """
     from dashboard.backend.domain.agents.repository import DEFAULT_SCOPES
     from dashboard.backend.domain.agents.repository_postgres import PostgresAgentStore

@@ -70,7 +70,7 @@ git commit -m "deps: add psycopg for optional Postgres-backed user accounts"
 This task needs a real Postgres to run its behavioral tests against. Start a throwaway one now (skip this if you already have `TEST_POSTGRES_URL` pointed at something disposable):
 
 ```bash
-docker run --rm -d --name atl-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=atl_test -p 5433:5432 postgres:16-alpine
+docker run --rm -d --name atl-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=atl_test -p 5433:5432 postgres:18-alpine
 export TEST_POSTGRES_URL=postgresql://postgres:test@localhost:5433/atl_test
 ```
 
@@ -88,7 +88,7 @@ Two tiers:
 2. Behavioral tests against a real Postgres - skipped unless
    TEST_POSTGRES_URL is set. Point it at a throwaway database, e.g.:
      docker run --rm -e POSTGRES_PASSWORD=test -e POSTGRES_DB=atl_test \
-       -p 5433:5432 postgres:16-alpine
+       -p 5433:5432 postgres:18-alpine
      export TEST_POSTGRES_URL=postgresql://postgres:test@localhost:5433/atl_test
 """
 

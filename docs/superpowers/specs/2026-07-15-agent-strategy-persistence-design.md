@@ -229,14 +229,23 @@ stores already write `_utcnow_iso()` strings, so ordering/comparison parity is e
 JSON kept as `TEXT` (not JSONB), `DOUBLE PRECISION` for `cash_allocation`, idempotent
 `CREATE TABLE IF NOT EXISTS` in `_init_schema()`.
 
-**No lazy `ALTER TABLE ADD COLUMN` migrations, unlike `users_postgres.py`** — and the
-difference is not an oversight. That module needs its `ADD COLUMN IF NOT EXISTS
-discord_user_id` because its `users` table already exists in prod Neon from before
-Discord linking shipped. All three tables here are created *fresh* on first Postgres
-startup (there is no data to migrate — see Migration below), so `CREATE TABLE` alone
-already declares every column and there is nothing an `ALTER` could add. Columns added
-in *future* work use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, the Postgres analogue
-of the SQLite stores' `PRAGMA table_info` probing.
+**Lazy `ALTER TABLE ADD COLUMN` migrations — none as designed, since amended for the
+agent twin.** As specified, this section argued none were needed: `users_postgres.py`
+needs its `ADD COLUMN IF NOT EXISTS discord_user_id` because its `users` table already
+exists in prod Neon from before Discord linking shipped, whereas all three tables here
+are created *fresh* on first Postgres startup (there is no data to migrate — see
+Migration below), so `CREATE TABLE` alone already declares every column.
+
+That reasoning holds for the *first* deploy and fails for every one after it. Once the
+table exists, `CREATE TABLE IF NOT EXISTS` silently no-ops, so a column added later to
+the `CREATE` block alone never reaches an existing deployment, and every query naming it
+raises `UndefinedColumn` — 500ing that surface while `/health` stays green. Issue #135
+closed that gap for `agents/repository_postgres.py`, which now carries five
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements mirroring the SQLite store's
+accreted migrations. `agent_versions` and `strategies` still carry none: they shipped
+complete and have accreted no columns since, so for those two the original rule stands —
+columns added in *future* work use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, the
+Postgres analogue of the SQLite stores' `PRAGMA table_info` probing.
 
 All unique constraints and indexes carry over:
 `api_key_hash` UNIQUE, `session_id` UNIQUE, indexes on `owner_user_id`,
