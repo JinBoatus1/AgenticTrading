@@ -99,7 +99,6 @@ export function Talk() {
                 </div>
               </BotBubble>
             </div>
-            <p className="px-5 pb-4 text-xs font-mono text-muted-foreground">Demo replay · continues below</p>
           </div>
         </div>
       </div>
