@@ -1804,14 +1804,28 @@ function initAuthUI() {
         ? await AuthAPI.signup(email, displayName, password)
         : await AuthAPI.login(email, password);
       setAuthState(data.user, data.token);
-      await claimAgentsForUser();
+      // Authentication is complete here, so dismiss now. Everything below is
+      // post-sign-in housekeeping and must not hold the modal open — a slow or
+      // hung backend used to leave the popup up over an already-signed-in UI.
       closeAuthModal();
-      // If we arrived here from a Discord deep link that needed this account
-      // (params were kept), retry it now that the owner is signed in.
-      const deepLinkParams = new URLSearchParams(window.location.search);
-      if (deepLinkParams.get('agent_id') || deepLinkParams.get('run_id')) {
-        applyAgentRunDeepLink();
-      }
+      claimAgentsForUser()
+        .then(() => {
+          // If we arrived here from a Discord deep link that needed this account
+          // (params were kept), retry it now that the owner is signed in. This
+          // waits on the claim: until it lands the account does not own the
+          // agent yet and the deep link's fetch 403s.
+          const deepLinkParams = new URLSearchParams(window.location.search);
+          if (deepLinkParams.get('agent_id') || deepLinkParams.get('run_id')) {
+            applyAgentRunDeepLink();
+          }
+        })
+        .catch((error) => {
+          // Sign-in itself succeeded, so this must not reach the form's error
+          // slot; agents reload on the next refresh. Not named for the claim:
+          // claimAgentsForUser swallows the claim POST's own failure, so what
+          // lands here came from the reload leg after it.
+          console.warn('Post-sign-in agent reload failed:', error.message);
+        });
     } catch (error) {
       if (errorEl) {
         errorEl.textContent = error.message;
