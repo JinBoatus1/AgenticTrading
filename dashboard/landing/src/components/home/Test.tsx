@@ -16,7 +16,7 @@ const equity = [
 
 export function Test() {
   return (
-    <section id="test" className="py-24 relative scroll-mt-24">
+    <section id="test" className="py-24 relative scroll-mt-40">
       <div className="container mx-auto px-6">
         <div className="mb-8 max-w-2xl">
           <p className="text-base md:text-lg font-mono uppercase tracking-widest text-primary mb-3">02 — Test</p>

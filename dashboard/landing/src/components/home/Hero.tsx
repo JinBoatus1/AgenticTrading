@@ -3,8 +3,73 @@ import { Button } from "@/components/ui/button";
 import { Terminal, Bot, User, Search, LineChart, CheckCircle2, ChevronDown } from "lucide-react";
 import { useState, useEffect } from "react";
 
+const HEADLINE_LINE_1 = ["Talk", "to", "Agents"] as const;
+const HEADLINE_LINE_2 = ["Test", "Trading", "Ideas"] as const;
+/** Per-word fade cadence — slower reads clearer on first paint. */
+const WORD_STAGGER = 0.18;
+const WORD_DURATION = 0.7;
+/** Quiet beat after line 1 finishes before line 2 starts. */
+const LINE_GAP = 0.65;
+const LINE1_START = 0.1;
+const EASE = [0.22, 1, 0.36, 1] as const;
+
+function Word({
+  children,
+  delay,
+  className = "",
+}: {
+  children: string;
+  delay: number;
+  className?: string;
+}) {
+  return (
+    <motion.span
+      className={`inline-block ${className}`}
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: WORD_DURATION, ease: EASE, delay }}
+    >
+      {children}
+    </motion.span>
+  );
+}
+
+function HeadlineWords({
+  words,
+  startDelay,
+  wordClassName = "",
+}: {
+  words: readonly string[];
+  startDelay: number;
+  wordClassName?: string;
+}) {
+  return (
+    <span className="inline">
+      {words.map((word, i) => (
+        <span key={`${word}-${i}`}>
+          {i > 0 ? " " : null}
+          <Word delay={startDelay + i * WORD_STAGGER} className={wordClassName}>
+            {word}
+          </Word>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function Hero() {
   const [hintHidden, setHintHidden] = useState(false);
+  // Start line 2 only after line 1's last word has finished + LINE_GAP.
+  const line2Delay =
+    LINE1_START +
+    (HEADLINE_LINE_1.length - 1) * WORD_STAGGER +
+    WORD_DURATION +
+    LINE_GAP;
+  const ctaDelay =
+    line2Delay +
+    (HEADLINE_LINE_2.length - 1) * WORD_STAGGER +
+    WORD_DURATION +
+    0.25;
 
   useEffect(() => {
     const onScroll = () => {
@@ -20,34 +85,24 @@ export function Hero() {
   };
 
   return (
-    <section className="relative min-h-[100dvh] flex items-center overflow-hidden pt-36 pb-28 md:pt-40 md:pb-32">
+    <section className="relative min-h-[100dvh] flex items-start overflow-hidden landing-hero pb-20 md:pb-24">
       <div className="absolute inset-0 bg-grid-pattern opacity-30 [mask-image:radial-gradient(ellipse_at_center,black,transparent_80%)]" />
 
-      <div className="container mx-auto px-6 relative z-10 flex flex-col lg:flex-row items-center gap-16">
+      <div className="container mx-auto px-6 relative z-10 flex flex-col lg:flex-row items-center gap-12 lg:gap-16 lg:min-h-[calc(100dvh-var(--landing-chrome-height)-4rem)]">
         <div className="flex-1 text-center lg:text-left">
           <h1 className="mb-8 max-w-xl text-[clamp(2.85rem,3.9vw,4.25rem)] font-extrabold leading-[1.05] tracking-[-0.04em] text-[#e5e7eb] mx-auto lg:mx-0">
-            <motion.span
-              className="block"
-              initial={{ opacity: 0, y: 18 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.08 }}
-            >
-              Talk to Agents
-            </motion.span>
-            <motion.span
-              className="inline-block mt-[0.42em] text-[#22d3ee]"
-              initial={{ opacity: 0, y: 18 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.42 }}
-            >
-              Test Trading Ideas
-            </motion.span>
+            <span className="block">
+              <HeadlineWords words={HEADLINE_LINE_1} startDelay={LINE1_START} />
+            </span>
+            <span className="block mt-[0.42em] text-[#22d3ee]">
+              <HeadlineWords words={HEADLINE_LINE_2} startDelay={line2Delay} />
+            </span>
           </h1>
           <motion.div
             className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.75 }}
+            transition={{ duration: 0.5, delay: ctaDelay }}
           >
             <Button size="lg" className="w-full sm:w-auto bg-primary text-primary-foreground glow-primary hover:bg-primary/90 text-base h-12 px-8" asChild>
               <a href="/app?view=home">Get Started</a>
@@ -152,16 +207,23 @@ function FadeIn({ children, delay = 0 }: { children: React.ReactNode; delay?: nu
 
 function ChatSimulation() {
   const [step, setStep] = useState(0);
+  const [cycle, setCycle] = useState(0);
 
-  // Play once, then stop — no replay loop.
+  // Advance steps, then pause briefly and replay from the start.
   useEffect(() => {
-    if (step >= 4) return;
-    const timer = setTimeout(() => setStep((s) => s + 1), 2200);
+    if (step < 4) {
+      const timer = setTimeout(() => setStep((s) => s + 1), 2200);
+      return () => clearTimeout(timer);
+    }
+    const timer = setTimeout(() => {
+      setStep(0);
+      setCycle((c) => c + 1);
+    }, 3200);
     return () => clearTimeout(timer);
   }, [step]);
 
   return (
-    <>
+    <div key={cycle} className="flex flex-col gap-3">
       <FadeIn>
         <UserBubble>
           I want to follow Warren Buffett. If Berkshire makes a move, copy the move and tell me how it goes.
@@ -245,6 +307,6 @@ function ChatSimulation() {
           </AgentBubble>
         </FadeIn>
       )}
-    </>
+    </div>
   );
 }
