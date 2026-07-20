@@ -27,7 +27,11 @@ jobs:
     # does not boot. Cheap insurance: the container starts in a couple of seconds.
     services:
       postgres:
-        image: postgres:16-alpine
+        # Pinned to prod's major version: the live Neon database runs
+        # PostgreSQL 18.x (checked via version() during the #134 pre-merge
+        # review). This tier exists to catch dialect problems before prod, so it
+        # must ship to the same major version prod runs -- see issue #138.
+        image: postgres:18-alpine
         env:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: atl_test

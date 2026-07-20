@@ -234,14 +234,23 @@ stores already write `_utcnow_iso()` strings, so ordering/comparison parity is e
 JSON kept as `TEXT` (not JSONB), `DOUBLE PRECISION` for `cash_allocation`, idempotent
 `CREATE TABLE IF NOT EXISTS` in `_init_schema()`.
 
-**No lazy `ALTER TABLE ADD COLUMN` migrations, unlike `users_postgres.py`** — and the
-difference is not an oversight. That module needs its `ADD COLUMN IF NOT EXISTS
-discord_user_id` because its `users` table already exists in prod Neon from before
-Discord linking shipped. All three tables here are created *fresh* on first Postgres
-startup (there is no data to migrate — see Migration below), so `CREATE TABLE` alone
-already declares every column and there is nothing an `ALTER` could add. Columns added
-in *future* work use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, the Postgres analogue
-of the SQLite stores' `PRAGMA table_info` probing.
+**Lazy `ALTER TABLE ADD COLUMN` migrations — none as designed, since amended for the
+agent twin.** As specified, this section argued none were needed: `users_postgres.py`
+needs its `ADD COLUMN IF NOT EXISTS discord_user_id` because its `users` table already
+exists in prod Neon from before Discord linking shipped, whereas all three tables here
+are created *fresh* on first Postgres startup (there is no data to migrate — see
+Migration below), so `CREATE TABLE` alone already declares every column.
+
+That reasoning holds for the *first* deploy and fails for every one after it. Once the
+table exists, `CREATE TABLE IF NOT EXISTS` silently no-ops, so a column added later to
+the `CREATE` block alone never reaches an existing deployment, and every query naming it
+raises `UndefinedColumn` — 500ing that surface while `/health` stays green. Issue #135
+closed that gap for `agents/repository_postgres.py`, which now carries five
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements mirroring the SQLite store's
+accreted migrations. `agent_versions` and `strategies` still carry none: they shipped
+complete and have accreted no columns since, so for those two the original rule stands —
+columns added in *future* work use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, the
+Postgres analogue of the SQLite stores' `PRAGMA table_info` probing.
 
 All unique constraints and indexes carry over:
 `api_key_hash` UNIQUE, `session_id` UNIQUE, indexes on `owner_user_id`,
@@ -347,7 +356,7 @@ most important item in this section.
    runs at **import time** and this design mandates fail-loud, so a single DDL typo
    means the app raises on boot. Merging `main` auto-deploys, and the free tier has
    no zero-downtime deploys — so a typo plausibly takes prod down rather than merely
-   failing a deploy. Add a `postgres:16-alpine` service to the `backend-tests` job
+   failing a deploy. Add a `postgres:18-alpine` service to the `backend-tests` job
    and set `TEST_POSTGRES_URL` (~8 lines of YAML). This lands *early* in the plan, not
    at the end: it also switches on the shipped-but-never-CI-run
    `test_users_postgres.py` live tier, and that wants to shake out on its own commit
@@ -400,7 +409,7 @@ tests across two identically-named files.
   durable Postgres for user-created content).
 - `render.yaml`: optionally add `CONTENT_DATABASE_URL` with `sync: false` as documentation —
   the real mechanism is the Render dashboard (see Rollout).
-- `.github/workflows/ci.yml`: add a `postgres:16-alpine` service + `TEST_POSTGRES_URL`
+- `.github/workflows/ci.yml`: add a `postgres:18-alpine` service + `TEST_POSTGRES_URL`
   to the `backend-tests` job, so the `@pg_only` tier runs (Testing tier 0). Not
   cosmetic — this is the only thing that executes the new SQL before prod does.
 - CLAUDE.md: extend the env/credentials section and the user-account-persistence

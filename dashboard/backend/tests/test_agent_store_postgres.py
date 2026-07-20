@@ -6,7 +6,7 @@ Two tiers, mirroring test_users_postgres.py:
 2. Behavioral tests against a real Postgres - skipped unless
    TEST_POSTGRES_URL is set. Point it at a throwaway database, e.g.:
      docker run --rm -e POSTGRES_PASSWORD=test -e POSTGRES_DB=atl_test \
-       -p 5433:5432 postgres:16-alpine
+       -p 5433:5432 postgres:18-alpine
      export TEST_POSTGRES_URL=postgresql://postgres:test@localhost:5433/atl_test
 
 Do NOT copy the raw-SQL fixture pattern from test_v2_http_runs.py /
@@ -257,6 +257,211 @@ def test_builtin_listing_and_delete_postgres(pg_agent_store):
     assert pg_agent_store.delete_agent(builtin["agent_id"]) is True
     assert pg_agent_store.delete_agent(builtin["agent_id"]) is False
     assert pg_agent_store.get_agent(builtin["agent_id"]) is None
+
+
+@pg_only
+def test_agent_schema_lazily_migrates_an_old_table_postgres(pg_agent_store):
+    """#135: the twin must ADD COLUMN IF NOT EXISTS for post-ship columns.
+
+    Simulate a deployment created before the five lazy-migration columns
+    (agent_type, description, pipeline_config, cash_allocation, scopes) existed:
+    a table with only the original base schema, already holding a real agent row
+    that predates those columns. Re-running _init_schema() -- what every redeploy
+    does -- must bring it up to the current shape. CREATE TABLE IF NOT EXISTS
+    no-ops on the existing table, so without an ALTER path the columns never
+    appear and the first real create_agent (which names them) raises
+    UndefinedColumn: exactly the silent prod-500 this issue describes.
+
+    The pre-existing row -- not the empty table -- is the risk surface worth
+    asserting on. `scopes` is an authorization input, so a legacy row must emerge
+    from the migration carrying the column DEFAULT; a NULL scopes would be an
+    authz hole. That backfill is precisely what ADD COLUMN ... NOT NULL DEFAULT
+    does for existing rows, and it is what this asserts.
+
+    The legacy shape below is SYNTHETIC, not historical: the Postgres twin shipped
+    in #134 with all five columns already folded into its CREATE TABLE, so no Neon
+    deployment has ever had this table. What this pins is the ALTER statements
+    themselves -- drop any one of them, or its NOT NULL DEFAULT, and this goes red.
+    The forward risk #135 actually names -- a *sixth* column added to CREATE TABLE
+    only, never reaching an existing deployment -- cannot be covered by a test
+    written today; the ADDING A COLUMN LATER? comment in repository_postgres.py is
+    what guards that, and it is the thing to keep alive.
+    """
+    from dashboard.backend.domain.agents.repository import DEFAULT_SCOPES
+    from dashboard.backend.domain.agents.repository_postgres import PostgresAgentStore
+
+    with pg_agent_store._get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS external_agents CASCADE")
+            cur.execute(
+                """
+                CREATE TABLE external_agents (
+                    agent_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    session_id TEXT NOT NULL UNIQUE,
+                    api_key_hash TEXT NOT NULL UNIQUE,
+                    api_key_prefix TEXT NOT NULL,
+                    model_name TEXT NOT NULL DEFAULT 'local-model',
+                    owner_user_id INTEGER,
+                    owner_browser_session TEXT,
+                    created_at TEXT,
+                    last_used_at TEXT
+                )
+                """
+            )
+            # A real agent registered against the pre-migration schema.
+            cur.execute(
+                """
+                INSERT INTO external_agents (
+                    agent_id, name, session_id, api_key_hash, api_key_prefix
+                ) VALUES ('agent_legacy', 'Legacy', 'sess_legacy',
+                          'hash_legacy', 'ag_legacy')
+                """
+            )
+
+    # A redeploy re-runs _init_schema() against the existing "old" table.
+    PostgresAgentStore(TEST_POSTGRES_URL)
+
+    with pg_agent_store._get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'external_agents'"
+            )
+            columns = {r["column_name"] for r in cur.fetchall()}
+            # Read the raw columns straight from the legacy row: _public_agent
+            # masks a NULL/empty scopes back to DEFAULT_SCOPES, so only the stored
+            # value proves the ADD COLUMN carried its NOT NULL DEFAULT for the
+            # pre-existing row rather than leaving it NULL.
+            cur.execute(
+                "SELECT agent_type, scopes FROM external_agents "
+                "WHERE agent_id = 'agent_legacy'"
+            )
+            legacy = cur.fetchone()
+    assert {
+        "agent_type",
+        "description",
+        "pipeline_config",
+        "cash_allocation",
+        "scopes",
+    } <= columns
+    # The pre-existing row was backfilled with the column defaults, not NULL.
+    assert legacy["agent_type"] == "external"
+    assert legacy["scopes"] == DEFAULT_SCOPES
+
+    # The store is actually usable after the migration: a real registration
+    # writes every migrated column, and the scopes column default applies.
+    created = pg_agent_store.create_agent(name="Post-migration", cash_allocation=123.0)
+    assert created["cash_allocation"] == 123.0
+
+
+@pg_only
+def test_claim_and_reclaim_agent_postgres(pg_agent_store):
+    """#137 gap 1: claim_agent / reclaim_agent had zero Postgres coverage.
+
+    claim_agent COALESCEs owner_browser_session (a None arg keeps the stored
+    one); reclaim_agent overwrites it unconditionally. Swapping those two
+    semantics is the mutation this pins.
+    """
+    created = pg_agent_store.create_agent(
+        name="Claimable2", owner_browser_session="bs_old"
+    )
+
+    pg_agent_store.claim_agent(created["agent_id"], owner_user_id=7)
+    assert pg_agent_store.owns_agent(created, owner_user_id=7) is True
+    # COALESCE kept the original browser session (no owner_browser_session arg).
+    assert pg_agent_store.owns_agent(created, owner_browser_session="bs_old") is True
+
+    pg_agent_store.reclaim_agent(created["agent_id"], owner_browser_session="bs_new")
+    # reclaim overwrote it: the new session matches, the old one no longer does.
+    assert pg_agent_store.owns_agent(created, owner_browser_session="bs_new") is True
+    assert pg_agent_store.owns_agent(created, owner_browser_session="bs_old") is False
+    # The user binding from claim survives reclaim (owner_user_id is COALESCEd).
+    assert pg_agent_store.owns_agent(created, owner_user_id=7) is True
+
+
+@pg_only
+def test_create_agent_stores_default_scopes_verbatim_postgres(pg_agent_store):
+    """#137 gap 2: scopes is an authorization surface with no @pg_only assertion.
+
+    create_agent omits scopes from its INSERT, so the column DEFAULT fills it.
+    Read the raw column, not the public dict: _public_agent does
+    ``data.get("scopes") or DEFAULT_SCOPES``, so an empty/dropped default is
+    masked back to DEFAULT_SCOPES in the public view -- only the stored value
+    proves the column default itself is right.
+    """
+    from dashboard.backend.domain.agents.repository import DEFAULT_SCOPES
+
+    created = pg_agent_store.create_agent(name="Scoped")  # no scopes passed
+    with pg_agent_store._get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT scopes FROM external_agents WHERE agent_id = %s",
+                (created["agent_id"],),
+            )
+            raw = cur.fetchone()["scopes"]
+    assert raw == DEFAULT_SCOPES
+
+
+@pg_only
+def test_resolve_api_key_touches_last_used_at_postgres(pg_agent_store, monkeypatch):
+    """#137 gap 3: touch-on-use was only asserted `is not None`.
+
+    create_agent already sets last_used_at non-None, so a dropped touch-on-use
+    UPDATE in resolve_api_key would go uncaught. Force a distinct, strictly-later
+    timestamp so the assertion can't hide behind 1-second timestamp resolution
+    (create and resolve otherwise land in the same second).
+    """
+    import dashboard.backend.domain.agents.repository_postgres as repo_pg
+
+    created = pg_agent_store.create_agent(name="Toucher")
+    before = pg_agent_store.get_agent(created["agent_id"])["last_used_at"]
+
+    monkeypatch.setattr(repo_pg, "_utcnow_iso", lambda: "2099-01-01T00:00:00+00:00")
+    pg_agent_store.resolve_api_key(created["api_key"])
+
+    after = pg_agent_store.get_agent(created["agent_id"])["last_used_at"]
+    assert after == "2099-01-01T00:00:00+00:00"
+    assert after != before
+
+
+@pg_only
+def test_listings_order_newest_first_postgres(pg_agent_store, monkeypatch):
+    """#137 gap 4: nothing exercised ORDER BY on list_agents / list_builtin_agents.
+
+    Both queries are ``ORDER BY created_at DESC``; an ASC/DESC swap in either was
+    invisible. Feed monotonically increasing created_at values -- 1s resolution
+    would otherwise make same-second ties non-deterministic.
+    """
+    import itertools
+
+    import dashboard.backend.domain.agents.repository_postgres as repo_pg
+
+    # Unbounded monotonic clock: robust if create_agent ever calls _utcnow_iso a
+    # different number of times (a fixed-length iterator would raise an opaque
+    # StopIteration instead of a clean assertion failure).
+    day = itertools.count(1)
+    monkeypatch.setattr(
+        repo_pg, "_utcnow_iso", lambda: f"2020-01-{next(day):02d}T00:00:00+00:00"
+    )
+
+    a = pg_agent_store.create_agent(name="A", owner_user_id=99)
+    b = pg_agent_store.create_agent(name="B", owner_user_id=99)
+    c = pg_agent_store.create_agent(name="C", owner_user_id=99)
+    assert [x["agent_id"] for x in pg_agent_store.list_agents(owner_user_id=99)] == [
+        c["agent_id"],
+        b["agent_id"],
+        a["agent_id"],
+    ]
+
+    d = pg_agent_store.create_agent(name="D", agent_type="builtin")
+    e = pg_agent_store.create_agent(name="E", agent_type="builtin")
+    f = pg_agent_store.create_agent(name="F", agent_type="builtin")
+    assert [x["agent_id"] for x in pg_agent_store.list_builtin_agents()] == [
+        f["agent_id"],
+        e["agent_id"],
+        d["agent_id"],
+    ]
 
 
 # --- dispatch tests (agent version store) ------------------------------------

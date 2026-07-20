@@ -31,7 +31,7 @@
 |---|---|---|---|
 | `dashboard/backend/tests/conftest.py` | Modify | 1 | Strip `CONTENT_DATABASE_URL` at import time (suite always SQLite) |
 | `dashboard/backend/tests/test_env_isolation.py` | Create | 1 | Pin that the suite never sees the backend-selecting env vars |
-| `.github/workflows/ci.yml` | Modify | 2 | `postgres:16-alpine` service + `TEST_POSTGRES_URL` → the `@pg_only` tier becomes a real gate |
+| `.github/workflows/ci.yml` | Modify | 2 | `postgres:18-alpine` service + `TEST_POSTGRES_URL` → the `@pg_only` tier becomes a real gate |
 | `dashboard/backend/tests/test_ci_postgres_wired.py` | Create | 2 | Make CI red (not silently all-skip) if the postgres service is ever dropped |
 | `dashboard/backend/db_url.py` | Create | 3 | `describe_database_url()` — credential-free host/dbname for logs (shared by all 4 factories) |
 | `dashboard/backend/tests/test_db_url.py` | Create | 3 | Pin that the password never survives the transformation |
@@ -67,7 +67,7 @@
 **Live-Postgres testing (applies to every `@pg_only` test in this plan).** Locally, without `TEST_POSTGRES_URL` these tests skip. That is fine for fast iteration but it is **not** the definition of done: skipping locally *and* in CI is how ~450 lines of new SQL would reach prod unexecuted, and prod's first execution is `_init_schema()` at import time with fail-loud semantics. Task 2 therefore makes CI run them on every PR — that is the gate. Running them locally as well is the fast feedback loop:
 
 ```bash
-docker run --rm -d --name atl-pg-test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=atl_test -p 5433:5432 postgres:16-alpine
+docker run --rm -d --name atl-pg-test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=atl_test -p 5433:5432 postgres:18-alpine
 export TEST_POSTGRES_URL=postgresql://postgres:test@localhost:5433/atl_test
 # ... run pytest ...
 docker stop atl-pg-test
@@ -247,7 +247,7 @@ In `.github/workflows/ci.yml`, add a `services:` key to the `backend-tests` job 
     # does not boot. Cheap insurance: the container starts in a couple of seconds.
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: atl_test
@@ -617,7 +617,7 @@ Two tiers, mirroring test_users_postgres.py:
 2. Behavioral tests against a real Postgres - skipped unless
    TEST_POSTGRES_URL is set. Point it at a throwaway database, e.g.:
      docker run --rm -e POSTGRES_PASSWORD=test -e POSTGRES_DB=atl_test \
-       -p 5433:5432 postgres:16-alpine
+       -p 5433:5432 postgres:18-alpine
      export TEST_POSTGRES_URL=postgresql://postgres:test@localhost:5433/atl_test
 
 Do NOT copy the raw-SQL fixture pattern from test_v2_http_runs.py /
@@ -2192,7 +2192,7 @@ Expected: everything passes locally; the only skips are the `@pg_only` tests, `t
 - [ ] **Step 3: Run the `@pg_only` tier against a throwaway Postgres**
 
 ```bash
-docker run --rm -d --name atl-pg-test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=atl_test -p 5433:5432 postgres:16-alpine
+docker run --rm -d --name atl-pg-test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=atl_test -p 5433:5432 postgres:18-alpine
 sleep 3
 TEST_POSTGRES_URL=postgresql://postgres:test@localhost:5433/atl_test pytest \
   dashboard/backend/tests/test_agent_store_postgres.py \
