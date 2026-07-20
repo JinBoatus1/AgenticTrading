@@ -10,7 +10,9 @@ function YouBubble({ children }: { children: React.ReactNode }) {
       <div className="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center shrink-0">
         <User className="w-3 h-3" />
       </div>
-      <div className="bg-muted p-3 rounded-l-lg rounded-br-lg text-foreground max-w-[85%]">{children}</div>
+      <div className="bg-primary/15 border border-primary/25 p-3 rounded-l-lg rounded-br-lg text-foreground max-w-[85%]">
+        {children}
+      </div>
     </div>
   );
 }
