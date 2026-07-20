@@ -651,42 +651,42 @@ function measureAppChromeHeight() {
     return measured;
 }
 
-function setHomePagerPage(page) {
+function homePrefersReducedMotion() {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function refreshHomeModulesWhenReady() {
+    const hasAgents = typeof allAgents !== 'undefined' && Array.isArray(allAgents) && allAgents.length > 0;
+    if (!hasAgents && typeof loadAgents === 'function') {
+        Promise.resolve(loadAgents()).catch(() => {
+            refreshHomeModules();
+        });
+    } else {
+        refreshHomeModules();
+    }
+}
+
+/** @param {0|1|number} page @param {{ instant?: boolean }} [opts] */
+function setHomePagerPage(page, opts = {}) {
     const track = document.getElementById('homePagerTrack');
     const hint = document.getElementById('homeScrollHint');
+    const landing = document.getElementById('homeScreenLanding');
+    const dashboard = document.getElementById('homeScreenDashboard');
     if (!track) return;
     const next = page === 1 ? 1 : 0;
-    const prev = track.dataset.page === '1' ? 1 : 0;
+    const target = next === 1 ? dashboard : landing;
     track.dataset.page = String(next);
     if (hint) hint.classList.toggle('is-hidden', next === 1);
-    if (next !== 1 || next === prev) return;
+    if (!target) return;
 
-    // Defer heavy DOM refresh until the slide finishes — refreshing mid-transition
-    // makes Safari/macOS trackpads look like a flash instead of a slide.
-    const afterSlide = () => {
-        const hasAgents = typeof allAgents !== 'undefined' && Array.isArray(allAgents) && allAgents.length > 0;
-        if (!hasAgents && typeof loadAgents === 'function') {
-            Promise.resolve(loadAgents()).catch(() => {
-                refreshHomeModules();
-            });
-        } else {
-            refreshHomeModules();
-        }
-    };
-    let done = false;
-    const finish = () => {
-        if (done) return;
-        done = true;
-        track.removeEventListener('transitionend', onEnd);
-        afterSlide();
-    };
-    const onEnd = (event) => {
-        if (event.target !== track) return;
-        if (event.propertyName && event.propertyName !== 'transform') return;
-        finish();
-    };
-    track.addEventListener('transitionend', onEnd);
-    window.setTimeout(finish, 780);
+    const behavior = opts.instant || homePrefersReducedMotion() ? 'auto' : 'smooth';
+    // Prefer scrollTop so we don't fight nested scroll containers.
+    const top = next === 1 ? track.clientHeight : 0;
+    if (typeof track.scrollTo === 'function') {
+        track.scrollTo({ top, behavior });
+    } else {
+        track.scrollTop = top;
+    }
 }
 
 function homeEscape(value) {
@@ -1504,82 +1504,51 @@ function initHomeSnapScroll() {
     const view = document.getElementById('homeView');
     const track = document.getElementById('homePagerTrack');
     const hint = document.getElementById('homeScrollHint');
+    const dashboard = document.getElementById('homeScreenDashboard');
     if (!view || !track || view.dataset.snapBound === '1') return;
     view.dataset.snapBound = '1';
 
     measureAppChromeHeight();
-    window.addEventListener('resize', measureAppChromeHeight);
+    window.addEventListener('resize', () => {
+        measureAppChromeHeight();
+        // Re-snap after chrome height changes so pages stay full-viewport.
+        const page = track.dataset.page === '1' ? 1 : 0;
+        setHomePagerPage(page, { instant: true });
+    });
 
-    let locked = false;
-    // Match CSS transition (0.7s) + small buffer so Mac trackpad momentum cannot re-trigger.
-    const lockMs = 780;
-    let wheelAcc = 0;
-    let wheelResetTimer = 0;
-    const wheelThreshold = 40;
+    hint?.addEventListener('click', () => setHomePagerPage(1));
 
-    function currentPage() {
-        return track.dataset.page === '1' ? 1 : 0;
-    }
+    let scrollRaf = 0;
+    track.addEventListener('scroll', () => {
+        if (scrollRaf) return;
+        scrollRaf = window.requestAnimationFrame(() => {
+            scrollRaf = 0;
+            const page = track.scrollTop >= track.clientHeight * 0.45 ? 1 : 0;
+            track.dataset.page = String(page);
+            hint?.classList.toggle('is-hidden', page === 1);
+        });
+    }, { passive: true });
 
-    function go(page) {
-        locked = true;
-        wheelAcc = 0;
-        setHomePagerPage(page);
-        window.setTimeout(() => { locked = false; }, lockMs);
-    }
-
-    hint?.addEventListener('click', () => go(1));
-
-    // Capture wheel on home view: only two pages, hard stop at dashboard.
-    view.addEventListener('wheel', (event) => {
-        // Let nested scrollers (e.g. leaderboard list) handle their own wheel.
-        const scrollable = event.target.closest?.('.home-module-rank-list, .hm-news-list, .home-playground-chat');
-        if (scrollable) {
-            const canScroll = scrollable.scrollHeight > scrollable.clientHeight + 1;
-            if (canScroll) {
-                const atTop = scrollable.scrollTop <= 0;
-                const atBottom = scrollable.scrollTop + scrollable.clientHeight >= scrollable.scrollHeight - 1;
-                if ((event.deltaY < 0 && !atTop) || (event.deltaY > 0 && !atBottom)) {
-                    return;
+    // Refresh dashboard modules once the second screen is mostly on-screen.
+    if (dashboard && dashboard.dataset.refreshObserved !== '1') {
+        dashboard.dataset.refreshObserved = '1';
+        let lastRefreshAt = 0;
+        const io = new IntersectionObserver(
+            (entries) => {
+                for (const entry of entries) {
+                    if (!entry.isIntersecting || entry.intersectionRatio < 0.55) continue;
+                    const now = Date.now();
+                    if (now - lastRefreshAt < 800) continue;
+                    lastRefreshAt = now;
+                    refreshHomeModulesWhenReady();
                 }
-            }
-        }
-        event.preventDefault();
-        if (locked) return;
+            },
+            { root: track, threshold: [0.55, 0.75] },
+        );
+        io.observe(dashboard);
+    }
 
-        // Normalize line/page deltas; Mac pixel trackpads send many small events.
-        let dy = event.deltaY;
-        if (event.deltaMode === 1) dy *= 16;
-        if (event.deltaMode === 2) dy *= 800;
-        if (Math.abs(dy) < 1) return;
-
-        wheelAcc += dy;
-        window.clearTimeout(wheelResetTimer);
-        wheelResetTimer = window.setTimeout(() => { wheelAcc = 0; }, 120);
-
-        if (Math.abs(wheelAcc) < wheelThreshold) return;
-
-        const page = currentPage();
-        const goingDown = wheelAcc > 0;
-        wheelAcc = 0;
-        if (page === 0 && goingDown) {
-            go(1);
-            return;
-        }
-        if (page === 1 && !goingDown) {
-            go(0);
-        }
-        // page === 1 && goingDown → bottom; swallow the event
-    }, { passive: false });
-
-    // Also block touchpad/page scroll chaining on the document while home is shown.
-    view.addEventListener('touchmove', (event) => {
-        // Allow nothing to bubble-scroll the page behind the pager.
-        if (event.target.closest('.home-playground-chat')) return;
-        event.preventDefault();
-    }, { passive: false });
-
-    setHomePagerPage(0);
+    setHomePagerPage(0, { instant: true });
 }
 
 function initHomeModules() {
@@ -1674,15 +1643,8 @@ function onHomePageShow() {
     window.newsSignalsPanel && window.newsSignalsPanel.onShow();
     measureAppChromeHeight();
     initHomeSnapScroll();
-    setHomePagerPage(0);
-    const hasAgents = typeof allAgents !== 'undefined' && Array.isArray(allAgents) && allAgents.length > 0;
-    if (!hasAgents && typeof loadAgents === 'function') {
-        Promise.resolve(loadAgents()).catch(() => {
-            refreshHomeModules();
-        });
-    } else {
-        refreshHomeModules();
-    }
+    setHomePagerPage(0, { instant: true });
+    refreshHomeModulesWhenReady();
 }
 
 function onHomePageHide() {

@@ -4563,26 +4563,28 @@ html[data-nav-page="home"] #homeView .home-page--pager {
     overflow: hidden;
     padding: 0;
 }
+/* Native Y scroll + mandatory snap — Mac trackpad inertia, no wheel hijack. */
 html[data-nav-page="home"] #homeView .home-pager-track {
-    height: 200%;
-    display: flex;
-    flex-direction: column;
-    /* Explicit from/to transforms so Safari/macOS interpolates instead of flashing. */
-    transform: translate3d(0, 0, 0);
-    transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
-    will-change: transform;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
 }
-html[data-nav-page="home"] #homeView .home-pager-track[data-page="1"] {
-    transform: translate3d(0, -50%, 0);
+html[data-nav-page="home"] #homeView .home-pager-track::-webkit-scrollbar {
+    display: none;
 }
 html[data-nav-page="home"] #homeView .home-pager-screen {
-    flex: 0 0 50%;
-    height: 50%;
-    max-height: 50%;
+    height: 100%;
+    min-height: 100%;
+    max-height: 100%;
     overflow: hidden;
     box-sizing: border-box;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
 }
 html[data-nav-page="home"] #homeView #homeScreenLanding {
     position: relative;
@@ -4590,7 +4592,8 @@ html[data-nav-page="home"] #homeView #homeScreenLanding {
 html[data-nav-page="home"] #homeView .home-landing-hero {
     height: 100%;
     min-height: 0;
-    padding: clamp(20px, 3vh, 40px) 1.5rem;
+    /* Match .home-page gutters — pager zeroes page padding, so hero must carry the rail. */
+    padding: clamp(20px, 3vh, 40px) clamp(40px, 5vw, 80px);
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -4604,11 +4607,14 @@ html[data-nav-page="home"] #homeView .home-landing-hero-inner {
     margin-inline: auto;
     justify-content: flex-start;
     align-items: center;
-    gap: 6.8rem;
+    gap: clamp(2.5rem, 5vw, 6.8rem);
+    box-sizing: border-box;
 }
 html[data-nav-page="home"] #homeView .home-landing-hero-copy {
     flex: 1 1 0;
     min-width: 0;
+    /* Extra inset so large headlines never sit on the viewport edge (Mac / wide laptops). */
+    padding-inline-start: clamp(0px, 2vw, 24px);
 }
 html[data-nav-page="home"] #homeView .home-landing-playground {
     flex: 1 1 0;
@@ -5655,7 +5661,7 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market
     50% { transform: translateY(6px); opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-    html[data-nav-page="home"] #homeView .home-pager-track { transition: none; }
+    html[data-nav-page="home"] #homeView .home-pager-track { scroll-behavior: auto; }
     .home-scroll-hint-icon { animation: none; }
 }
 
