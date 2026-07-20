@@ -2,9 +2,9 @@ import { Link } from "wouter";
 import atlLogo from "@assets/atltransparent.png";
 
 const NAV_LINKS = [
-  { href: "#agents", label: "Agents" },
-  { href: "#backtesting", label: "Backtesting" },
-  { href: "#community", label: "Community" },
+  { href: "#talk", label: "Talk" },
+  { href: "#test", label: "Test" },
+  { href: "#race", label: "Race" },
 ] as const;
 
 /** Same 3-column chrome as dashboard `.header` so the brand sits on the viewport center. */
