@@ -19,49 +19,49 @@ const MESSAGES: Msg[] = [
     author: "you",
     name: "you",
     time: "Today at 2:11 PM",
-    body: "I've been thinking about following Buffett somehow — when Berkshire makes a move, maybe I should too?",
+    body: "I want to build a strategy around Berkshire Hathaway’s disclosed portfolio changes — essentially copy-trading material 13F moves.",
   },
   {
     id: "2",
     author: "agent",
     name: AGENT_NAME,
     time: "Today at 2:11 PM",
-    body: "Nice idea. You mean mirroring their 13F buys and sells when filings drop?",
+    body: "Understood. We’ll treat new 13F filings as the signal source and map significant position increases/reductions into executable trades. Two constraints to set: what counts as “material,” and the evaluation window.",
   },
   {
     id: "3",
     author: "you",
     name: "you",
     time: "Today at 2:12 PM",
-    body: "Yeah — but only the bigger changes. I don't want to chase every tiny trim.",
+    body: "Filter out small trims — only act on sizeable changes. I care about signal quality more than turnover.",
   },
   {
     id: "4",
     author: "agent",
     name: AGENT_NAME,
     time: "Today at 2:12 PM",
-    body: "Makes sense. We can filter for sizeable position changes and skip the noise.",
+    body: "Agreed. I’ll threshold on relative position-size deltas so minor noise doesn’t generate trades. That keeps the book closer to Berkshire’s intentional reallocations.",
   },
   {
     id: "5",
     author: "you",
     name: "you",
     time: "Today at 2:13 PM",
-    body: "And for a first pass, stick to the last two years.",
+    body: "For the first validation, use the last 24 months and $10k starting capital. Benchmark against buy-and-hold.",
   },
   {
     id: "6",
     author: "agent",
     name: AGENT_NAME,
     time: "Today at 2:13 PM",
-    body: "Got it — copy material Berkshire moves over a ~24-month window, then track how it goes.",
+    body: "Parameters locked: 24-month historical window, $10,000 initial equity, equal-weight buy-and-hold as the baseline. Metrics: total return, Sharpe, max drawdown, and excess vs. baseline.",
   },
   {
     id: "7",
     author: "you",
     name: "you",
     time: "Today at 2:14 PM",
-    body: "Can you summarize that into a prompt for me?",
+    body: "Summarize this into a precise strategy prompt I can reuse.",
   },
   {
     id: "8",
@@ -70,9 +70,11 @@ const MESSAGES: Msg[] = [
     time: "Today at 2:14 PM",
     body: (
       <>
-        <div>Here&apos;s a prompt you can reuse:</div>
+        <div>Strategy prompt:</div>
         <div className="discord-prompt-block">{STORY_PROMPT}</div>
-        <div className="discord-msg-followup">Want me to run a backtest on this?</div>
+        <div className="discord-msg-followup">
+          Shall I run the historical backtest with these specifications?
+        </div>
       </>
     ),
   },
@@ -81,14 +83,14 @@ const MESSAGES: Msg[] = [
     author: "you",
     name: "you",
     time: "Today at 2:15 PM",
-    body: "Yeah, run it.",
+    body: "Yes. Proceed with the backtest.",
   },
   {
     id: "10",
     author: "agent",
     name: AGENT_NAME,
     time: "Today at 2:15 PM",
-    body: "On it — running the backtest now…",
+    body: "Running backtest… loading filings, aligning the trade calendar, computing equity path and risk metrics.",
   },
   {
     id: "11",
@@ -97,13 +99,13 @@ const MESSAGES: Msg[] = [
     time: "Today at 2:16 PM",
     body: (
       <>
-        <div>Done. Detailed report:</div>
+        <div>Backtest complete. Summary report:</div>
         <div className="discord-embed discord-embed--report">
           <div className="discord-embed-bar" />
           <div className="discord-embed-body">
-            <div className="discord-embed-title">Berkshire copy-trade · backtest report</div>
+            <div className="discord-embed-title">Berkshire 13F copy-trade · performance report</div>
             <div className="discord-embed-desc">
-              Copied material 13F changes over {STORY_SPECS.window}. Starting capital $10k.
+              Material 13F changes · {STORY_SPECS.window} · $10,000 initial capital · vs equal-weight buy-and-hold
             </div>
             <div className="discord-embed-grid">
               <div>
@@ -124,10 +126,10 @@ const MESSAGES: Msg[] = [
               </div>
             </div>
             <div className="discord-embed-note">
-              22 trades · avg hold 63 days · universe from recent Berkshire filings
+              22 trades · avg hold 63 days · universe derived from recent Berkshire 13F holdings
             </div>
             <a href="#test" className="discord-embed-link">
-              Open detailed report ↓
+              View full equity curve &amp; decision log ↓
             </a>
           </div>
         </div>
