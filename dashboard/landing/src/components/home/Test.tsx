@@ -15,22 +15,104 @@ import { STORY_AGENT_NAME, STORY_DECISIONS, STORY_SPECS } from "./storyline";
 
 const C0 = STORY_SPECS.initialCapitalNum;
 
+/** Regular-session sample hours (ET): 7 points per trading day. */
+const SESSION_HOURS = [10, 11, 12, 13, 14, 15, 16] as const;
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+type EquityPoint = {
+  t: string;
+  dayLabel: string;
+  hour: number;
+  isDayOpen: boolean;
+  agent: number;
+  djia: number;
+  spy: number;
+  buyHold: number;
+};
+
+/** Deterministic noise in [-1, 1] from integer seed. */
+function noise(seed: number) {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return (x - Math.floor(x)) * 2 - 1;
+}
+
 /**
- * Illustrative 1-month equity paths (hourly-sampled days).
- * Agent ends +14.2%; baselines trail with distinct paths.
+ * Hourly equity for Apr 15–May 15, 2026 (weekdays only).
+ * Paths drift toward the published end levels; agent outperforms baselines.
  */
-const EQUITY = [
-  { t: "Apr 15", agent: C0, djia: C0, spy: C0, buyHold: C0 },
-  { t: "Apr 18", agent: 10180, djia: 10040, spy: 10090, buyHold: 10060 },
-  { t: "Apr 22", agent: 10460, djia: 9980, spy: 10140, buyHold: 10120 },
-  { t: "Apr 25", agent: 10210, djia: 10090, spy: 10050, buyHold: 10040 },
-  { t: "Apr 29", agent: 10740, djia: 10160, spy: 10280, buyHold: 10210 },
-  { t: "May 2", agent: 10520, djia: 10080, spy: 10190, buyHold: 10150 },
-  { t: "May 6", agent: 11180, djia: 10240, spy: 10360, buyHold: 10340 },
-  { t: "May 9", agent: 10860, djia: 10190, spy: 10310, buyHold: 10280 },
-  { t: "May 12", agent: 11340, djia: 10280, spy: 10420, buyHold: 10390 },
-  { t: "May 15", agent: 11420, djia: 10310, spy: 10480, buyHold: 10490 },
-];
+function buildHourlyEquity(): EquityPoint[] {
+  const start = new Date(Date.UTC(2026, 3, 15));
+  const end = new Date(Date.UTC(2026, 4, 15));
+  const tradingDays: Date[] = [];
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const wd = d.getUTCDay();
+    if (wd === 0 || wd === 6) continue;
+    tradingDays.push(new Date(d));
+  }
+
+  const n = tradingDays.length * SESSION_HOURS.length;
+  const points: EquityPoint[] = [];
+  let i = 0;
+
+  for (const day of tradingDays) {
+    const dayLabel = `${MONTHS[day.getUTCMonth()]} ${day.getUTCDate()}`;
+    for (let h = 0; h < SESSION_HOURS.length; h += 1) {
+      const hour = SESSION_HOURS[h];
+      const progress = i / Math.max(1, n - 1);
+      // Target terminals: agent 11420, spy ~10480, djia ~10310, buyHold ~10490
+      const agentBase = C0 + progress * 1420;
+      const spyBase = C0 + progress * 480;
+      const djiaBase = C0 + progress * 310;
+      const bhBase = C0 + progress * 490;
+      // Intraday + day noise (linear segments, not smoothed)
+      const agent =
+        agentBase +
+        noise(i * 3 + 1) * 55 +
+        noise(day.getUTCDate() * 7 + h) * 35 +
+        Math.sin(progress * Math.PI * 4) * 90;
+      const spy = spyBase + noise(i * 5 + 2) * 28 + Math.sin(progress * Math.PI * 2) * 40;
+      const djia = djiaBase + noise(i * 7 + 3) * 24 + Math.cos(progress * Math.PI * 2.2) * 35;
+      const buyHold = bhBase + noise(i * 11 + 4) * 30 + Math.sin(progress * Math.PI * 3) * 45;
+
+      points.push({
+        t: `${dayLabel} ${String(hour).padStart(2, "0")}:00`,
+        dayLabel,
+        hour,
+        isDayOpen: h === 0,
+        agent: Math.round(agent * 10) / 10,
+        djia: Math.round(djia * 10) / 10,
+        spy: Math.round(spy * 10) / 10,
+        buyHold: Math.round(buyHold * 10) / 10,
+      });
+      i += 1;
+    }
+  }
+
+  // Pin endpoints exactly for metric consistency
+  if (points.length) {
+    points[0] = { ...points[0], agent: C0, djia: C0, spy: C0, buyHold: C0 };
+    const last = points[points.length - 1];
+    points[points.length - 1] = {
+      ...last,
+      agent: 11420,
+      djia: 10310,
+      spy: 10480,
+      buyHold: 10490,
+    };
+  }
+
+  return points;
+}
+
+const EQUITY = buildHourlyEquity();
+
+/** Show ~1 day label every few trading days (first hour of that day). */
+const DAY_TICK_EVERY = 3;
+const dayOpenIndices = EQUITY.map((p, idx) => (p.isDayOpen ? idx : -1)).filter((idx) => idx >= 0);
+const xTickIndices = new Set(
+  dayOpenIndices.filter((_, k) => k % DAY_TICK_EVERY === 0 || k === dayOpenIndices.length - 1),
+);
 
 const LINE = {
   agent: "#22d3ee",
@@ -39,11 +121,11 @@ const LINE = {
   buyHold: "#a78bfa",
 } as const;
 
-const SETTINGS: { label: string; value: string; wide?: boolean }[] = [
+const SETTINGS: { label: string; value: string }[] = [
   { label: "Initial capital", value: STORY_SPECS.initialCapital },
   { label: "Time period", value: `${STORY_SPECS.timePeriodLabel} · ${STORY_SPECS.timePeriod}` },
   { label: "Universe", value: STORY_SPECS.universe },
-  { label: "Baselines", value: STORY_SPECS.baselines.join(" · "), wide: true },
+  { label: "Baselines", value: STORY_SPECS.baselines.join(" · ") },
   { label: "Model", value: STORY_SPECS.model },
   { label: "Est. token cost", value: `${STORY_SPECS.estTokenCost} · ${STORY_SPECS.estTokens}` },
 ];
@@ -59,46 +141,33 @@ export function Test() {
         <div className="mb-10 max-w-3xl">
           <p className="text-base md:text-lg font-mono uppercase tracking-widest text-primary mb-3">02 — Test</p>
           <h2 className="text-3xl md:text-4xl font-bold mb-3">Test your trading idea</h2>
-          <p className="text-muted-foreground text-lg">
-            A full agent run with fixed experiment settings, baseline comparisons, and a step-level decision log.
-          </p>
         </div>
 
         <figure className="bg-card border border-card-border rounded-xl shadow-2xl overflow-hidden mb-10">
-          <figcaption className="flex flex-wrap items-start justify-between gap-3 px-6 md:px-8 pt-6 md:pt-8 pb-4 border-b border-border">
+          {/* 1. Trading Performance */}
+          <figcaption className="flex flex-wrap items-start justify-between gap-3 px-6 md:px-8 pt-6 md:pt-8 pb-5 border-b border-border">
             <div className="min-w-0">
               <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-1">
-                Figure · Agent run
+                Trading Performance
               </p>
               <h3 className="text-lg md:text-xl font-bold text-foreground">
                 {STORY_AGENT_NAME} vs baselines — equity curve
               </h3>
-              <p className="text-sm text-muted-foreground mt-1 font-mono">
-                {STORY_SPECS.universe} · {STORY_SPECS.timePeriod} · {STORY_SPECS.initialCapital} start
-              </p>
             </div>
             <span className="text-xs font-mono text-muted-foreground bg-muted px-2.5 py-1 rounded shrink-0">
               ILLUSTRATIVE
             </span>
           </figcaption>
 
-          <div className="p-6 md:p-8">
-            {/* Experiment settings — above the chart */}
-            <div className="mb-8">
-              <div className="flex items-baseline justify-between gap-3 mb-4">
-                <h4 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-                  Experiment settings
-                </h4>
-                <span className="text-xs text-muted-foreground font-mono">Fixed for this run</span>
-              </div>
+          <div className="p-6 md:p-8 space-y-8">
+            {/* 2. Experiment settings — 6 modules */}
+            <div>
+              <h4 className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-4">
+                Experiment settings
+              </h4>
               <dl className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {SETTINGS.map((s) => (
-                  <div
-                    key={s.label}
-                    className={`rounded-lg border border-border bg-background/80 px-4 py-3 ${
-                      s.wide ? "sm:col-span-2 lg:col-span-1" : ""
-                    }`}
-                  >
+                  <div key={s.label} className="rounded-lg border border-border bg-background/80 px-4 py-3">
                     <dt className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground mb-1">
                       {s.label}
                     </dt>
@@ -108,8 +177,8 @@ export function Test() {
               </dl>
             </div>
 
-            {/* Full-width chart — linear (no smooth) */}
-            <div className="h-[340px] md:h-[420px]">
+            {/* 3. Chart — hourly, linear */}
+            <div className="h-[360px] md:h-[440px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={EQUITY} margin={{ top: 12, right: 16, left: 4, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
@@ -119,6 +188,13 @@ export function Test() {
                     fontSize={11}
                     tickLine={false}
                     axisLine={false}
+                    interval={0}
+                    minTickGap={28}
+                    ticks={EQUITY.filter((_, idx) => xTickIndices.has(idx)).map((p) => p.t)}
+                    tickFormatter={(value: string) => {
+                      const pt = EQUITY.find((p) => p.t === value);
+                      return pt?.dayLabel ?? "";
+                    }}
                   />
                   <YAxis
                     stroke="hsl(var(--muted-foreground))"
@@ -144,7 +220,7 @@ export function Test() {
                       fontSize: "12px",
                     }}
                     formatter={(v: number, name: string) => [money(v), name]}
-                    labelFormatter={(label) => `Date · ${label}`}
+                    labelFormatter={(label) => String(label)}
                   />
                   <Legend
                     wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }}
@@ -155,59 +231,54 @@ export function Test() {
                     dataKey="agent"
                     name={STORY_AGENT_NAME}
                     stroke={LINE.agent}
-                    strokeWidth={2.5}
+                    strokeWidth={2}
                     dot={false}
-                    activeDot={{ r: 4 }}
+                    isAnimationActive={false}
+                    activeDot={{ r: 3 }}
                   />
                   <Line
                     type="linear"
                     dataKey="spy"
                     name="S&P 500"
                     stroke={LINE.spy}
-                    strokeWidth={1.75}
+                    strokeWidth={1.5}
                     strokeDasharray="6 4"
                     dot={false}
+                    isAnimationActive={false}
                   />
                   <Line
                     type="linear"
                     dataKey="djia"
                     name="DJIA"
                     stroke={LINE.djia}
-                    strokeWidth={1.75}
+                    strokeWidth={1.5}
                     strokeDasharray="2 3"
                     dot={false}
+                    isAnimationActive={false}
                   />
                   <Line
                     type="linear"
                     dataKey="buyHold"
                     name="Buy & Hold"
                     stroke={LINE.buyHold}
-                    strokeWidth={1.75}
+                    strokeWidth={1.5}
                     dot={false}
+                    isAnimationActive={false}
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
-              Equity normalized to {STORY_SPECS.initialCapital} on period open. Baselines: price return of
-              DJIA and S&P 500, plus equal-weight buy-and-hold on the same universe. Dashed gray line marks
-              initial capital.
-            </p>
 
-            {/* Metrics — below the chart */}
-            <div className="mt-8 pt-6 border-t border-border">
-              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-4">
-                Run metrics
-              </p>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+            {/* 4. Metrics */}
+            <div>
+              <h4 className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-4">
+                Metrics
+              </h4>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <Metric label="Total return" value={STORY_SPECS.returnPct} tone="positive" />
                 <Metric label="Sharpe ratio" value={STORY_SPECS.sharpe} />
                 <Metric label="Max drawdown" value={STORY_SPECS.maxDd} tone="destructive" />
                 <Metric label="vs Buy & Hold" value={STORY_SPECS.vsBuyHold} tone="positive" />
-              </div>
-              <div className="grid grid-cols-2 gap-3 max-w-sm">
-                <MiniStat label="Trades" value={String(STORY_SPECS.trades)} />
-                <MiniStat label="Avg hold" value={`${STORY_SPECS.avgHoldDays}d`} />
               </div>
             </div>
           </div>
@@ -297,15 +368,6 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: "
     <div className="p-3.5 border border-border rounded-lg bg-background">
       <div className="text-xs text-muted-foreground mb-1">{label}</div>
       <div className={`text-xl font-bold font-mono tabular-nums ${valueClass}`}>{value}</div>
-    </div>
-  );
-}
-
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="p-3 border border-border rounded-lg bg-background">
-      <div className="text-[11px] text-muted-foreground mb-0.5">{label}</div>
-      <div className="text-sm font-bold font-mono text-foreground">{value}</div>
     </div>
   );
 }
