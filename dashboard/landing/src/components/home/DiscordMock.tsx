@@ -3,6 +3,7 @@ import atlLogo from "@assets/atltransparent.png";
 import { STORY_PROMPT, STORY_SPECS } from "./storyline";
 
 const DISCORD_URL = "https://discord.gg/9HnQ6XDG98";
+const AGENT_NAME = "Alpha";
 
 type Msg = {
   id: string;
@@ -17,65 +18,116 @@ const MESSAGES: Msg[] = [
     id: "1",
     author: "you",
     name: "you",
-    time: "Today at 2:14 PM",
-    body: STORY_PROMPT,
+    time: "Today at 2:11 PM",
+    body: "I've been thinking about following Buffett somehow — when Berkshire makes a move, maybe I should too?",
   },
   {
     id: "2",
     author: "agent",
-    name: "TradingAgentL",
-    time: "Today at 2:14 PM",
-    body: "Got it — when Berkshire files a change, copy those buys and sells?",
+    name: AGENT_NAME,
+    time: "Today at 2:11 PM",
+    body: "Nice idea. You mean mirroring their 13F buys and sells when filings drop?",
   },
   {
     id: "3",
     author: "you",
     name: "you",
-    time: "Today at 2:15 PM",
-    body: "Yes. Use the last two years.",
+    time: "Today at 2:12 PM",
+    body: "Yeah — but only the bigger changes. I don't want to chase every tiny trim.",
   },
   {
     id: "4",
     author: "agent",
-    name: "TradingAgentL",
-    time: "Today at 2:15 PM",
+    name: AGENT_NAME,
+    time: "Today at 2:12 PM",
+    body: "Makes sense. We can filter for sizeable position changes and skip the noise.",
+  },
+  {
+    id: "5",
+    author: "you",
+    name: "you",
+    time: "Today at 2:13 PM",
+    body: "And for a first pass, stick to the last two years.",
+  },
+  {
+    id: "6",
+    author: "agent",
+    name: AGENT_NAME,
+    time: "Today at 2:13 PM",
+    body: "Got it — copy material Berkshire moves over a ~24-month window, then track how it goes.",
+  },
+  {
+    id: "7",
+    author: "you",
+    name: "you",
+    time: "Today at 2:14 PM",
+    body: "Can you summarize that into a prompt for me?",
+  },
+  {
+    id: "8",
+    author: "agent",
+    name: AGENT_NAME,
+    time: "Today at 2:14 PM",
     body: (
       <>
-        Copy-trade rules set · 6 tickers from recent 13Fs.
-        <br />
-        Want me to backtest that first?
+        <div>Here&apos;s a prompt you can reuse:</div>
+        <div className="discord-prompt-block">{STORY_PROMPT}</div>
+        <div className="discord-msg-followup">Want me to run a backtest on this?</div>
       </>
     ),
   },
   {
-    id: "5",
+    id: "9",
     author: "you",
     name: "you",
     time: "Today at 2:15 PM",
     body: "Yeah, run it.",
   },
   {
-    id: "6",
+    id: "10",
     author: "agent",
-    name: "TradingAgentL",
+    name: AGENT_NAME,
+    time: "Today at 2:15 PM",
+    body: "On it — running the backtest now…",
+  },
+  {
+    id: "11",
+    author: "agent",
+    name: AGENT_NAME,
     time: "Today at 2:16 PM",
     body: (
       <>
-        <div>Running backtest…</div>
-        <div className="discord-embed">
+        <div>Done. Detailed report:</div>
+        <div className="discord-embed discord-embed--report">
           <div className="discord-embed-bar" />
           <div className="discord-embed-body">
-            <div className="discord-embed-title">Backtest complete</div>
-            <div className="discord-embed-fields">
-              <span>
-                Return <strong className="text-positive">{STORY_SPECS.returnPct}</strong>
-              </span>
-              <span>
-                Sharpe <strong>{STORY_SPECS.sharpe}</strong>
-              </span>
+            <div className="discord-embed-title">Berkshire copy-trade · backtest report</div>
+            <div className="discord-embed-desc">
+              Copied material 13F changes over {STORY_SPECS.window}. Starting capital $10k.
+            </div>
+            <div className="discord-embed-grid">
+              <div>
+                <div className="discord-embed-label">Return</div>
+                <div className="discord-embed-value text-positive">{STORY_SPECS.returnPct}</div>
+              </div>
+              <div>
+                <div className="discord-embed-label">Sharpe</div>
+                <div className="discord-embed-value">{STORY_SPECS.sharpe}</div>
+              </div>
+              <div>
+                <div className="discord-embed-label">Max DD</div>
+                <div className="discord-embed-value text-destructive">{STORY_SPECS.maxDd}</div>
+              </div>
+              <div>
+                <div className="discord-embed-label">vs Buy &amp; Hold</div>
+                <div className="discord-embed-value text-positive">{STORY_SPECS.vsBuyHold}</div>
+              </div>
+            </div>
+            <div className="discord-embed-note">
+              22 trades · avg hold 63 days · universe from recent Berkshire filings
             </div>
             <a href="#test" className="discord-embed-link">
-              See full result ↓
+              Open detailed report ↓
             </a>
           </div>
         </div>
@@ -114,13 +166,20 @@ const CHANNEL_GROUPS: ChannelGroup[] = [
   },
 ];
 
+/** Discord-style default avatar (blurple + logo mark) — not the ATL server icon. */
+function DiscordDefaultAvatar() {
+  return (
+    <div className="discord-avatar discord-avatar--default" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+        <path d="M20.317 4.37a19.8 19.8 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.873-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.373-.292a.074.074 0 0 1 .078-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .079.009c.12.098.247.198.373.293a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
+      </svg>
+    </div>
+  );
+}
+
 function Avatar({ author }: { author: "you" | "agent" }) {
   if (author === "agent") {
-    return (
-      <div className="discord-avatar discord-avatar--agent" aria-hidden="true">
-        <img src={atlLogo} alt="" />
-      </div>
-    );
+    return <DiscordDefaultAvatar />;
   }
   return (
     <div className="discord-avatar discord-avatar--you" aria-hidden="true">
@@ -136,6 +195,7 @@ export function DiscordMock() {
       <div className="discord-mock" aria-label="Discord demo: talking to the agent">
         {/* Server rail */}
         <aside className="discord-servers" aria-hidden="true">
+          <div className="discord-server-pill" />
           <div className="discord-server-icon discord-server-icon--active discord-server-icon--logo">
             <img src={atlLogo} alt="" />
           </div>

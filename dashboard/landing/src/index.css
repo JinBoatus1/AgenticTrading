@@ -408,7 +408,7 @@ html {
   --discord-green: #23a559;
   display: flex;
   width: 100%;
-  height: 520px;
+  height: 560px;
   border-radius: 12px;
   overflow: hidden;
   background: var(--discord-bg);
@@ -421,6 +421,7 @@ html {
 }
 
 .discord-servers {
+  position: relative;
   width: 56px;
   flex-shrink: 0;
   background: var(--discord-servers);
@@ -429,6 +430,17 @@ html {
   align-items: center;
   gap: 8px;
   padding: 12px 0;
+}
+
+/* Discord-style selected pill (left), no white ring on the icon */
+.discord-server-pill {
+  position: absolute;
+  left: 0;
+  top: 20px;
+  width: 4px;
+  height: 36px;
+  border-radius: 0 4px 4px 0;
+  background: #fff;
 }
 
 .discord-server-icon {
@@ -443,12 +455,14 @@ html {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  border: none;
+  box-shadow: none;
+  outline: none;
   transition: border-radius 0.15s ease;
 }
 
 .discord-server-icon--active {
   border-radius: 14px;
-  box-shadow: 0 0 0 2px var(--discord-servers), 0 0 0 3px #fff;
 }
 
 .discord-server-icon--logo {
@@ -606,18 +620,65 @@ html {
   background: #ed4245;
 }
 
-.discord-avatar--agent {
-  background: #07182d;
-  overflow: hidden;
-  padding: 0;
+.discord-avatar--default {
+  background: var(--discord-blurple);
+  color: #fff;
 }
 
-.discord-avatar--agent img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transform: scale(1.18);
+.discord-prompt-block {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: #2b2d31;
+  border-left: 3px solid var(--discord-blurple);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--discord-heading);
+}
+
+.discord-msg-followup {
+  margin-top: 8px;
+}
+
+.discord-embed--report {
+  max-width: 420px;
+}
+
+.discord-embed-desc {
+  font-size: 12px;
+  color: var(--discord-muted);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.discord-embed-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+  margin-bottom: 10px;
+}
+
+.discord-embed-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--discord-muted);
+  margin-bottom: 2px;
+}
+
+.discord-embed-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--discord-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.discord-embed-note {
+  font-size: 11px;
+  color: var(--discord-muted);
+  margin-bottom: 8px;
+  line-height: 1.4;
 }
 
 .discord-msg-body {
