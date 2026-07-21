@@ -3791,7 +3791,6 @@ function initNavigation() {
     document.getElementById('agentViewGrid')?.addEventListener('click', () => setAgentViewMode('grid'));
     document.getElementById('agentViewList')?.addEventListener('click', () => setAgentViewMode('list'));
 
-    document.getElementById('addAgentBtn')?.addEventListener('click', openAddAgentModal);
     document.getElementById('addAgentBtnToolbar')?.addEventListener('click', openAddAgentModal);
     document.getElementById('addAgentModalClose')?.addEventListener('click', closeAddAgentModal);
     document.getElementById('addAgentModalBackdrop')?.addEventListener('click', closeAddAgentModal);
