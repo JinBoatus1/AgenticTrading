@@ -745,7 +745,7 @@ const endpointLabelPlugin = {
         anchorY: meta.data[lastIdx].y,
         y: meta.data[lastIdx].y,
         color: (ds._style && ds._style.color) || '#e5e7eb',
-        text: `${shortName(ds.label)}  ${(ret * 100).toFixed(1)}%`,
+        text: `${shortName(ds.label)}  ${(ret * 100).toFixed(2)}%`,
       });
     });
     if (!labels.length) return;
