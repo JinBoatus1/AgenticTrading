@@ -26,10 +26,11 @@ Scroll target `#landing-stats` is preserved as a hidden anchor inside Talk.
 | Steps | 1. Join the server · 2. Talk to the agent · 3. Get your backtest result |
 | Primary CTA | Join Discord |
 
+**Right visual:** Discord channel mock (`DiscordMock`) — server rail + `#agent-trading-lab` + APP agent thread (not chat bubbles).
+
 **Mock dialogue (keep short)**
 - You: `I want to follow Warren Buffett. If Berkshire makes a move, copy the move and tell me how it goes.`
-- Agent: `Running backtest…`
-- Agent: `+14.2% · Sharpe 1.84 → See full result`
+- Agent: clarify → rules → backtest embed (`+14.2%` · Sharpe · See full result ↓)
 
 ### 02 — Test
 | Slot | Copy |
