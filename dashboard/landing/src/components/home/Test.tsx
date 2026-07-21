@@ -64,7 +64,6 @@ export function Test() {
           </p>
         </div>
 
-        {/* Figure card */}
         <figure className="bg-card border border-card-border rounded-xl shadow-2xl overflow-hidden mb-10">
           <figcaption className="flex flex-wrap items-start justify-between gap-3 px-6 md:px-8 pt-6 md:pt-8 pb-4 border-b border-border">
             <div className="min-w-0">
@@ -84,113 +83,8 @@ export function Test() {
           </figcaption>
 
           <div className="p-6 md:p-8">
-            <div className="grid lg:grid-cols-12 gap-8">
-              {/* Chart */}
-              <div className="lg:col-span-8 min-w-0">
-                <div className="h-[340px] md:h-[400px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={EQUITY} margin={{ top: 12, right: 16, left: 4, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis
-                        dataKey="t"
-                        stroke="hsl(var(--muted-foreground))"
-                        fontSize={11}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <YAxis
-                        stroke="hsl(var(--muted-foreground))"
-                        fontSize={11}
-                        tickLine={false}
-                        axisLine={false}
-                        domain={[9600, 11600]}
-                        ticks={[10000, 10500, 11000, 11500]}
-                        tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`}
-                        width={52}
-                      />
-                      <ReferenceLine
-                        y={C0}
-                        stroke="hsl(var(--muted-foreground))"
-                        strokeDasharray="4 4"
-                        strokeOpacity={0.45}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: "hsl(var(--card))",
-                          borderColor: "hsl(var(--border))",
-                          borderRadius: "8px",
-                          fontSize: "12px",
-                        }}
-                        formatter={(v: number, name: string) => [money(v), name]}
-                        labelFormatter={(label) => `Date · ${label}`}
-                      />
-                      <Legend
-                        wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }}
-                        iconType="plainline"
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="agent"
-                        name={STORY_AGENT_NAME}
-                        stroke={LINE.agent}
-                        strokeWidth={2.5}
-                        dot={false}
-                        activeDot={{ r: 4 }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="spy"
-                        name="S&P 500"
-                        stroke={LINE.spy}
-                        strokeWidth={1.75}
-                        strokeDasharray="6 4"
-                        dot={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="djia"
-                        name="DJIA"
-                        stroke={LINE.djia}
-                        strokeWidth={1.75}
-                        strokeDasharray="2 3"
-                        dot={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="buyHold"
-                        name="Buy & Hold"
-                        stroke={LINE.buyHold}
-                        strokeWidth={1.75}
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-                <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
-                  Equity normalized to {STORY_SPECS.initialCapital} on period open. Baselines: price return of
-                  DJIA and S&P 500, plus equal-weight buy-and-hold on the same universe. Dashed gray line marks
-                  initial capital.
-                </p>
-              </div>
-
-              {/* Run metrics */}
-              <div className="lg:col-span-4 flex flex-col gap-3">
-                <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-                  Run metrics
-                </p>
-                <Metric label="Total return" value={STORY_SPECS.returnPct} tone="positive" />
-                <Metric label="Sharpe ratio" value={STORY_SPECS.sharpe} />
-                <Metric label="Max drawdown" value={STORY_SPECS.maxDd} tone="destructive" />
-                <Metric label="vs Buy & Hold" value={STORY_SPECS.vsBuyHold} tone="positive" />
-                <div className="grid grid-cols-2 gap-3 mt-1">
-                  <MiniStat label="Trades" value={String(STORY_SPECS.trades)} />
-                  <MiniStat label="Avg hold" value={`${STORY_SPECS.avgHoldDays}d`} />
-                </div>
-              </div>
-            </div>
-
-            {/* Experiment settings — no prompt */}
-            <div className="mt-8 pt-6 border-t border-border">
+            {/* Experiment settings — above the chart */}
+            <div className="mb-8">
               <div className="flex items-baseline justify-between gap-3 mb-4">
                 <h4 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
                   Experiment settings
@@ -213,10 +107,112 @@ export function Test() {
                 ))}
               </dl>
             </div>
+
+            {/* Full-width chart — linear (no smooth) */}
+            <div className="h-[340px] md:h-[420px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={EQUITY} margin={{ top: 12, right: 16, left: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis
+                    dataKey="t"
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    domain={[9600, 11600]}
+                    ticks={[10000, 10500, 11000, 11500]}
+                    tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`}
+                    width={52}
+                  />
+                  <ReferenceLine
+                    y={C0}
+                    stroke="hsl(var(--muted-foreground))"
+                    strokeDasharray="4 4"
+                    strokeOpacity={0.45}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      borderColor: "hsl(var(--border))",
+                      borderRadius: "8px",
+                      fontSize: "12px",
+                    }}
+                    formatter={(v: number, name: string) => [money(v), name]}
+                    labelFormatter={(label) => `Date · ${label}`}
+                  />
+                  <Legend
+                    wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }}
+                    iconType="plainline"
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="agent"
+                    name={STORY_AGENT_NAME}
+                    stroke={LINE.agent}
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="spy"
+                    name="S&P 500"
+                    stroke={LINE.spy}
+                    strokeWidth={1.75}
+                    strokeDasharray="6 4"
+                    dot={false}
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="djia"
+                    name="DJIA"
+                    stroke={LINE.djia}
+                    strokeWidth={1.75}
+                    strokeDasharray="2 3"
+                    dot={false}
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="buyHold"
+                    name="Buy & Hold"
+                    stroke={LINE.buyHold}
+                    strokeWidth={1.75}
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
+              Equity normalized to {STORY_SPECS.initialCapital} on period open. Baselines: price return of
+              DJIA and S&P 500, plus equal-weight buy-and-hold on the same universe. Dashed gray line marks
+              initial capital.
+            </p>
+
+            {/* Metrics — below the chart */}
+            <div className="mt-8 pt-6 border-t border-border">
+              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-4">
+                Run metrics
+              </p>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+                <Metric label="Total return" value={STORY_SPECS.returnPct} tone="positive" />
+                <Metric label="Sharpe ratio" value={STORY_SPECS.sharpe} />
+                <Metric label="Max drawdown" value={STORY_SPECS.maxDd} tone="destructive" />
+                <Metric label="vs Buy & Hold" value={STORY_SPECS.vsBuyHold} tone="positive" />
+              </div>
+              <div className="grid grid-cols-2 gap-3 max-w-sm">
+                <MiniStat label="Trades" value={String(STORY_SPECS.trades)} />
+                <MiniStat label="Avg hold" value={`${STORY_SPECS.avgHoldDays}d`} />
+              </div>
+            </div>
           </div>
         </figure>
 
-        {/* Decision log */}
         <div className="mb-10">
           <div className="flex items-baseline justify-between gap-3 mb-4">
             <h3 className="text-sm font-mono uppercase tracking-widest text-muted-foreground">
