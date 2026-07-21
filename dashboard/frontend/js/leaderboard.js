@@ -504,7 +504,7 @@ function buildEquityCurvesFromEntries(entries) {
     const values = times.map((t) => (t in byTime ? byTime[t] : null));
     const firstReal = values.find((v) => v != null);
     curves[seriesLabel] = values;
-    initials[seriesLabel] = Number(entry.initial_equity) || firstReal || 1000;
+    initials[seriesLabel] = Number(entry.initial_equity) || firstReal || 10000;
     trajectories[seriesLabel] = getSeriesStyle(seriesLabel, entry);
   });
 
@@ -851,7 +851,7 @@ async function renderEquityCurvesChart() {
     const label = entry.model || entry.team_name;
     const raw = curves[label];
     if (!raw || !raw.length) return;
-    const initial = initials[label] || raw[0] || 1000;
+    const initial = initials[label] || raw[0] || 10000;
     const style = getSeriesStyle(label, entry);
 
     datasets.push({
@@ -876,7 +876,7 @@ async function renderEquityCurvesChart() {
     });
   });
 
-  const baseInitial = (datasets[0] && datasets[0]._initial) || 1000;
+  const baseInitial = (datasets[0] && datasets[0]._initial) || 10000;
   const isMoney = currentChartView === 'absolute';
 
   if (equityCurvesChartInstance) {
@@ -1005,7 +1005,7 @@ async function renderEquityCurvesChart() {
 }
 
 function transformLeaderboardChartData(curveValues, viewType, initialValue) {
-  const base = initialValue || 1000;
+  const base = initialValue || 10000;
   if (viewType === 'absolute') {
     return curveValues.slice();
   }
