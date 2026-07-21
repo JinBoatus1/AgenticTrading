@@ -11,7 +11,7 @@ export function Talk() {
       <div id="landing-stats" className="h-0 w-0 overflow-hidden" aria-hidden="true" />
 
       <div className="container mx-auto px-6">
-        <div className="grid lg:grid-cols-2 gap-12 xl:gap-16 items-center">
+        <div className="grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)] gap-10 xl:gap-14 items-center">
           <div>
             <p className="text-base md:text-lg font-mono uppercase tracking-widest text-primary mb-3">01 — Talk</p>
             <h2 className="text-3xl md:text-4xl font-bold mb-3">Talk to agents on Discord</h2>

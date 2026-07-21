@@ -386,6 +386,16 @@ html {
 }
 
 /* ── Discord channel mock (Talk section) ─────────────────────────── */
+.discord-mock-wrap {
+  width: 100%;
+  max-width: 780px;
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
 .discord-mock {
   --discord-bg: #313338;
   --discord-sidebar: #2b2d31;
@@ -398,9 +408,7 @@ html {
   --discord-green: #23a559;
   display: flex;
   width: 100%;
-  max-width: 640px;
-  height: 480px;
-  margin-left: auto;
+  height: 520px;
   border-radius: 12px;
   overflow: hidden;
   background: var(--discord-bg);
@@ -429,23 +437,31 @@ html {
   border-radius: 50%;
   background: var(--discord-bg);
   color: var(--discord-heading);
-  font-size: 11px;
+  font-size: 18px;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   transition: border-radius 0.15s ease;
 }
 
-.discord-server-icon--home {
-  background: var(--discord-blurple);
+.discord-server-icon--active {
   border-radius: 14px;
+  box-shadow: 0 0 0 2px var(--discord-servers), 0 0 0 3px #fff;
 }
 
-.discord-server-icon--active {
-  background: var(--discord-green);
-  border-radius: 14px;
-  color: #fff;
+.discord-server-icon--logo {
+  background: #07182d;
+  padding: 0;
+}
+
+.discord-server-icon--logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scale(1.18);
 }
 
 .discord-server-divider {
@@ -456,10 +472,11 @@ html {
 }
 
 .discord-channels {
-  width: 160px;
+  width: 196px;
   flex-shrink: 0;
   background: var(--discord-sidebar);
   padding: 12px 8px;
+  overflow-y: auto;
   display: none;
 }
 
@@ -520,7 +537,6 @@ html {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  position: relative;
   background: var(--discord-bg);
 }
 
@@ -591,7 +607,17 @@ html {
 }
 
 .discord-avatar--agent {
-  background: var(--discord-blurple);
+  background: #07182d;
+  overflow: hidden;
+  padding: 0;
+}
+
+.discord-avatar--agent img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scale(1.18);
 }
 
 .discord-msg-body {
@@ -712,30 +738,28 @@ html {
 }
 
 .discord-mock-cta {
-  position: absolute;
-  right: 14px;
-  bottom: 58px;
-  z-index: 2;
-  font-size: 11px;
+  align-self: flex-end;
+  font-size: 12px;
   font-weight: 600;
   color: #fff;
-  background: var(--discord-blurple);
-  padding: 6px 10px;
-  border-radius: 6px;
+  background: var(--discord-blurple, #5865f2);
+  padding: 8px 14px;
+  border-radius: 8px;
   text-decoration: none;
-  opacity: 0.92;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 12px rgba(88, 101, 242, 0.28);
 }
 
 .discord-mock-cta:hover {
-  opacity: 1;
   background: #4752c4;
 }
 
 @media (max-width: 639px) {
-  .discord-mock {
+  .discord-mock-wrap {
     max-width: none;
-    height: 420px;
+  }
+
+  .discord-mock {
+    height: 440px;
   }
 
   .discord-chat-header-topic {
