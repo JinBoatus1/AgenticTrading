@@ -230,6 +230,7 @@ a.header-brand:hover .title-section h1 {
     letter-spacing: 0.3px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    white-space: nowrap;
 }
 
 .beta-badge {
@@ -297,13 +298,10 @@ a.header-brand:hover .title-section h1 {
 .header-account {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 0;
     flex-shrink: 0;
     white-space: nowrap;
-    padding: 4px 6px 4px 10px;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    background: var(--bg-card);
+    min-width: 0;
 }
 
 .auth-controls {
@@ -312,15 +310,33 @@ a.header-brand:hover .title-section h1 {
     gap: 8px;
 }
 
-.auth-user-label {
+.auth-account-btn {
+    display: inline-flex;
+    align-items: center;
+    max-width: 160px;
+    min-width: 0;
+    padding: 7px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-card);
     color: var(--text-primary);
+    cursor: pointer;
+    font: inherit;
+}
+
+.auth-account-btn:hover {
+    border-color: var(--info-color);
+    color: var(--info-color);
+}
+
+.auth-user-label {
+    color: inherit;
     font-size: 14px;
     font-weight: 600;
-    max-width: 200px;
+    max-width: 140px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex-shrink: 1;
     min-width: 0;
 }
 
@@ -2212,18 +2228,36 @@ a.header-brand:hover .title-section h1 {
     }
 }
 
+@media (max-width: 1280px) {
+    .title-section h1 {
+        font-size: 26px;
+    }
+
+    .auth-account-btn {
+        max-width: 120px;
+    }
+
+    .auth-user-label {
+        max-width: 96px;
+    }
+}
+
 @media (max-width: 1100px) {
     .mode-btn {
         padding: 7px 12px;
         font-size: 13px;
     }
 
-    .header-account {
-        padding: 4px 8px;
+    .title-section h1 {
+        font-size: 22px;
+    }
+
+    .auth-account-btn {
+        max-width: 100px;
     }
 
     .auth-user-label {
-        max-width: 120px;
+        max-width: 80px;
     }
 }
 
@@ -4518,6 +4552,62 @@ a.header-brand:hover .title-section h1 {
     font-size: 22px;
     font-weight: 700;
     color: var(--text-primary);
+}
+
+.account-view {
+    max-width: 560px;
+}
+
+.account-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 20px 22px;
+}
+
+.account-card--empty:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+.account-empty-copy {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.account-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.account-row:last-of-type {
+    border-bottom: none;
+}
+
+.account-label {
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.account-value {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: right;
+    word-break: break-word;
+}
+
+.account-actions {
+    margin-top: 18px;
+    display: flex;
+    justify-content: flex-start;
 }
 
 .page-description {
