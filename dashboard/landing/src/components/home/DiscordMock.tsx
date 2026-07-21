@@ -91,7 +91,7 @@ const MESSAGES: Msg[] = [
           <div className="discord-embed-body">
             <div className="discord-embed-title">Berkshire 13F copy-trade · performance report</div>
             <div className="discord-embed-desc">
-              Material 13F changes · {STORY_SPECS.window} · $10,000 initial capital · vs equal-weight buy-and-hold
+              Material 13F changes · {STORY_SPECS.timePeriod} · {STORY_SPECS.initialCapital} · {STORY_SPECS.universe} · vs DJIA / S&P 500 / Buy & Hold
             </div>
             <div className="discord-embed-grid">
               <div>
