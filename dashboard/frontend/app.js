@@ -1541,31 +1541,62 @@ function clearAuthState() {
   updateAuthUI();
 }
 
+function updateAccountPage() {
+  const user = getStoredAuthUser();
+  const signedIn = document.getElementById('accountSignedIn');
+  const signedOut = document.getElementById('accountSignedOut');
+  const nameEl = document.getElementById('accountDisplayName');
+  const emailEl = document.getElementById('accountEmail');
+  if (!signedIn || !signedOut) return;
+
+  if (user) {
+    signedIn.hidden = false;
+    signedOut.hidden = true;
+    if (nameEl) nameEl.textContent = user.display_name || '—';
+    if (emailEl) emailEl.textContent = user.email || '—';
+  } else {
+    signedIn.hidden = true;
+    signedOut.hidden = false;
+  }
+}
+
 function updateAuthUI() {
   const user = getStoredAuthUser();
   const label = document.getElementById('authUserLabel');
   const signInBtn = document.getElementById('authSignInBtn');
-  const signUpBtn = document.getElementById('authSignUpBtn');
-  const logoutBtn = document.getElementById('authLogoutBtn');
-  if (!label || !signInBtn || !signUpBtn || !logoutBtn) {
+  const accountBtn = document.getElementById('authAccountBtn');
+  if (!signInBtn || !accountBtn) {
     return;
   }
 
   if (user) {
-    label.textContent = user.display_name || user.email;
-    label.hidden = false;
+    if (label) label.textContent = user.display_name || user.email;
     signInBtn.hidden = true;
-    signUpBtn.hidden = true;
-    logoutBtn.hidden = false;
+    accountBtn.hidden = false;
   } else {
-    label.hidden = true;
+    if (label) label.textContent = '';
     signInBtn.hidden = false;
-    signUpBtn.hidden = false;
-    logoutBtn.hidden = true;
+    accountBtn.hidden = true;
   }
+
+  updateAccountPage();
 
   if (typeof window.refreshHomeModules === 'function') {
     window.refreshHomeModules();
+  }
+}
+
+async function logoutUser() {
+  try {
+    await AuthAPI.logout();
+  } catch (error) {
+    console.warn('Logout request failed:', error.message);
+  } finally {
+    clearAuthState();
+    await loadAgents();
+    if (currentPage === 'account') {
+      navigateToPage('home');
+    }
   }
 }
 
@@ -1751,7 +1782,8 @@ async function refreshAuthUser() {
 
 function initAuthUI() {
   const signInBtn = document.getElementById('authSignInBtn');
-  const signUpBtn = document.getElementById('authSignUpBtn');
+  const accountBtn = document.getElementById('authAccountBtn');
+  const accountSignInBtn = document.getElementById('accountSignInBtn');
   const logoutBtn = document.getElementById('authLogoutBtn');
   const closeBtn = document.getElementById('authModalClose');
   const backdrop = document.getElementById('authModalBackdrop');
@@ -1759,16 +1791,10 @@ function initAuthUI() {
   const form = document.getElementById('authForm');
 
   signInBtn?.addEventListener('click', () => openAuthModal('login'));
-  signUpBtn?.addEventListener('click', () => openAuthModal('signup'));
-  logoutBtn?.addEventListener('click', async () => {
-    try {
-      await AuthAPI.logout();
-    } catch (error) {
-      console.warn('Logout request failed:', error.message);
-    } finally {
-      clearAuthState();
-      await loadAgents();
-    }
+  accountSignInBtn?.addEventListener('click', () => openAuthModal('login'));
+  accountBtn?.addEventListener('click', () => navigateToPage('account'));
+  logoutBtn?.addEventListener('click', () => {
+    logoutUser();
   });
   closeBtn?.addEventListener('click', closeAuthModal);
   backdrop?.addEventListener('click', closeAuthModal);
@@ -3439,6 +3465,7 @@ function resolveInitialNavigation() {
     const legacyMap = {
         home: { page: 'home' },
         community: { page: 'community' },
+        account: { page: 'account' },
         backtest: { page: 'playground', playgroundTab: 'backtest' },
         paper: { page: 'playground', playgroundTab: 'paper' },
         contest: { page: 'competition', competitionTab: 'daily' },
@@ -3458,7 +3485,7 @@ function resolveInitialNavigation() {
     // Otherwise restore the last visited tab across refreshes.
     try {
         const saved = JSON.parse(localStorage.getItem(NAV_STATE_KEY) || 'null');
-        const validPages = ['home', 'playground', 'competition', 'community'];
+        const validPages = ['home', 'playground', 'competition', 'community', 'account'];
         if (saved && validPages.includes(saved.page)) {
             return saved;
         }
@@ -3630,6 +3657,7 @@ function navigateToPage(page, options = {}) {
     const playgroundView = document.getElementById('playgroundView');
     const competitionView = document.getElementById('competitionView');
     const communityView = document.getElementById('communityView');
+    const accountView = document.getElementById('accountView');
     const backtestPanel = document.querySelector('.main-container');
     const paperView = document.getElementById('paperTradingView');
     const myAlgoView = document.getElementById('myTradingAlgoView');
@@ -3643,6 +3671,7 @@ function navigateToPage(page, options = {}) {
     hide(playgroundView);
     hide(competitionView);
     hide(communityView);
+    hide(accountView);
     hide(backtestPanel);
     hide(paperView);
     hide(myAlgoView);
@@ -3665,6 +3694,10 @@ function navigateToPage(page, options = {}) {
             showCompetitionPanel(competitionTab);
         } else if (page === 'community') {
             if (communityView) communityView.style.display = 'block';
+        } else if (page === 'account') {
+            currentMode = 'account';
+            if (accountView) accountView.style.display = 'block';
+            updateAccountPage();
         }
     }
 
@@ -3805,6 +3838,7 @@ function switchMode(mode) {
         agents: { page: 'playground', playgroundTab: 'agents' },
         playground: { page: 'playground', playgroundTab: 'agents' },
         competition: { page: 'competition', competitionTab: 'daily' },
+        account: { page: 'account' },
     };
 
     const target = legacyMap[mode] || { page: mode };

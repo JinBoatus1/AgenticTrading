@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=52">
+    <link rel="stylesheet" href="styles.css?v=53">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
     (function () {
@@ -22,6 +22,7 @@
             var legacyMap = {
                 home: { page: 'home' },
                 community: { page: 'community' },
+                account: { page: 'account' },
                 backtest: { page: 'playground', playgroundTab: 'backtest' },
                 paper: { page: 'playground', playgroundTab: 'paper' },
                 contest: { page: 'competition', competitionTab: 'daily' },
@@ -34,7 +35,7 @@
             if (legacy && legacyMap[legacy]) return legacyMap[legacy];
             try {
                 var saved = JSON.parse(localStorage.getItem(NAV_STATE_KEY) || 'null');
-                var valid = ['home', 'playground', 'competition', 'community'];
+                var valid = ['home', 'playground', 'competition', 'community', 'account'];
                 if (saved && valid.indexOf(saved.page) !== -1) return saved;
             } catch (e) { /* ignore */ }
             return { page: 'home' };
@@ -52,6 +53,7 @@
     html[data-nav-boot][data-nav-page="playground"] #playgroundView { display: block !important; }
     html[data-nav-boot][data-nav-page="competition"] #competitionView { display: block !important; }
     html[data-nav-boot][data-nav-page="community"] #communityView { display: block !important; }
+    html[data-nav-boot][data-nav-page="account"] #accountView { display: block !important; }
     html[data-nav-boot] .primary-nav .mode-btn.active { background-color: transparent; color: var(--text-secondary); }
     html[data-nav-boot][data-nav-page="home"] .primary-nav [data-mode="home"] { background-color: var(--info-color); color: white; }
     html[data-nav-boot][data-nav-page="playground"] .primary-nav [data-mode="playground"] { background-color: var(--info-color); color: white; }
@@ -141,10 +143,10 @@
                 <button class="mode-btn" data-mode="community">Community</button>
             </nav>
             <div id="authControls" class="header-account">
-                <span id="authUserLabel" class="auth-user-label" hidden></span>
-                <button id="authSignInBtn" class="auth-btn auth-btn-text" type="button">Sign in</button>
-                <button id="authSignUpBtn" class="auth-btn auth-btn-primary" type="button">Sign up</button>
-                <button id="authLogoutBtn" class="auth-btn auth-btn-secondary" type="button" hidden>Log out</button>
+                <button id="authSignInBtn" class="auth-btn auth-btn-primary" type="button">Sign in</button>
+                <button id="authAccountBtn" class="auth-account-btn" type="button" hidden aria-label="Account">
+                    <span id="authUserLabel" class="auth-user-label"></span>
+                </button>
             </div>
         </div>
     </header>
@@ -1456,6 +1458,32 @@
             <div>
                 <h2 class="page-title">Community</h2>
             </div>
+        </div>
+    </div>
+
+    <div id="accountView" class="page-view account-view" style="display: none;">
+        <div class="page-header">
+            <div>
+                <h2 class="page-title">Account</h2>
+                <p class="page-description">Signed-in profile and session.</p>
+            </div>
+        </div>
+        <div id="accountSignedIn" class="account-card" hidden>
+            <div class="account-row">
+                <span class="account-label">Display name</span>
+                <span id="accountDisplayName" class="account-value">—</span>
+            </div>
+            <div class="account-row">
+                <span class="account-label">Email</span>
+                <span id="accountEmail" class="account-value">—</span>
+            </div>
+            <div class="account-actions">
+                <button id="authLogoutBtn" class="auth-btn auth-btn-secondary" type="button">Log out</button>
+            </div>
+        </div>
+        <div id="accountSignedOut" class="account-card account-card--empty" hidden>
+            <p class="account-empty-copy">Sign in to view your account.</p>
+            <button id="accountSignInBtn" class="auth-btn auth-btn-primary" type="button">Sign in</button>
         </div>
     </div>
 

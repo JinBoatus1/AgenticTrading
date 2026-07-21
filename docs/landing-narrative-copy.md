@@ -26,22 +26,23 @@ Scroll target `#landing-stats` is preserved as a hidden anchor inside Talk.
 | Steps | 1. Join the server · 2. Talk to the agent · 3. Get your backtest result |
 | Primary CTA | Join Discord |
 
+**Right visual:** Discord channel mock (`DiscordMock`) — server rail + `#agent-trading-lab` + APP agent thread (not chat bubbles).
+
 **Mock dialogue (keep short)**
 - You: `I want to follow Warren Buffett. If Berkshire makes a move, copy the move and tell me how it goes.`
-- Agent: `Running backtest…`
-- Agent: `+14.2% · Sharpe 1.84 → See full result`
+- Agent: clarify → rules → backtest embed (`+14.2%` · Sharpe · See full result ↓)
 
 ### 02 — Test
 | Slot | Copy |
 |------|------|
 | Label | 02 — Test |
 | H2 | Test your trading idea |
-| Body (1 line) | Same prompt → historical run → metrics + decisions. |
-| Proof strip | Window + universe from real run (e.g. defaults) |
-| Metrics | Return · Sharpe · Max DD · vs Buy & Hold |
-| Log label | Decision log |
-| Primary CTA | Open run in Lab |
-| Footnote (1 line) | Next: deploy to paper in the Lab |
+| Body (1 line) | Full agent run with fixed experiment settings + baselines. |
+| Figure | Equity: Alpha vs DJIA / S&P 500 / Buy & Hold |
+| Experiment settings | Initial capital · Time period (1 month) · Universe (DJIA 30) · Baselines · Model · Est. token cost — **no prompt field** |
+| Metrics | Return · Sharpe · Max DD · vs Buy & Hold · trades / avg hold |
+| Log | Decision log with step, size, rationale |
+| Primary CTA | Race this agent ↓ |
 
 ### 03 — Race
 | Slot | Copy |
