@@ -381,3 +381,38 @@ def test_builtin_listing_batches_run_stats_queries(client, monkeypatch):
     assert len(listing.json()["agents"]) == 3
     assert calls["per_session"] == 0, "listing still queries per agent (N+1)"
     assert calls["batch"] == 1, "listing must fetch all stats in one query"
+
+
+def test_cash_allocation_cap_is_one_million(client):
+    """Demo 1: the per-agent cap was raised 3,000 -> 1,000,000."""
+    from dashboard.backend.domain.backtesting.constants import (
+        MAX_AGENT_CASH_ALLOCATION,
+        resolve_initial_capital,
+    )
+
+    assert MAX_AGENT_CASH_ALLOCATION == 1_000_000
+    # Clamp behavior follows the constant.
+    assert resolve_initial_capital(1_000_000) == 1_000_000.0
+    assert resolve_initial_capital(2_000_000) == 1_000_000.0
+
+    browser_session = str(uuid.uuid4())
+    headers = {"X-Session-Id": browser_session, "X-Browser-Id": browser_session}
+
+    ok = client.post(
+        "/api/v1/agents",
+        json={
+            "name": "Whale",
+            "agent_type": "builtin",
+            "cash_allocation": 1_000_000,
+        },
+        headers=headers,
+    )
+    assert ok.status_code == 200
+    assert ok.json()["agent"]["cash_allocation"] == 1_000_000
+
+    too_big = client.post(
+        "/api/v1/agents",
+        json={"name": "Too big", "agent_type": "builtin", "cash_allocation": 1_000_001},
+        headers=headers,
+    )
+    assert too_big.status_code == 422

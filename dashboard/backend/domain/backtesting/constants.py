@@ -11,7 +11,7 @@ here.
 Capital scale (product):
 - User portfolio budget: ``DEFAULT_PORTFOLIO_EQUITY`` ($10,000)
 - Per-agent starting cash: default ``DEFAULT_AGENT_CASH_ALLOCATION`` ($1,000),
-  max ``MAX_AGENT_CASH_ALLOCATION`` ($3,000)
+  max ``MAX_AGENT_CASH_ALLOCATION`` ($1,000,000)
 - Backtests / protocol use the agent's cash allocation (falling back to
   ``INITIAL_CAPITAL``)
 """
@@ -28,7 +28,7 @@ DEFAULT_PORTFOLIO_EQUITY = 10_000
 
 # Per-agent cash allocation bounds (also enforced by the agents API).
 DEFAULT_AGENT_CASH_ALLOCATION = 1000
-MAX_AGENT_CASH_ALLOCATION = 3000
+MAX_AGENT_CASH_ALLOCATION = 1_000_000
 
 
 def resolve_initial_capital(cash_allocation: Optional[Any] = None) -> float:
