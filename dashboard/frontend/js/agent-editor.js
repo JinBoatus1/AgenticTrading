@@ -481,7 +481,7 @@
 
   function updateSimpleReplaceNote() {
     const note = document.getElementById('agentEditorSimpleReplaceNote');
-    if (note) note.hidden = !(editorMode === 'simple' && subAgents.length > 1);
+    if (note) note.hidden = !(editorMode === 'simple' && !isSimplePipeline(subAgents));
   }
 
   function setEditorMode(mode) {
