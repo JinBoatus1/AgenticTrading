@@ -156,6 +156,14 @@ function setDefaultAgentId(agentId) {
   }
 }
 
+const DEFAULT_AGENT_PROVISION_GUARD_PREFIX = 'default-agent-provisioned:';
+const DEFAULT_FOUNDATION_MODEL = 'deepseek/deepseek-v4-pro';
+const SIMPLE_INSTRUCTION_PRESET_KEY = 'simple_instruction';
+const SIMPLE_INSTRUCTION_OUTPUT_FORMAT =
+  'JSON: { "orders": [{ "symbol": "...", "side": "buy|sell|hold", "qty": number, "order_type": "market|limit", "limit_price": number|null, "reason": "..." }] }';
+const DEFAULT_STARTER_INSTRUCTION =
+  'Spread the money across a few of the strongest available stocks. Buy on meaningful dips, take profits after strong run-ups, and never put everything into one stock.';
+
 function formatAgentCashAllocation(value) {
   if (value == null || value === '') return '—';
   return new Intl.NumberFormat('en-US', {
@@ -1030,6 +1038,60 @@ async function onBacktestAgentSelectChange() {
   }
 }
 
+// First-visit onboarding: a brand-new owner gets one real Foundation agent so
+// the row is never empty. The guard key means "we provisioned once for this
+// browser identity" — deleting the agent must NOT resurrect it.
+let defaultAgentProvisionInFlight = false;
+
+async function ensureDefaultFoundationAgent(agents) {
+  if (isDemoMode()) return false;
+  if (agents.some((a) => a.agent_type === 'builtin')) return false;
+  const guardKey = `${DEFAULT_AGENT_PROVISION_GUARD_PREFIX}${window.BROWSER_OWNER_ID || 'anon'}`;
+  try {
+    if (localStorage.getItem(guardKey)) return false;
+  } catch (e) {
+    return false; // no storage → cannot guard → do not provision
+  }
+  if (defaultAgentProvisionInFlight) return false;
+  defaultAgentProvisionInFlight = true;
+  try {
+    const data = await API.post(`${API_BASE}/api/v1/agents`, {
+      name: 'My Foundation Agent',
+      model_name: DEFAULT_FOUNDATION_MODEL,
+      agent_type: 'builtin',
+      description: 'Your starter agent — configure it and run a backtest.',
+      cash_allocation: DEFAULT_AGENT_CASH_ALLOCATION,
+    });
+    const agent = data?.agent;
+    if (!agent?.agent_id) return false;
+    localStorage.setItem(guardKey, agent.agent_id);
+    try {
+      await API.patch(`${API_BASE}/api/v1/agents/${encodeURIComponent(agent.agent_id)}`, {
+        pipeline: [
+          {
+            id: `sub_starter_${agent.agent_id}`,
+            presetKey: SIMPLE_INSTRUCTION_PRESET_KEY,
+            label: 'Trading instruction',
+            prompt: DEFAULT_STARTER_INSTRUCTION,
+            outputFormat: SIMPLE_INSTRUCTION_OUTPUT_FORMAT,
+          },
+        ],
+      });
+    } catch (seedError) {
+      // Non-fatal: the agent exists; the editor just opens with a blank instruction.
+      console.warn('Starter instruction seed failed:', seedError.message);
+    }
+    if (!getDefaultAgentId()) setDefaultAgentId(agent.agent_id);
+    return true;
+  } catch (error) {
+    // Non-fatal: the row falls back to its empty state with the Add Agent CTA.
+    console.warn('Default agent provisioning skipped:', error.message);
+    return false;
+  } finally {
+    defaultAgentProvisionInFlight = false;
+  }
+}
+
 async function loadAgents() {
   try {
     let data = await API.get(`${API_BASE}/api/v1/agents`);
@@ -1069,6 +1131,15 @@ async function loadAgents() {
     // renderAgentCategories) instead of fabricated agents.
     if (!agents.length && isDemoMode()) {
       agents = visibleMockAgents();
+    }
+
+    if (await ensureDefaultFoundationAgent(agents)) {
+      try {
+        const refreshed = await API.get(`${API_BASE}/api/v1/agents`);
+        agents = refreshed.agents || agents;
+      } catch (refreshError) {
+        console.warn('Refresh after default-agent provisioning failed:', refreshError.message);
+      }
     }
 
     allAgents = agents;
