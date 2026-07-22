@@ -416,3 +416,55 @@ def test_cash_allocation_cap_is_one_million(client):
         headers=headers,
     )
     assert too_big.status_code == 422
+
+
+def test_patch_agent_model_name(client):
+    """Demo 1: the Configure screen can change the model after creation."""
+    browser_session = str(uuid.uuid4())
+    headers = {"X-Session-Id": browser_session, "X-Browser-Id": browser_session}
+
+    created = client.post(
+        "/api/v1/agents",
+        json={
+            "name": "Model Swapper",
+            "model_name": "anthropic/claude-haiku-4-5",
+            "agent_type": "builtin",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200
+    agent_id = created.json()["agent"]["agent_id"]
+
+    patched = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"model_name": "deepseek/deepseek-v4-pro"},
+        headers=headers,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["agent"]["model_name"] == "deepseek/deepseek-v4-pro"
+
+    # Absent field leaves the model untouched.
+    renamed = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"name": "Still Swapped"},
+        headers=headers,
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["agent"]["model_name"] == "deepseek/deepseek-v4-pro"
+
+    # Empty string is rejected by validation.
+    empty = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"model_name": ""},
+        headers=headers,
+    )
+    assert empty.status_code == 422
+
+    # model_name alone is a valid update (not "No fields to update").
+    only_model = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"model_name": "openai/gpt-5.5"},
+        headers=headers,
+    )
+    assert only_model.status_code == 200
+    assert only_model.json()["agent"]["model_name"] == "openai/gpt-5.5"
