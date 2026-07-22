@@ -8474,3 +8474,98 @@ body.agent-editor-open {
         justify-content: flex-start;
     }
 }
+
+/* Header account dropdown */
+.account-menu-wrap {
+    position: relative;
+}
+
+.auth-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.auth-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.auth-caret {
+    font-size: 10px;
+    color: var(--text-secondary);
+}
+
+.account-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 60;
+    min-width: 200px;
+    padding: 6px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.account-menu[hidden] {
+    display: none !important;
+}
+
+.account-menu-identity {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 4px;
+}
+
+.account-menu-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.account-menu-email {
+    font-size: 11px;
+    color: var(--text-secondary);
+    word-break: break-all;
+}
+
+.account-menu-item {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+
+.account-menu-item:hover {
+    background: var(--bg-hover);
+}
+
+.account-menu-item--danger {
+    color: #f87171;
+}

@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=53">
+    <link rel="stylesheet" href="styles.css?v=54">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
     (function () {
@@ -144,9 +144,21 @@
             </nav>
             <div id="authControls" class="header-account">
                 <button id="authSignInBtn" class="auth-btn auth-btn-primary" type="button">Sign in</button>
-                <button id="authAccountBtn" class="auth-account-btn" type="button" hidden aria-label="Account">
-                    <span id="authUserLabel" class="auth-user-label"></span>
-                </button>
+                <div id="accountMenuWrap" class="account-menu-wrap" hidden>
+                    <button id="authAccountBtn" class="auth-account-btn" type="button" aria-label="Account menu" aria-haspopup="true" aria-expanded="false">
+                        <span id="authAvatar" class="auth-avatar" aria-hidden="true"></span>
+                        <span id="authUserLabel" class="auth-user-label"></span>
+                        <span class="auth-caret" aria-hidden="true">▾</span>
+                    </button>
+                    <div id="accountMenu" class="account-menu" hidden>
+                        <div class="account-menu-identity">
+                            <span id="accountMenuName" class="account-menu-name"></span>
+                            <span id="accountMenuEmail" class="account-menu-email"></span>
+                        </div>
+                        <button id="accountMenuAccountBtn" class="account-menu-item" type="button">Account</button>
+                        <button id="accountMenuLogoutBtn" class="account-menu-item account-menu-item--danger" type="button">Log out</button>
+                    </div>
+                </div>
             </div>
         </div>
     </header>
@@ -1494,7 +1506,7 @@
     <script src="market-events/MarketEventFeed.js"></script>
     <script src="js/portfolio.js?v=2"></script>
     <script src="js/agent-editor.js?v=7"></script>
-    <script src="app.js?v=20"></script>
+    <script src="app.js?v=21"></script>
     <script src="js/leaderboard.js?v=13"></script>
     <script src="home-page.js?v=32"></script>
     <!-- Load order: must come after app.js (API/API_BASE/escapeHtml) and

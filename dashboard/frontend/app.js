@@ -1560,23 +1560,56 @@ function updateAccountPage() {
   }
 }
 
+function renderAvatar(el, user) {
+  if (!el) return;
+  el.innerHTML = '';
+  if (user && user.avatar) {
+    const img = document.createElement('img');
+    img.src = user.avatar;   // server-validated data: URI
+    img.alt = '';
+    el.appendChild(img);
+  } else {
+    const source = ((user && (user.display_name || user.email)) || '?').trim();
+    el.textContent = source ? source[0].toUpperCase() : '?';
+  }
+}
+
+function toggleAccountMenu(force) {
+  const menu = document.getElementById('accountMenu');
+  const btn = document.getElementById('authAccountBtn');
+  if (!menu || !btn) return;
+  const open = force !== undefined ? force : menu.hidden;
+  menu.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function closeAccountMenu() {
+  toggleAccountMenu(false);
+}
+
 function updateAuthUI() {
   const user = getStoredAuthUser();
   const label = document.getElementById('authUserLabel');
   const signInBtn = document.getElementById('authSignInBtn');
-  const accountBtn = document.getElementById('authAccountBtn');
-  if (!signInBtn || !accountBtn) {
+  const menuWrap = document.getElementById('accountMenuWrap');
+  if (!signInBtn || !menuWrap) {
     return;
   }
 
   if (user) {
     if (label) label.textContent = user.display_name || user.email;
     signInBtn.hidden = true;
-    accountBtn.hidden = false;
+    menuWrap.hidden = false;
+    renderAvatar(document.getElementById('authAvatar'), user);
+    const nameEl = document.getElementById('accountMenuName');
+    const emailEl = document.getElementById('accountMenuEmail');
+    if (nameEl) nameEl.textContent = user.display_name || '—';
+    if (emailEl) emailEl.textContent = user.email || '';
   } else {
     if (label) label.textContent = '';
     signInBtn.hidden = false;
-    accountBtn.hidden = true;
+    menuWrap.hidden = true;
+    closeAccountMenu();
   }
 
   updateAccountPage();
@@ -1792,7 +1825,29 @@ function initAuthUI() {
 
   signInBtn?.addEventListener('click', () => openAuthModal('login'));
   accountSignInBtn?.addEventListener('click', () => openAuthModal('login'));
-  accountBtn?.addEventListener('click', () => navigateToPage('account'));
+  accountBtn?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleAccountMenu();
+  });
+  document.getElementById('accountMenuAccountBtn')?.addEventListener('click', () => {
+    closeAccountMenu();
+    navigateToPage('account');
+  });
+  document.getElementById('accountMenuLogoutBtn')?.addEventListener('click', () => {
+    closeAccountMenu();
+    logoutUser();
+  });
+  document.addEventListener('click', (event) => {
+    const wrap = document.getElementById('accountMenuWrap');
+    if (wrap && !wrap.hidden && !wrap.contains(event.target)) {
+      closeAccountMenu();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeAccountMenu();
+    }
+  });
   logoutBtn?.addEventListener('click', () => {
     logoutUser();
   });
