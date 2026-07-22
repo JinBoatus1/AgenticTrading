@@ -67,6 +67,7 @@ async function restoreActiveAgentSession() {
 
 function applyActiveAgent(agent, options = {}) {
   if (!agent?.session_id) return;
+  const previousSession = window.SESSION_ID;
   localStorage.setItem('trading-session-id', agent.session_id);
   if (options.persistActiveId !== false) {
     localStorage.setItem(ACTIVE_AGENT_KEY, agent.agent_id);
@@ -74,7 +75,14 @@ function applyActiveAgent(agent, options = {}) {
   }
   window.SESSION_ID = agent.session_id;
   window.ACTIVE_AGENT = agent;
-  localStorage.removeItem(SELECTED_BACKTEST_RUN_KEY);
+  // Only drop the selected run when the trading session actually changes.
+  // Re-activating the same agent must not wipe a run id we just pinned for navigation.
+  if (
+    options.clearSelectedRun === true ||
+    (options.clearSelectedRun !== false && previousSession && previousSession !== agent.session_id)
+  ) {
+    localStorage.removeItem(SELECTED_BACKTEST_RUN_KEY);
+  }
 
   const nameEl = document.getElementById('playgroundAgentName');
   if (nameEl) nameEl.textContent = agent.name || 'External Agent';
@@ -441,8 +449,26 @@ function resolvePaperCardMetrics(agent) {
   };
 }
 
+/** Most recent backtest run on an agent card (prefers latest_run, else runs[]). */
+function resolveLatestAgentRun(agent) {
+  const latest = agent?.latest_run;
+  if (latest && (latest.run_id || latest.total_return != null || latest.final_equity != null)) {
+    return latest;
+  }
+  const runs = Array.isArray(agent?.runs) ? agent.runs : [];
+  if (!runs.length) return null;
+  return [...runs].sort(
+    (a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')),
+  )[0];
+}
+
+function resolveLatestAgentRunId(agent) {
+  const run = resolveLatestAgentRun(agent);
+  return run?.run_id || null;
+}
+
 function resolveBacktestCardMetrics(agent) {
-  const run = agent.latest_run || (Array.isArray(agent.runs) && agent.runs[0]) || null;
+  const run = resolveLatestAgentRun(agent);
   const cash = Number(agent.cash_allocation);
   const initial = Number(run?.initial_equity);
   const startEquity = Number.isFinite(initial)
@@ -715,18 +741,28 @@ function renderAgentsError() {
 
 async function openAgentInBacktest(agent, runId = null) {
   if (!agent) return;
-  await activateAgent(agent);
-  if (runId) localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, runId);
+  // Navigate immediately — never block on the activate ping (cold API starts
+  // left the user stuck on My Agents). Pin the latest run after session switch.
+  applyActiveAgent(agent);
+  const resolvedRunId = runId || resolveLatestAgentRunId(agent);
+  if (resolvedRunId) {
+    localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, resolvedRunId);
+  } else {
+    localStorage.removeItem(SELECTED_BACKTEST_RUN_KEY);
+  }
   navigateToPage('playground', { playgroundTab: 'backtest' });
   currentMode = 'backtest';
+  // Same-session re-activate must not clear SELECTED_BACKTEST_RUN_KEY (see applyActiveAgent).
+  activateAgent(agent);
   await loadData();
 }
 
 async function openAgentInPaper(agent) {
   if (!agent) return;
-  await activateAgent(agent);
+  applyActiveAgent(agent);
   navigateToPage('playground', { playgroundTab: 'paper' });
   currentMode = 'paper';
+  activateAgent(agent);
   await loadData();
 }
 
@@ -809,11 +845,17 @@ function renderAgentsGrid(agents) {
   });
 
   grid.querySelectorAll('.agent-view-runs-btn').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const agent = agents.find((a) => a.agent_id === btn.dataset.agentId);
-      if (!agent) return;
-      const runId = resolveBacktestCardMetrics(agent).runId;
-      await openAgentInBacktest(agent, runId);
+    btn.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const agent =
+        agents.find((a) => a.agent_id === btn.dataset.agentId) ||
+        allAgents.find((a) => a.agent_id === btn.dataset.agentId);
+      if (!agent) {
+        console.warn('View runs: agent not found', btn.dataset.agentId);
+        return;
+      }
+      await openAgentInBacktest(agent, resolveLatestAgentRunId(agent));
     });
   });
 
@@ -3582,7 +3624,8 @@ function showPlaygroundPanel(tab) {
     updatePlaygroundSubtabs();
 
     const agents = document.getElementById('playgroundAgentsPanel');
-    const backtest = document.querySelector('.main-container');
+    const backtest = document.querySelector('.playground-backtest-panel')
+      || document.querySelector('.main-container');
     const paper = document.getElementById('paperTradingView');
 
     if (agents) agents.style.display = tab === 'agents' ? 'block' : 'none';
@@ -3658,7 +3701,8 @@ function navigateToPage(page, options = {}) {
     const competitionView = document.getElementById('competitionView');
     const communityView = document.getElementById('communityView');
     const accountView = document.getElementById('accountView');
-    const backtestPanel = document.querySelector('.main-container');
+    const backtestPanel = document.querySelector('.playground-backtest-panel')
+      || document.querySelector('.main-container');
     const paperView = document.getElementById('paperTradingView');
     const myAlgoView = document.getElementById('myTradingAlgoView');
     const leaderboardView = document.getElementById('leaderboardView');
