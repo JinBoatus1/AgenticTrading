@@ -72,6 +72,7 @@ def public_user(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
         "display_name": data["display_name"],
         "role": data["role"],
         "created_at": data["created_at"],
+        "avatar": data.get("avatar"),
         "discord_linked": bool(discord_user_id),
         "discord_user_id": str(discord_user_id) if discord_user_id else None,
     }
@@ -129,6 +130,8 @@ class UserStore:
             cursor.execute(
                 "ALTER TABLE users ADD COLUMN discord_user_id TEXT"
             )
+        if "avatar" not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN avatar TEXT")
         cursor.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_users_discord_user_id
@@ -271,6 +274,18 @@ class UserStore:
             cursor.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
         conn.commit()
         conn.close()
+
+    def set_avatar(self, user_id: int, avatar: Optional[str]) -> Dict[str, Any]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET avatar = ? WHERE id = ?", (avatar, user_id))
+        conn.commit()
+        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            raise ValueError("user_not_found")
+        return public_user(row)
 
     def get_user_by_discord_id(self, discord_user_id: str) -> Optional[Dict[str, Any]]:
         discord_id = str(discord_user_id).strip()

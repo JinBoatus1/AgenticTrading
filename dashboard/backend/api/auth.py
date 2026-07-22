@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 from typing import Optional
 from urllib.parse import urlencode
@@ -56,6 +57,47 @@ class LoginRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=1, max_length=128)
+
+
+AVATAR_MAX_DECODED_BYTES = 100 * 1024
+
+# Declared mime -> required leading bytes. WebP is RIFF-framed, checked separately.
+_AVATAR_MAGIC = {
+    "image/jpeg": b"\xff\xd8\xff",
+    "image/png": b"\x89PNG\r\n\x1a\n",
+}
+
+
+class AvatarRequest(BaseModel):
+    avatar: str = Field(min_length=1, max_length=200_000)
+
+
+def _validate_avatar_data_uri(value: str) -> str:
+    """Server-side avatar gate: allowlisted mime, valid base64, magic-number
+    match, <= 100 KB decoded. Never trust the client's canvas pipeline."""
+    mime = None
+    payload = None
+    for candidate in ("image/jpeg", "image/png", "image/webp"):
+        prefix = f"data:{candidate};base64,"
+        if value.startswith(prefix):
+            mime = candidate
+            payload = value[len(prefix):]
+            break
+    if mime is None:
+        raise ValueError("Avatar must be a base64 data URI (JPEG, PNG, or WebP).")
+    try:
+        decoded = base64.b64decode(payload, validate=True)
+    except ValueError as exc:  # binascii.Error subclasses ValueError
+        raise ValueError("Avatar data is not valid base64.") from exc
+    if len(decoded) > AVATAR_MAX_DECODED_BYTES:
+        raise ValueError("Avatar image must be 100 KB or smaller.")
+    if mime == "image/webp":
+        ok = len(decoded) >= 12 and decoded[:4] == b"RIFF" and decoded[8:12] == b"WEBP"
+    else:
+        ok = decoded.startswith(_AVATAR_MAGIC[mime])
+    if not ok:
+        raise ValueError("Avatar image bytes do not match the declared format.")
+    return value
 
 
 class AuthResponse(BaseModel):
@@ -156,6 +198,22 @@ async def change_password(
             f"other-session revocation failed: {exc!r}"
         )
     return {"status": "ok"}
+
+
+@router.put("/avatar")
+async def set_avatar(payload: AvatarRequest, current_user: dict = Depends(get_current_user)):
+    try:
+        value = _validate_avatar_data_uri(payload.avatar)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    user = user_store.set_avatar(current_user["id"], value)
+    return {"user": user}
+
+
+@router.delete("/avatar")
+async def delete_avatar(current_user: dict = Depends(get_current_user)):
+    user = user_store.set_avatar(current_user["id"], None)
+    return {"user": user}
 
 
 @router.post("/discord/start")

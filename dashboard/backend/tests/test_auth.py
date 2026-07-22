@@ -2,6 +2,7 @@
 Auth API tests using a temporary SQLite database.
 """
 
+import base64
 import sys
 import tempfile
 from pathlib import Path
@@ -260,3 +261,89 @@ def test_change_password_revocation_failure_still_succeeds(client, monkeypatch, 
     # The failure is surfaced via print() (logger output is invisible in prod), not
     # swallowed silently. Assert on capsys, never caplog.
     assert "revocation failed" in capsys.readouterr().out
+
+
+# JPEG magic bytes + padding. The server validates magic + base64 + size,
+# not full image decode (no image library), so this is a sufficient payload.
+_TINY_JPEG = base64.b64encode(b"\xff\xd8\xff" + b"\x00" * 32).decode("ascii")
+
+
+def _avatar_uri(payload_b64=_TINY_JPEG, mime="image/jpeg"):
+    return f"data:{mime};base64,{payload_b64}"
+
+
+def test_avatar_put_and_delete_flow(client):
+    token = _signup_and_token(client, email="hana@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    put = client.put("/api/auth/avatar", headers=headers, json={"avatar": _avatar_uri()})
+    assert put.status_code == 200
+    assert put.json()["user"]["avatar"] == _avatar_uri()
+
+    me = client.get("/api/auth/me", headers=headers)
+    assert me.json()["user"]["avatar"] == _avatar_uri()
+
+    delete = client.delete("/api/auth/avatar", headers=headers)
+    assert delete.status_code == 200
+    assert delete.json()["user"]["avatar"] is None
+
+
+def test_avatar_requires_auth(client):
+    assert client.put("/api/auth/avatar", json={"avatar": _avatar_uri()}).status_code == 401
+    assert client.delete("/api/auth/avatar").status_code == 401
+
+
+def test_avatar_rejects_unsupported_mime(client):
+    token = _signup_and_token(client, email="iris@example.com")
+    response = client.put(
+        "/api/auth/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"avatar": _avatar_uri(mime="image/svg+xml")},
+    )
+    assert response.status_code == 400
+
+
+def test_avatar_rejects_magic_number_mismatch(client):
+    token = _signup_and_token(client, email="jack@example.com")
+    # Declared PNG, actual bytes JPEG.
+    response = client.put(
+        "/api/auth/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"avatar": _avatar_uri(mime="image/png")},
+    )
+    assert response.status_code == 400
+    assert "match" in response.json()["detail"]
+
+
+def test_avatar_rejects_invalid_base64(client):
+    token = _signup_and_token(client, email="kate@example.com")
+    response = client.put(
+        "/api/auth/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"avatar": "data:image/jpeg;base64,!!!not-base64!!!"},
+    )
+    assert response.status_code == 400
+
+
+def test_avatar_rejects_oversize(client):
+    token = _signup_and_token(client, email="liam@example.com")
+    # Valid JPEG magic, padded past 100 KB.
+    big = base64.b64encode(
+        b"\xff\xd8\xff" + b"\x00" * (101 * 1024)
+    ).decode("ascii")
+    response = client.put(
+        "/api/auth/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"avatar": _avatar_uri(payload_b64=big)},
+    )
+    assert response.status_code == 400
+    assert "100 KB" in response.json()["detail"]
+
+
+def test_signup_response_includes_avatar_field(client):
+    response = client.post(
+        "/api/auth/signup",
+        json={"email": "mia@example.com", "display_name": "Mia", "password": "sturdy-enough-9"},
+    )
+    assert response.status_code == 200
+    assert response.json()["user"]["avatar"] is None
