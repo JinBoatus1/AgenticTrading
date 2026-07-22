@@ -8490,10 +8490,12 @@ body.agent-editor-open {
 }
 
 /* Configure CTA + Default badge (Demo 1) */
+.agent-card-actions--status { flex-wrap: wrap; }
 .agent-card-cta--configure {
     background: transparent;
     border: 1px solid var(--border-color);
     color: var(--text-primary);
+    flex-basis: 100%;
 }
 .agent-card-cta--configure:hover { border-color: var(--text-secondary); }
 .agent-default-badge {
