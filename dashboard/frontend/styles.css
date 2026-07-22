@@ -8474,3 +8474,27 @@ body.agent-editor-open {
         justify-content: flex-start;
     }
 }
+
+/* My Agents — category rows (Demo 1) */
+.agents-category { margin-top: 28px; }
+.agents-category:first-child { margin-top: 8px; }
+.agents-category-head { margin-bottom: 14px; }
+.agents-category-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 2px;
+}
+.agents-category-sub {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+.agent-card--placeholder {
+    border-style: dashed;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    justify-content: center;
+    align-items: flex-start;
+}

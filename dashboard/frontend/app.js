@@ -134,6 +134,28 @@ const DEFAULT_AGENT_CASH_ALLOCATION = 1000;
 const DEFAULT_PORTFOLIO_EQUITY = 10000;
 const AGENT_CASH_OVERRIDE_PREFIX = 'agent-cash-allocation:';
 
+const DEFAULT_AGENT_KEY_PREFIX = 'default-agent-id:';
+
+function defaultAgentKey() {
+  return `${DEFAULT_AGENT_KEY_PREFIX}${window.BROWSER_OWNER_ID || 'anon'}`;
+}
+
+function getDefaultAgentId() {
+  try {
+    return localStorage.getItem(defaultAgentKey());
+  } catch (e) {
+    return null;
+  }
+}
+
+function setDefaultAgentId(agentId) {
+  try {
+    localStorage.setItem(defaultAgentKey(), agentId);
+  } catch (e) {
+    /* storage unavailable — badge simply won't persist */
+  }
+}
+
 function formatAgentCashAllocation(value) {
   if (value == null || value === '') return '—';
   return new Intl.NumberFormat('en-US', {
@@ -630,21 +652,9 @@ function applyAgentNameOverride(agent) {
 }
 
 function applyAgentFilters() {
-  const filter = document.getElementById('agentFilterSelect')?.value || 'all';
   const query = (document.getElementById('agentSearchInput')?.value || '').trim().toLowerCase();
-  const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
 
   let list = allAgents.map(decorateAgent);
-  if (filter === 'builtin') {
-    list = list.filter((a) => a.agent_type === 'builtin');
-  } else if (filter === 'external') {
-    list = list.filter((a) => a.agent_type !== 'builtin');
-  } else if (filter === 'active') {
-    list = list.filter((a) => a.is_active || a.agent_id === activeId);
-  } else if (filter === 'registered') {
-    list = list.filter((a) => !(a.is_active || a.agent_id === activeId));
-  }
-
   if (query) {
     list = list.filter(
       (a) =>
@@ -653,13 +663,14 @@ function applyAgentFilters() {
     );
   }
 
-  renderAgentsGrid(list);
+  renderAgentCategories(list);
 }
 
 function setAgentViewMode(mode) {
   agentViewMode = mode === 'list' ? 'list' : 'grid';
-  const grid = document.getElementById('agentsGrid');
-  if (grid) grid.classList.toggle('agents-grid--list', agentViewMode === 'list');
+  document.querySelectorAll('.agents-section .agents-grid').forEach((grid) => {
+    grid.classList.toggle('agents-grid--list', agentViewMode === 'list');
+  });
   document.getElementById('agentViewGrid')?.classList.toggle('active', agentViewMode === 'grid');
   document.getElementById('agentViewList')?.classList.toggle('active', agentViewMode === 'list');
 }
@@ -705,11 +716,12 @@ function isDemoMode() {
 // Distinct error-state shown when the agents API is unreachable — never mask a
 // backend outage by rendering fake data.
 function renderAgentsError() {
-  const grid = document.getElementById('agentsGrid');
-  const empty = document.getElementById('agentsEmptyState');
   const errorEl = document.getElementById('agentsErrorState');
-  if (grid) grid.innerHTML = '';
-  if (empty) empty.hidden = true;
+  document.querySelectorAll('.agents-section .agents-grid').forEach((grid) => {
+    grid.innerHTML = '';
+  });
+  const builtinEmpty = document.getElementById('agentsEmptyBuiltin');
+  if (builtinEmpty) builtinEmpty.hidden = true;
   if (errorEl) errorEl.hidden = false;
 }
 
@@ -750,19 +762,8 @@ function bindAgentCardMenus(grid) {
   });
 }
 
-function renderAgentsGrid(agents) {
-  const grid = document.getElementById('agentsGrid');
-  const empty = document.getElementById('agentsEmptyState');
-  const errorEl = document.getElementById('agentsErrorState');
-  if (!grid) return;
-
-  if (errorEl) errorEl.hidden = true;  // a successful render clears any prior error
+function renderAgentCards(grid, agents) {
   grid.innerHTML = '';
-  if (!agents.length) {
-    if (empty) empty.hidden = false;
-    return;
-  }
-  if (empty) empty.hidden = true;
 
   agents.forEach((agent) => {
     const isBuiltin = agent.agent_type === 'builtin';
@@ -869,12 +870,50 @@ function renderAgentsGrid(agents) {
   });
 }
 
+function renderAgentCategories(agents) {
+  const builtinGrid = document.getElementById('agentsGridBuiltin');
+  const externalGrid = document.getElementById('agentsGridExternal');
+  const errorEl = document.getElementById('agentsErrorState');
+  if (!builtinGrid || !externalGrid) return;
+
+  if (errorEl) errorEl.hidden = true; // a successful render clears any prior error
+
+  const defaultId = getDefaultAgentId();
+  const pinDefaultFirst = (list) =>
+    [...list].sort((a, b) => (b.agent_id === defaultId) - (a.agent_id === defaultId));
+
+  const builtin = pinDefaultFirst(agents.filter((a) => a.agent_type === 'builtin'));
+  const external = pinDefaultFirst(agents.filter((a) => a.agent_type !== 'builtin'));
+
+  renderAgentCards(builtinGrid, builtin);
+  renderAgentCards(externalGrid, external);
+
+  const builtinEmpty = document.getElementById('agentsEmptyBuiltin');
+  if (builtinEmpty) builtinEmpty.hidden = builtin.length > 0;
+  if (!external.length) renderExternalPlaceholderCard(externalGrid);
+}
+
+// Reserved entry point for connect-your-own agents: the connection mechanism
+// is still an open team decision, so this opens the existing creation flow.
+function renderExternalPlaceholderCard(grid) {
+  const card = document.createElement('div');
+  card.className = 'section-card agent-card agent-card--placeholder';
+  card.innerHTML = `
+    <div class="agent-card-identity-text">
+      <h3 class="agent-name">Connect your own agent</h3>
+      <p class="agent-card-submeta">Run your own trading agent against our backtests via an API key.</p>
+    </div>
+    <button class="agent-card-cta agent-card-cta--outline" type="button">Connect agent</button>`;
+  card.querySelector('button')?.addEventListener('click', openCreateExternalAgentModal);
+  grid.appendChild(card);
+}
+
 document.addEventListener('click', (event) => {
   if (event.target.closest?.('.agent-card-menu')) return;
-  document.querySelectorAll('#agentsGrid .agent-menu-dropdown').forEach((el) => {
+  document.querySelectorAll('.agents-grid .agent-menu-dropdown').forEach((el) => {
     el.hidden = true;
   });
-  document.querySelectorAll('#agentsGrid .agent-menu-toggle').forEach((el) => {
+  document.querySelectorAll('.agents-grid .agent-menu-toggle').forEach((el) => {
     el.setAttribute('aria-expanded', 'false');
   });
 });
@@ -1016,7 +1055,7 @@ async function loadAgents() {
 
     // Demo only: seed illustrative agents so the page has content without a
     // backend. Real users get the genuine empty-state (rendered by
-    // renderAgentsGrid) instead of fabricated agents.
+    // renderAgentCategories) instead of fabricated agents.
     if (!agents.length && isDemoMode()) {
       agents = visibleMockAgents();
     }
@@ -3786,7 +3825,6 @@ function initNavigation() {
         });
     });
 
-    document.getElementById('agentFilterSelect')?.addEventListener('change', applyAgentFilters);
     document.getElementById('agentSearchInput')?.addEventListener('input', applyAgentFilters);
     document.getElementById('agentViewGrid')?.addEventListener('click', () => setAgentViewMode('grid'));
     document.getElementById('agentViewList')?.addEventListener('click', () => setAgentViewMode('list'));

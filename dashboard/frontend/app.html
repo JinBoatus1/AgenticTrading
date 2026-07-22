@@ -715,13 +715,6 @@
                         <a id="agentsSectionDiscordBtn" class="discord-nav-btn discord-nav-btn-sm" data-discord-link href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
                     </div>
                     <div class="agent-toolbar">
-                        <select id="agentFilterSelect" class="agent-toolbar-select" aria-label="Filter agents">
-                            <option value="all">All Agents</option>
-                            <option value="builtin">Built-in</option>
-                            <option value="external">External</option>
-                            <option value="active">Active</option>
-                            <option value="registered">Registered</option>
-                        </select>
                         <div class="agent-toolbar-search">
                             <svg class="agent-toolbar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                             <input id="agentSearchInput" type="search" placeholder="Search agents..." aria-label="Search agents">
@@ -737,8 +730,23 @@
                         <button id="addAgentBtnToolbar" class="home-btn home-btn-primary agent-toolbar-add" type="button">Add Agent +</button>
                     </div>
                 </div>
-                <div id="agentsGrid" class="agents-grid"></div>
-                <p id="agentsEmptyState" class="control-helper" hidden>No agents yet. Run a backtest with the CLI, or click <strong>Add Agent</strong> to register one.</p>
+                <div id="agentsCategories">
+                    <section class="agents-category" data-category="builtin">
+                        <div class="agents-category-head">
+                            <h3 class="agents-category-title">Foundation Models</h3>
+                            <p class="agents-category-sub">A prompting game — give it money, an instruction, and a model, then backtest.</p>
+                        </div>
+                        <div id="agentsGridBuiltin" class="agents-grid"></div>
+                        <p id="agentsEmptyBuiltin" class="control-helper" hidden>No foundation agents yet. Click <strong>Add Agent</strong> to create one.</p>
+                    </section>
+                    <section class="agents-category" data-category="external">
+                        <div class="agents-category-head">
+                            <h3 class="agents-category-title">External Agents</h3>
+                            <p class="agents-category-sub">Bring your own agent and connect it with an API key.</p>
+                        </div>
+                        <div id="agentsGridExternal" class="agents-grid"></div>
+                    </section>
+                </div>
                 <p id="agentsErrorState" class="control-helper" hidden style="color:#f87171;">Couldn't reach the server to load agents. Check your connection and try again.</p>
             </div>
         </div>
