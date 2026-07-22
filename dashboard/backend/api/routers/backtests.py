@@ -612,7 +612,23 @@ async def run_backtest_endpoint(
     # Mint run id before the worker starts so callers (Discord job watcher)
     # can key notifications on a stable id from the HTTP response.
     live_run_id = f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    
+
+    # Publish "running" synchronously — before thread.start() — so a status poll
+    # landing in the gap between this return and the worker's first line cannot
+    # read a PRIOR run's completed state (running=False, runs_count>0) and report
+    # it as this run's result. Clearing runs_count/error retires the previous
+    # run's terminal signal; setting live_run_id lets the watcher key on this
+    # exact run. (PR #163 completion-detection race.) Item assignment on this
+    # global dict is atomic under the GIL, same as the worker's own writes.
+    global backtest_session_id
+    backtest_status["running"] = True
+    backtest_status["error"] = None
+    backtest_status["runs_count"] = 0
+    backtest_status["started_at"] = time.time()
+    backtest_status["live_run_id"] = live_run_id
+    backtest_status["progress_file"] = None
+    backtest_session_id = session_id
+
     # Start backtest in background thread
     print(f"🧵 Starting background thread for backtest", flush=True)
     thread = threading.Thread(

@@ -8,7 +8,6 @@ so a bot restart can resume in-flight watches (delivery does not rely on the
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import threading
 import time
@@ -104,8 +103,7 @@ class DiscordJobStore:
                         share_url TEXT,
                         run_id TEXT,
                         error TEXT,
-                        notified_at REAL,
-                        meta_json TEXT
+                        notified_at REAL
                     )
                     """
                 )
@@ -172,8 +170,8 @@ class DiscordJobStore:
                     INSERT INTO discord_backtest_jobs (
                         job_id, discord_user_id, channel_id, guild_id, session_id,
                         label, status, created_at, live_run_id, agent_id, agent_name,
-                        share_url, meta_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        share_url
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job.job_id,
@@ -188,7 +186,6 @@ class DiscordJobStore:
                         job.agent_id,
                         job.agent_name,
                         job.share_url,
-                        json.dumps({}),
                     ),
                 )
                 conn.commit()

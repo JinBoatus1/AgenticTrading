@@ -591,6 +591,12 @@ async def watch_and_deliver_backtest(
                 store.update(job_id, status=STATUS_NOTIFY_FAILED, error=str(exc))
             return
 
+        # Resolve metrics for THIS run. Prefer the exact id we minted up front.
+        # The "/runs/latest/metrics" fallback is deliberately identity-gated:
+        # Discord sessions are stable per user, so "latest" can be a PRIOR
+        # backtest from this same session and would post stale numbers under a
+        # fresh run. Accept it only when it *is* this run, or when we have no
+        # live_run_id to key on (legacy jobs). (PR #163 completion-race finding.)
         metrics: Optional[dict[str, Any]] = None
         if job.live_run_id:
             try:
@@ -599,29 +605,35 @@ async def watch_and_deliver_backtest(
                 metrics = None
         if metrics is None:
             try:
-                metrics = await api_get("/runs/latest/metrics", headers=headers)
-            except Exception as exc:
-                err = f"Backtest finished, but metrics could not be read: {exc}"
-                store.update(job_id, status=STATUS_FAILED, error=err)
-                try:
-                    await _post_channel_result(
-                        channel_id=job.channel_id,
-                        discord_user_id=job.discord_user_id,
-                        content=(
-                            f"**Backtest finished** · `{job.label}`\n{err}\n"
-                            "Check the dashboard."
-                        ),
-                    )
-                    store.update(
-                        job_id,
-                        status=STATUS_NOTIFIED,
-                        notified_at=time.time(),
-                    )
-                except Exception as notify_exc:
-                    store.update(
-                        job_id, status=STATUS_NOTIFY_FAILED, error=str(notify_exc)
-                    )
-                return
+                latest = await api_get("/runs/latest/metrics", headers=headers)
+            except Exception:
+                latest = None
+            if latest is not None and (
+                not job.live_run_id or latest.get("run_id") == job.live_run_id
+            ):
+                metrics = latest
+        if metrics is None:
+            err = "Backtest finished, but metrics for this run could not be read."
+            store.update(job_id, status=STATUS_FAILED, error=err)
+            try:
+                await _post_channel_result(
+                    channel_id=job.channel_id,
+                    discord_user_id=job.discord_user_id,
+                    content=(
+                        f"**Backtest finished** · `{job.label}`\n{err}\n"
+                        "Check the dashboard."
+                    ),
+                )
+                store.update(
+                    job_id,
+                    status=STATUS_NOTIFIED,
+                    notified_at=time.time(),
+                )
+            except Exception as notify_exc:
+                store.update(
+                    job_id, status=STATUS_NOTIFY_FAILED, error=str(notify_exc)
+                )
+            return
 
         summary, run_id = format_backtest_summary(
             metrics,
@@ -641,6 +653,11 @@ async def watch_and_deliver_backtest(
             except Exception as exc:
                 print("Discord /backtest plot failed:", repr(exc))
 
+        # Delivery is at-least-once: we post, then mark NOTIFIED. If the process
+        # dies in that gap the job stays open and resume_open_backtest_jobs()
+        # re-posts on restart (a possible duplicate message, never a lost one).
+        # Exactly-once would need a transactional send+mark we don't have here;
+        # a duplicate result post is an acceptable failure mode for this feature.
         try:
             await _post_channel_result(
                 channel_id=job.channel_id,
