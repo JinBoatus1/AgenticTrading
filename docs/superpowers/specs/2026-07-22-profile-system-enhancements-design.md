@@ -82,10 +82,11 @@ Rules (NIST 800-63B style — no character-class composition rules):
 
 1. Length ≥ 8 and ≤ 128 (existing bounds, now centralized).
 2. Not in the vendored common-password blocklist:
-   `dashboard/backend/common_passwords.txt` — the top 1,000 entries of SecLists'
-   `10-million-password-list-top-10000` (one per line, compared
-   case-insensitively, loaded once at import; provenance noted in a header
-   comment in the file).
+   `dashboard/backend/common_passwords.txt` — the first 1,000 entries of length
+   ≥ 8 from SecLists' `10-million-password-list-top-10000` (shorter entries are
+   already dead under rule 1, so they are filtered out before taking 1,000).
+   One per line, compared case-insensitively, loaded once at import; provenance
+   noted in a header comment; the loader skips `#` comment lines and blanks.
 3. Must not contain the email local-part (the part before `@`) when that part is
    ≥ 3 characters, compared case-insensitively.
 
