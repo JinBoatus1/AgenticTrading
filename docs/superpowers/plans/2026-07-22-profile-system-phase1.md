@@ -45,10 +45,10 @@
 cd /mnt/d/github/atl-wt-profile
 {
   echo "# Common-password blocklist for dashboard.backend.password_policy."
-  echo "# Source: SecLists Passwords/Common-Credentials/10-million-password-list-top-10000.txt"
+  echo "# Source: SecLists Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"
   echo "# (danielmiessler/SecLists), filtered to entries of length >= 8, first 1000 kept."
   echo "# Lines starting with '#' and blank lines are ignored by the loader."
-  curl -fsSL https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10-million-password-list-top-10000.txt \
+  curl -fsSL https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt \
     | awk 'length($0) >= 8' | head -1000
 } > dashboard/backend/common_passwords.txt
 wc -l dashboard/backend/common_passwords.txt   # expect 1004 (4 header lines + 1000 entries)
