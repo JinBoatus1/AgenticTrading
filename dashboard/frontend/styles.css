@@ -8402,16 +8402,6 @@ body.agent-editor-open {
     color: #f87171;
 }
 
-.agent-action-btn.agent-edit-btn {
-    border-color: rgba(34, 211, 238, 0.45);
-    background: rgba(34, 211, 238, 0.14);
-    color: var(--home-accent-cyan, #22d3ee);
-}
-
-.agent-action-btn.agent-edit-btn:hover {
-    background: rgba(34, 211, 238, 0.24);
-}
-
 @media (max-width: 1100px) {
     .agent-editor-layout {
         grid-template-columns: 1fr;
@@ -8497,4 +8487,24 @@ body.agent-editor-open {
     gap: 14px;
     justify-content: center;
     align-items: flex-start;
+}
+
+/* Configure CTA + Default badge (Demo 1) */
+.agent-card-cta--configure {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+.agent-card-cta--configure:hover { border-color: var(--text-secondary); }
+.agent-default-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    vertical-align: middle;
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.45);
+    background: rgba(16, 185, 129, 0.12);
 }

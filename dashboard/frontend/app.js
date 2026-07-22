@@ -612,19 +612,21 @@ function renderAgentCardActions(agent, statusKey) {
   } else {
     primary = `<button class="agent-card-cta agent-run-backtest-btn" type="button" data-agent-id="${id}">Run Backtest</button>`;
   }
+  const configure = `<button class="agent-card-cta agent-card-cta--configure agent-configure-btn" type="button" data-agent-id="${id}">Configure</button>`;
   const rotate =
     agent.agent_type === 'builtin'
       ? ''
       : `<button class="agent-menu-item agent-rotate-key-btn" type="button" data-agent-id="${id}">New API key</button>`;
   return `
     <div class="agent-card-actions agent-card-actions--status">
+      ${configure}
       ${primary}
       <div class="agent-card-menu">
         <button class="agent-menu-toggle" type="button" aria-label="More actions" aria-expanded="false" data-agent-id="${id}">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>
         </button>
         <div class="agent-menu-dropdown" hidden>
-          <button class="agent-menu-item agent-edit-btn" type="button" data-agent-id="${id}">Edit</button>
+          <button class="agent-menu-item agent-set-default-btn" type="button" data-agent-id="${id}">Set as default</button>
           ${rotate}
           <button class="agent-menu-item agent-menu-item--danger agent-delete-btn" type="button" data-agent-id="${id}">Delete</button>
         </div>
@@ -765,6 +767,8 @@ function bindAgentCardMenus(grid) {
 function renderAgentCards(grid, agents) {
   grid.innerHTML = '';
 
+  const defaultId = getDefaultAgentId();
+
   agents.forEach((agent) => {
     const isBuiltin = agent.agent_type === 'builtin';
     const statusBadge = resolveAgentStatusBadge(agent);
@@ -778,7 +782,7 @@ function renderAgentCards(grid, agents) {
         <div class="agent-card-identity">
           ${agentRobotIcon()}
           <div class="agent-card-identity-text">
-            <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
+            <h3 class="agent-name">${escapeHtml(agent.name)}${agent.agent_id === defaultId ? ' <span class="agent-default-badge">Default</span>' : ''}</h3>
             <p class="agent-card-submeta">${model} · ${type}</p>
           </div>
         </div>
@@ -792,13 +796,20 @@ function renderAgentCards(grid, agents) {
 
   bindAgentCardMenus(grid);
 
-  grid.querySelectorAll('.agent-edit-btn').forEach((btn) => {
+  grid.querySelectorAll('.agent-configure-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const agent = agents.find((a) => a.agent_id === btn.dataset.agentId);
       if (!agent || !window.AgentEditor) return;
       navigateToPage('playground', { playgroundTab: 'agents' });
       showPlaygroundPanel('agents');
       window.AgentEditor.open(agent);
+    });
+  });
+
+  grid.querySelectorAll('.agent-set-default-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setDefaultAgentId(btn.dataset.agentId);
+      applyAgentFilters(); // re-render: badge + pin move to the new default
     });
   });
 
