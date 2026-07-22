@@ -14,7 +14,7 @@ Full path that lands a run on a website agent card and opens it in Playground:
    - `prompt: …` (inline strategy text), or
    - `code: …` (saved strategy share code);
    optional `start:` / `end:` dates.
-6. Wait for the bot reply: metrics summary + equity PNG. If an agent was selected, open the **Dashboard** deep link (`/app?view=backtest&agent_id=…&run_id=…`) to inspect the same run in Playground.
+6. The bot ACKs immediately ("queued"). When the background job finishes, it **posts metrics + equity PNG in-channel** (with an @mention). If an agent was selected, the message includes a **Dashboard** deep link (`/app?view=backtest&agent_id=…&run_id=…`).
 
 Shortcut (no account link / no agent card): skip steps 1–3 and run `/backtest prompt:…` alone — results stay on the Discord session only.
 
@@ -26,22 +26,23 @@ Operator cheat sheet: [`docs/discord-bot-instructions.md`](../discord-bot-instru
 User steps above
     │  /agent     →  GET /api/v1/discord/agents  (bot secret + Discord user id)
     │  /ask|/strategy → chat / strategy APIs
-    │  /backtest  →  POST /backtest/run  (X-Session-Id)
+    │  /backtest  →  POST /backtest/run  (X-Session-Id) → persist notify job
     ▼
 FastAPI (dashboard.backend.app)
-    │  hourly engine + Alpaca bars + hosted LLM
+    │  hourly engine + Alpaca bars + hosted LLM (background thread)
     │  persist run (config, trades, equity, errors) in SQLite
     ▼
-Discord: metrics + PNG + Dashboard deep link → Playground
+Discord bot watcher → channel: metrics + PNG + Dashboard deep link → Playground
 ```
 
 | Piece | Role today |
 | --- | --- |
-| **Account link** | **Open Discord** → OAuth `identify` → `users.discord_user_id`. `/agent` lists that account’s agents only. |
+| **Account link** | **Open Discord** → OAuth `identify` → `users.discord_user_id`. `/agent` lists that account's agents only. |
 | **Entrypoint** | `dashboard/backend/integrations/discord_bot.py` — HTTP client to the same API the website uses. |
-| **Run** | `POST /backtest/run` + poll `GET /backtest/status`; builtin `agent_id` attaches the run to that agent’s card. |
-| **Record** | Unique `run_id`; equity/metrics/plot via `/runs/...`. |
-| **Hand-off** | Selected agent → Playground deep link in the bot reply. |
+| **Run** | `POST /backtest/run` returns immediately with `session_id` + `live_run_id`; Discord persists a notify job (`discord_jobs.py`) and watches in a background task. Builtin `agent_id` attaches the run to that agent's card. |
+| **Deliver** | On completion, bot posts metrics + PNG **in-channel** (not via the slash interaction token), so delivery survives Discord's ~15m token and long LLM runs. Open jobs resume after bot restart. |
+| **Record** | Unique `run_id` (= `live_run_id`); equity/metrics/plot via `/runs/...`. |
+| **Hand-off** | Selected agent → Playground deep link in the channel result message. |
 
 `/api/v1` is the compatibility surface the bot uses. New agent-facing work should prefer `/api/v2`; migrating Discord onto v2 is future work, not required for this demo.
 

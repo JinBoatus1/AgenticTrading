@@ -218,6 +218,7 @@ def run_backtest_background(
     pipeline: Optional[List[Dict[str, Any]]] = None,
     agent_id: Optional[str] = None,
     data_source: str = ALPACA,
+    live_run_id: Optional[str] = None,
 ):
     """Run backtest in background thread."""
     global backtest_status, backtest_session_id
@@ -225,7 +226,6 @@ def run_backtest_background(
     strategy_prompt_path = None
     pipeline_path = None
     progress_file = None
-    live_run_id = None
     try:
         import subprocess
         import sys
@@ -237,7 +237,10 @@ def run_backtest_background(
         backtest_status["started_at"] = time.time()
         backtest_session_id = session_id  # Store session for status polling
 
-        live_run_id = f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        if not live_run_id:
+            live_run_id = (
+                f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+            )
         progress_file = str(Path(tempfile.gettempdir()) / f"backtest_progress_{live_run_id}.json")
         backtest_status["live_run_id"] = live_run_id
         backtest_status["progress_file"] = progress_file
@@ -605,6 +608,10 @@ async def run_backtest_endpoint(
             "success": False,
             "error": "Backtest already running. Please wait for it to complete."
         }
+
+    # Mint run id before the worker starts so callers (Discord job watcher)
+    # can key notifications on a stable id from the HTTP response.
+    live_run_id = f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     
     # Start backtest in background thread
     print(f"🧵 Starting background thread for backtest", flush=True)
@@ -619,6 +626,7 @@ async def run_backtest_endpoint(
             pipeline,
             agent_id,
             data_source,
+            live_run_id,
         ),
         daemon=True
     )
@@ -630,6 +638,8 @@ async def run_backtest_endpoint(
         "status_url": "/backtest/status",
         "session_id": session_id,
         "data_source": data_source,
+        "live_run_id": live_run_id,
+        "run_id": live_run_id,
     }
 
 @router.get("/backtest/status")
@@ -654,6 +664,8 @@ async def get_backtest_status(request: Request):
             "running": True,
             "message": message,
             "elapsed_seconds": elapsed,
+            "live_run_id": backtest_status.get("live_run_id"),
+            "session_id": backtest_session_id,
         }
         if progress:
             payload["progress"] = progress

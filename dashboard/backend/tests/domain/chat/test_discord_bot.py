@@ -142,6 +142,31 @@ def test_fetch_owned_agents_other_404_is_fetch_failed(monkeypatch):
     assert err == "fetch_failed"
 
 
+def test_format_backtest_summary_includes_dashboard_link():
+    summary, run_id = bot_mod.format_backtest_summary(
+        {
+            "run_id": "agent_test",
+            "start_date": "2026-05-01",
+            "end_date": "2026-05-07",
+            "llm_model": "claude-haiku",
+            "total_return": 0.12,
+            "sharpe_ratio": 1.5,
+            "max_drawdown": -0.05,
+            "num_trades": 3,
+            "final_equity": 112000,
+        },
+        label="e23badad",
+        agent_id="ag1",
+        agent_name="Berkshire",
+    )
+    assert run_id == "agent_test"
+    assert "Backtest complete" in summary
+    assert "e23badad" in summary
+    assert "Berkshire" in summary
+    assert "view=backtest" in summary
+    assert "agent_id=ag1" in summary
+
+
 def test_discord_bot_imports_without_secrets():
     code = textwrap.dedent(
         """
