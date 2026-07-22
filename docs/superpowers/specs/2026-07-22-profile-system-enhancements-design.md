@@ -173,7 +173,9 @@ same live policy feedback), then redirects to sign-in.
 ## Security summary
 
 - Session invalidation: change-password keeps only the current session; reset
-  keeps none.
+  keeps none. (Change-password revocation is **best-effort** — it runs as a
+  separate transaction after the durable password write and is wrapped so a
+  revocation failure is logged, not fatal; see the Phase 1 plan's Task 3.)
 - No account enumeration from `forgot-password`; reset tokens stored hashed,
   30-minute expiry, single-use.
 - Avatar: server-side mime allowlist + magic-number verification + 100 KB cap;

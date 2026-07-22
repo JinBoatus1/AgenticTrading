@@ -8,6 +8,14 @@
 
 **Tech Stack:** FastAPI + Pydantic, sqlite3/psycopg, bcrypt (existing), vanilla JS + canvas. **No new dependencies.**
 
+> **Review amendments (2026-07-22 infra review):** (1) change-password's other-session
+> revocation is now **best-effort** — wrapped in `try/except` with a `print()` surface so a
+> revocation failure can't mask an already-durable password change as a misleading 500
+> (Task 3 route + one added test). (2) Documented the intentional fresh `.account-menu`
+> class (Task 6) and the inline-data-URI avatar payload tradeoff (Task 4). The
+> `window.refreshHomeModules` call in Task 6's `updateAuthUI` was verified **correct** — it
+> is defined in `home-page.js` and exported to `window`, not dead code, so it stays.
+
 ## Global Constraints
 
 - Work in the worktree `/mnt/d/github/atl-wt-profile`, branch `feat/profile-system`. Run all commands from that worktree root.
@@ -306,6 +314,7 @@ git commit -m "feat: enforce password policy at signup"
 **Interfaces:**
 - Consumes: `validate_new_password` (Task 1); `verify_password`, `hash_password` (existing in `users.py`).
 - Produces: `UserStore.update_password(user_id: int, new_password: str) -> None`; `UserStore.delete_other_sessions(user_id: int, keep_token: Optional[str]) -> None`; route `POST /api/auth/change-password` → `{"status": "ok"}`. Task 5 mirrors both methods on `PostgresUserStore` with identical signatures.
+- **Best-effort revocation (non-atomic by design):** `update_password` and `delete_other_sessions` are separate transactions in both twin stores. The route commits the password change first, then revokes other sessions inside a `try/except` — a revocation failure is surfaced via `print()` and the route still returns `{"status": "ok"}` (the password change is already durable; a 500 here would wrongly signal failure and make a retry hit "Current password is incorrect"). Other-session revocation is therefore defence-in-depth, not a hard guarantee.
 
 - [ ] **Step 1: Write the failing tests** — append to `dashboard/backend/tests/test_auth.py`:
 
@@ -397,7 +406,43 @@ def test_change_password_invalidates_other_sessions_keeps_current(client):
     assert me_a.status_code == 200
     me_b = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token_b}"})
     assert me_b.status_code == 401
+
+
+def test_change_password_revocation_failure_still_succeeds(client, monkeypatch, capsys):
+    # The password write and the other-session revocation are two separate
+    # transactions. If revocation raises, the (already-durable) password change
+    # must still report success rather than a misleading 500. Patch at the CLASS
+    # level so it fails regardless of which UserStore instance the route resolves
+    # (the `client` fixture only reassigns users_module.user_store; api/auth.py may
+    # still hold the original singleton binding). `UserStore` is already imported.
+    token = _signup_and_token(client, email="quinn@example.com")
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("session store unavailable")
+
+    monkeypatch.setattr(UserStore, "delete_other_sessions", _boom)
+
+    response = client.post(
+        "/api/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "orig-sturdy-pw-1", "new_password": "new-sturdy-pw-2"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+    # The new password is live despite the revocation failure (change was durable).
+    new_login = client.post(
+        "/api/auth/login",
+        json={"email": "quinn@example.com", "password": "new-sturdy-pw-2"},
+    )
+    assert new_login.status_code == 200
+
+    # The failure is surfaced via print() (logger output is invisible in prod), not
+    # swallowed silently. Assert on capsys, never caplog.
+    assert "revocation failed" in capsys.readouterr().out
 ```
+
+(`UserStore` is already imported at the top of `test_auth.py` — `from dashboard.backend.users import UserStore` — so no new import is needed.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -405,7 +450,7 @@ def test_change_password_invalidates_other_sessions_keeps_current(client):
 ~/atl-venv/bin/python -m pytest dashboard/backend/tests/test_auth.py -v -k change_password
 ```
 
-Expected: all five FAIL with 404 (route doesn't exist) — except `test_change_password_requires_auth` which may 404 too; both 404-instead-of-expected outcomes count as failing.
+Expected: all six FAIL — most with 404 (route doesn't exist); `test_change_password_requires_auth` may 404 too, and `test_change_password_revocation_failure_still_succeeds` errors at `monkeypatch.setattr(UserStore, "delete_other_sessions", …)` because that method doesn't exist until Step 3. Every not-the-expected-outcome counts as a valid red.
 
 - [ ] **Step 3: Add the store methods** — in `dashboard/backend/users.py`, inside `class UserStore`, after `delete_session`:
 
@@ -466,10 +511,23 @@ async def change_password(
     if violations:
         raise HTTPException(status_code=400, detail=" ".join(violations))
     user_store.update_password(current_user["id"], payload.new_password)
-    # Revoke every other session so a stolen token dies with the old password.
-    user_store.delete_other_sessions(
-        current_user["id"], keep_token=_extract_bearer_token(authorization)
-    )
+    # Best-effort: revoke every other session so a stolen token dies with the old
+    # password. Deliberately NOT atomic with the update above -- the two are separate
+    # transactions/connections in both twin stores. The password change is already
+    # durable here; if revocation raises (e.g. a transient Postgres blip on the prod
+    # pool), turning it into a 500 would wrongly tell the client the change failed and
+    # make a retry hit "Current password is incorrect". So swallow + surface via
+    # print() (logger output is invisible under the deployed config) and still
+    # return ok. Revocation is defence-in-depth, not a hard guarantee.
+    try:
+        user_store.delete_other_sessions(
+            current_user["id"], keep_token=_extract_bearer_token(authorization)
+        )
+    except Exception as exc:  # noqa: BLE001 -- password change already committed
+        print(
+            f"WARNING: change-password committed for user {current_user['id']} but "
+            f"other-session revocation failed: {exc!r}"
+        )
     return {"status": "ok"}
 ```
 
@@ -508,6 +566,8 @@ git commit -m "feat: change-password endpoint with other-session invalidation"
 
 **Interfaces:**
 - Produces: `UserStore.set_avatar(user_id: int, avatar: Optional[str]) -> Dict[str, Any]` (returns `public_user` shape); `public_user()` gains an `"avatar"` key (str data-URI or None); routes `PUT /api/auth/avatar` and `DELETE /api/auth/avatar`, both returning `{"user": {...}}`. Task 5 mirrors `set_avatar`; Tasks 6/8 consume `user.avatar` in the frontend.
+
+> **Accepted tradeoff (payload size):** avatars are stored as ≤~137 KB base64 data URIs inline in the user row, so once set they ride **every** `/api/auth/me`, login, and signup response and the localStorage `auth-user` blob. This is a deliberate Phase-1 choice (the spec chose no object storage / no image lib for simplicity) and is fine at current scale; revisit (object storage + an `avatar_url`) only if auth responses become hot or avatars grow.
 
 - [ ] **Step 1: Write the failing tests** — append to `dashboard/backend/tests/test_auth.py`:
 
@@ -946,6 +1006,8 @@ with:
 Also bump the two cache params: line 12 `styles.css?v=53` → `styles.css?v=54`; line ~1497 `app.js?v=20` → `app.js?v=21`.
 
 - [ ] **Step 2: Append styles** — at the end of `dashboard/frontend/styles.css`:
+
+> Note: this defines a **fresh** `.account-menu` component rather than reusing the visually-similar `.agent-menu-dropdown` (which spec §1 suggested). Intentional — the account dropdown is a distinct component, and coupling it to the agent-menu class would let future agent-menu tweaks silently reshape the account menu. The small CSS overlap is the accepted cost.
 
 ```css
 /* Header account dropdown */
