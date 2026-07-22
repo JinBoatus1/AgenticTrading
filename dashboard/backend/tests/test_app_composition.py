@@ -69,6 +69,7 @@ EXPECTED_FULL_CONTRACT = {
     ("POST", "/api/auth/logout"),
     ("GET", "/api/auth/me"),
     ("POST", "/api/auth/signup"),
+    ("POST", "/api/auth/change-password"),
     ("GET", "/api/auth/discord/callback"),
     ("POST", "/api/auth/discord/start"),
     ("GET", "/api/backtest/compare/latest"),

@@ -137,3 +137,126 @@ def test_signup_rejects_password_containing_email_name(client):
     )
     assert response.status_code == 400
     assert "email" in response.json()["detail"]
+
+
+def _signup_and_token(client, email="dave@example.com", password="orig-sturdy-pw-1"):
+    response = client.post(
+        "/api/auth/signup",
+        json={"email": email, "display_name": "Dave", "password": password},
+    )
+    assert response.status_code == 200
+    return response.json()["token"]
+
+
+def test_change_password_happy_path(client):
+    token = _signup_and_token(client)
+    response = client.post(
+        "/api/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "orig-sturdy-pw-1", "new_password": "new-sturdy-pw-2"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+    # Old password no longer works; new one does.
+    old_login = client.post(
+        "/api/auth/login",
+        json={"email": "dave@example.com", "password": "orig-sturdy-pw-1"},
+    )
+    assert old_login.status_code == 401
+    new_login = client.post(
+        "/api/auth/login",
+        json={"email": "dave@example.com", "password": "new-sturdy-pw-2"},
+    )
+    assert new_login.status_code == 200
+
+
+def test_change_password_requires_auth(client):
+    response = client.post(
+        "/api/auth/change-password",
+        json={"current_password": "x-not-relevant", "new_password": "new-sturdy-pw-2"},
+    )
+    assert response.status_code == 401
+
+
+def test_change_password_wrong_current(client):
+    token = _signup_and_token(client, email="erin@example.com")
+    response = client.post(
+        "/api/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "wrong-guess-1", "new_password": "new-sturdy-pw-2"},
+    )
+    assert response.status_code == 400
+    assert "Current password is incorrect" in response.json()["detail"]
+
+
+def test_change_password_rejects_weak_new_password(client):
+    token = _signup_and_token(client, email="frank@example.com")
+    response = client.post(
+        "/api/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "orig-sturdy-pw-1", "new_password": "password1"},
+    )
+    assert response.status_code == 400
+    assert "too common" in response.json()["detail"]
+    # And the old password still works (nothing was changed).
+    login = client.post(
+        "/api/auth/login",
+        json={"email": "frank@example.com", "password": "orig-sturdy-pw-1"},
+    )
+    assert login.status_code == 200
+
+
+def test_change_password_invalidates_other_sessions_keeps_current(client):
+    token_a = _signup_and_token(client, email="gina@example.com")
+    token_b = client.post(
+        "/api/auth/login",
+        json={"email": "gina@example.com", "password": "orig-sturdy-pw-1"},
+    ).json()["token"]
+
+    response = client.post(
+        "/api/auth/change-password",
+        headers={"Authorization": f"Bearer {token_a}"},
+        json={"current_password": "orig-sturdy-pw-1", "new_password": "new-sturdy-pw-2"},
+    )
+    assert response.status_code == 200
+
+    # The session that changed the password survives; the other is revoked.
+    me_a = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token_a}"})
+    assert me_a.status_code == 200
+    me_b = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token_b}"})
+    assert me_b.status_code == 401
+
+
+def test_change_password_revocation_failure_still_succeeds(client, monkeypatch, capsys):
+    # The password write and the other-session revocation are two separate
+    # transactions. If revocation raises, the (already-durable) password change
+    # must still report success rather than a misleading 500. Patch at the CLASS
+    # level so it fails regardless of which UserStore instance the route resolves
+    # (the `client` fixture only reassigns users_module.user_store; api/auth.py may
+    # still hold the original singleton binding). `UserStore` is already imported.
+    token = _signup_and_token(client, email="quinn@example.com")
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("session store unavailable")
+
+    monkeypatch.setattr(UserStore, "delete_other_sessions", _boom)
+
+    response = client.post(
+        "/api/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "orig-sturdy-pw-1", "new_password": "new-sturdy-pw-2"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+    # The new password is live despite the revocation failure (change was durable).
+    new_login = client.post(
+        "/api/auth/login",
+        json={"email": "quinn@example.com", "password": "new-sturdy-pw-2"},
+    )
+    assert new_login.status_code == 200
+
+    # The failure is surfaced via print() (logger output is invisible in prod), not
+    # swallowed silently. Assert on capsys, never caplog.
+    assert "revocation failed" in capsys.readouterr().out

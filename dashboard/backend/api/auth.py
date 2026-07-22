@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
 from dashboard.backend.api import discord_oauth
-from dashboard.backend.users import public_user, user_store
+from dashboard.backend.users import public_user, user_store, verify_password
 from dashboard.backend.password_policy import validate_new_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -51,6 +51,11 @@ class LoginRequest(BaseModel):
     @classmethod
     def validate_email(cls, value: str) -> str:
         return _normalize_email(value)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=1, max_length=128)
 
 
 class AuthResponse(BaseModel):
@@ -118,6 +123,38 @@ async def logout(authorization: Optional[str] = Header(default=None)):
     token = _extract_bearer_token(authorization)
     if token:
         user_store.delete_session(token)
+    return {"status": "ok"}
+
+
+@router.post("/change-password")
+async def change_password(
+    payload: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user),
+    authorization: Optional[str] = Header(default=None),
+):
+    if not verify_password(payload.current_password, current_user["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    violations = validate_new_password(payload.new_password, current_user["email"])
+    if violations:
+        raise HTTPException(status_code=400, detail=" ".join(violations))
+    user_store.update_password(current_user["id"], payload.new_password)
+    # Best-effort: revoke every other session so a stolen token dies with the old
+    # password. Deliberately NOT atomic with the update above -- the two are separate
+    # transactions/connections in both twin stores. The password change is already
+    # durable here; if revocation raises (e.g. a transient Postgres blip on the prod
+    # pool), turning it into a 500 would wrongly tell the client the change failed and
+    # make a retry hit "Current password is incorrect". So swallow + surface via
+    # print() (logger output is invisible under the deployed config) and still
+    # return ok. Revocation is defence-in-depth, not a hard guarantee.
+    try:
+        user_store.delete_other_sessions(
+            current_user["id"], keep_token=_extract_bearer_token(authorization)
+        )
+    except Exception as exc:  # noqa: BLE001 -- password change already committed
+        print(
+            f"WARNING: change-password committed for user {current_user['id']} but "
+            f"other-session revocation failed: {exc!r}"
+        )
     return {"status": "ok"}
 
 

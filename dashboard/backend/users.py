@@ -248,6 +248,30 @@ class UserStore:
         conn.commit()
         conn.close()
 
+    def update_password(self, user_id: int, new_password: str) -> None:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(new_password), user_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def delete_other_sessions(self, user_id: int, keep_token: Optional[str]) -> None:
+        """Revoke every session for the user except keep_token (None = all)."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        if keep_token:
+            cursor.execute(
+                "DELETE FROM auth_sessions WHERE user_id = ? AND token != ?",
+                (user_id, keep_token),
+            )
+        else:
+            cursor.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+
     def get_user_by_discord_id(self, discord_user_id: str) -> Optional[Dict[str, Any]]:
         discord_id = str(discord_user_id).strip()
         if not discord_id:
