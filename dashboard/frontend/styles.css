@@ -7049,21 +7049,6 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market
     font-size: 13px;
 }
 
-.agent-toolbar-select {
-    padding: 8px 12px;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-input);
-    color: var(--text-primary);
-    font-size: 12px;
-    cursor: pointer;
-}
-
-.agent-toolbar-select:focus {
-    outline: none;
-    border-color: var(--info-color);
-}
-
 .agent-toolbar-search {
     position: relative;
     display: flex;

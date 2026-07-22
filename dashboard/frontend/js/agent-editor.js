@@ -223,6 +223,7 @@
     }
     const modelSelect = document.getElementById('agentEditorModelSelect');
     let subAgentsOut;
+    let sendPipeline;
     if (editorMode === 'simple') {
       const instruction = (
         document.getElementById('agentEditorSimpleInstruction')?.value || ''
@@ -241,12 +242,16 @@
             outputFormat: SIMPLE_OUTPUT_FORMAT,
           },
         ];
+        sendPipeline = true;
       } else {
-        // Empty instruction never destroys an existing pipeline.
+        // Empty instruction never touches the stored pipeline: not sent to the
+        // server, not cached locally, not folded into currentAgent.
         subAgentsOut = subAgents;
+        sendPipeline = false;
       }
     } else {
       subAgentsOut = collectPipelineFromDom();
+      sendPipeline = true;
     }
     return {
       name: nameInput ? nameInput.value.trim() : '',
@@ -254,6 +259,7 @@
       cash_allocation,
       model_name: modelSelect ? modelSelect.value : '',
       subAgents: subAgentsOut,
+      sendPipeline,
     };
   }
 
@@ -492,8 +498,12 @@
     if (simplePanel) simplePanel.hidden = editorMode !== 'simple';
     if (advancedPanel) advancedPanel.hidden = editorMode !== 'advanced';
     if (resetBtn) resetBtn.hidden = editorMode !== 'advanced';
-    document.getElementById('agentEditorModeSimple')?.classList.toggle('active', editorMode === 'simple');
-    document.getElementById('agentEditorModeAdvanced')?.classList.toggle('active', editorMode === 'advanced');
+    const modeSimpleBtn = document.getElementById('agentEditorModeSimple');
+    const modeAdvancedBtn = document.getElementById('agentEditorModeAdvanced');
+    modeSimpleBtn?.classList.toggle('active', editorMode === 'simple');
+    modeAdvancedBtn?.classList.toggle('active', editorMode === 'advanced');
+    modeSimpleBtn?.setAttribute('aria-pressed', editorMode === 'simple' ? 'true' : 'false');
+    modeAdvancedBtn?.setAttribute('aria-pressed', editorMode === 'advanced' ? 'true' : 'false');
     if (editorMode === 'advanced' && subAgents.length === 0) {
       // First look at Advanced on a fresh agent: start from the default chain.
       subAgents = defaultPipeline();
@@ -559,9 +569,9 @@
     const payload = {
       name,
       description: description || null,
-      pipeline: serializePipeline(pipeline),
       cash_allocation,
     };
+    if (pipeline) payload.pipeline = serializePipeline(pipeline);
     if (model_name) payload.model_name = model_name;
     const endpoint = `${API_BASE}/api/v1/agents/${encodeURIComponent(agent.agent_id)}`;
 
@@ -781,6 +791,7 @@
     }
 
     subAgents = state.subAgents;
+    renderPipeline();
     updateSimpleReplaceNote();
     const saveBtn = document.getElementById('agentEditorSaveBtn');
     if (saveBtn) {
@@ -807,7 +818,7 @@
           description: state.description,
           cash_allocation: state.cash_allocation,
         };
-        savePipelineLocal(currentAgent.agent_id, subAgents);
+        if (state.sendPipeline) savePipelineLocal(currentAgent.agent_id, subAgents);
         if (localStorage.getItem('active-agent-id') === currentAgent.agent_id) {
           localStorage.setItem('active-agent-name', state.name);
         }
@@ -830,12 +841,14 @@
         currentAgent,
         state.name,
         state.description,
-        subAgents,
+        state.sendPipeline ? subAgents : null,
         state.cash_allocation,
         state.model_name
       );
-      currentAgent = { ...currentAgent, ...updated, pipeline: subAgents };
-      savePipelineLocal(currentAgent.agent_id, subAgents);
+      currentAgent = state.sendPipeline
+        ? { ...currentAgent, ...updated, pipeline: subAgents }
+        : { ...currentAgent, ...updated };
+      if (state.sendPipeline) savePipelineLocal(currentAgent.agent_id, subAgents);
       localStorage.removeItem(`${NAME_OVERRIDE_PREFIX}${currentAgent.agent_id}`);
 
       if (localStorage.getItem('active-agent-id') === currentAgent.agent_id) {
@@ -849,7 +862,7 @@
         new CustomEvent('agent-editor-saved', { detail: { agent: currentAgent } })
       );
     } catch (error) {
-      savePipelineLocal(currentAgent.agent_id, subAgents);
+      if (state.sendPipeline) savePipelineLocal(currentAgent.agent_id, subAgents);
       localStorage.setItem(
         `${NAME_OVERRIDE_PREFIX}${currentAgent.agent_id}`,
         JSON.stringify({ name: state.name, description: state.description })
