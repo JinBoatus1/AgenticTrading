@@ -8599,3 +8599,20 @@ body.agent-editor-open {
     font-size: 12px;
     color: #34d399;
 }
+
+.auth-avatar--large {
+    width: 56px;
+    height: 56px;
+    font-size: 22px;
+}
+
+.account-avatar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.account-avatar-actions {
+    display: flex;
+    gap: 8px;
+}

@@ -1493,6 +1493,18 @@
                 <button id="authLogoutBtn" class="auth-btn auth-btn-secondary" type="button">Log out</button>
             </div>
             <div class="account-section">
+                <h3 class="account-section-title">Profile photo</h3>
+                <div class="account-avatar-row">
+                    <span id="accountAvatarPreview" class="auth-avatar auth-avatar--large" aria-hidden="true"></span>
+                    <div class="account-avatar-actions">
+                        <input id="avatarFileInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+                        <button id="avatarUploadBtn" class="auth-btn auth-btn-secondary" type="button">Upload photo</button>
+                        <button id="avatarRemoveBtn" class="auth-btn auth-btn-secondary" type="button" hidden>Remove</button>
+                    </div>
+                </div>
+                <p id="avatarError" class="auth-error" hidden></p>
+            </div>
+            <div class="account-section">
                 <h3 class="account-section-title">Change password</h3>
                 <form id="changePasswordForm" class="auth-form account-password-form">
                     <label class="auth-field">

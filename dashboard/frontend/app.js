@@ -1506,6 +1506,17 @@ const AuthAPI = {
     });
   },
 
+  setAvatar(dataUri) {
+    return this.request('/api/auth/avatar', {
+      method: 'PUT',
+      body: JSON.stringify({ avatar: dataUri }),
+    });
+  },
+
+  removeAvatar() {
+    return this.request('/api/auth/avatar', { method: 'DELETE' });
+  },
+
   discordStart() {
     return this.request('/api/auth/discord/start', { method: 'POST' });
   },
@@ -1561,6 +1572,9 @@ function updateAccountPage() {
     signedOut.hidden = true;
     if (nameEl) nameEl.textContent = user.display_name || '—';
     if (emailEl) emailEl.textContent = user.email || '—';
+    renderAvatar(document.getElementById('accountAvatarPreview'), user);
+    const removeBtn = document.getElementById('avatarRemoveBtn');
+    if (removeBtn) removeBtn.hidden = !user.avatar;
   } else {
     signedIn.hidden = true;
     signedOut.hidden = false;
@@ -1579,6 +1593,83 @@ function renderAvatar(el, user) {
     const source = ((user && (user.display_name || user.email)) || '?').trim();
     el.textContent = source ? source[0].toUpperCase() : '?';
   }
+}
+
+const AVATAR_MAX_INPUT_BYTES = 10 * 1024 * 1024;
+const AVATAR_MAX_OUTPUT_BYTES = 100 * 1024;
+
+async function compressAvatar(file) {
+  if (file.size > AVATAR_MAX_INPUT_BYTES) {
+    throw new Error('Image is too large (max 10 MB).');
+  }
+  const bitmap = await createImageBitmap(file);
+  const MAX_DIM = 256;
+  const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height);
+  for (const quality of [0.85, 0.6]) {
+    const dataUri = canvas.toDataURL('image/jpeg', quality);
+    const base64 = dataUri.slice(dataUri.indexOf(',') + 1);
+    const decodedBytes = Math.floor(base64.length * 3 / 4);
+    if (decodedBytes <= AVATAR_MAX_OUTPUT_BYTES) return dataUri;
+  }
+  throw new Error('Could not compress the image under 100 KB. Try a simpler image.');
+}
+
+function applyUpdatedUser(user) {
+  localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  window.AUTH_USER = user;
+  updateAuthUI();
+}
+
+function initAvatarControls() {
+  const fileInput = document.getElementById('avatarFileInput');
+  const uploadBtn = document.getElementById('avatarUploadBtn');
+  const removeBtn = document.getElementById('avatarRemoveBtn');
+  const errorEl = document.getElementById('avatarError');
+  if (!fileInput || !uploadBtn) return;
+
+  uploadBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files && fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    if (errorEl) errorEl.hidden = true;
+    uploadBtn.disabled = true;
+    try {
+      const dataUri = await compressAvatar(file);
+      const data = await AuthAPI.setAvatar(dataUri);
+      applyUpdatedUser(data.user);
+    } catch (error) {
+      if (errorEl) {
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+      }
+    } finally {
+      uploadBtn.disabled = false;
+    }
+  });
+
+  removeBtn?.addEventListener('click', async () => {
+    if (errorEl) errorEl.hidden = true;
+    removeBtn.disabled = true;
+    try {
+      const data = await AuthAPI.removeAvatar();
+      applyUpdatedUser(data.user);
+    } catch (error) {
+      if (errorEl) {
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+      }
+    } finally {
+      removeBtn.disabled = false;
+    }
+  });
 }
 
 // Mirrors password_policy.py's length + email rules for live feedback.
@@ -2018,6 +2109,7 @@ function initAuthUI() {
   handleDiscordOAuthReturn();
   wireDiscordAccountButtons();
   initChangePasswordForm();
+  initAvatarControls();
   refreshAuthUser();
 }
 
