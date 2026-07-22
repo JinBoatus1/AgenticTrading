@@ -12,10 +12,22 @@
   const CASH_OVERRIDE_PREFIX = 'agent-cash-allocation:';
   const API_BASE = window.location.origin;
 
-  const SIMPLE_PRESET_KEY = 'simple_instruction';
-  // Must stay byte-identical to SIMPLE_INSTRUCTION_OUTPUT_FORMAT in app.js.
-  const SIMPLE_OUTPUT_FORMAT =
-    'JSON: { "orders": [{ "symbol": "...", "side": "buy|sell|hold", "qty": number, "order_type": "market|limit", "limit_price": number|null, "reason": "..." }] }';
+  // The Simple-mode contract (preset key + trading-actions output format) has a
+  // single source of truth in app.js, published on `window`. app.js loads AFTER
+  // this file, so read lazily at call time — every use below is inside an
+  // event-driven function, by which point window.* is populated. The fallbacks
+  // only matter if app.js somehow failed to load (whole app is broken anyway).
+  function simplePresetKey() {
+    return (
+      (typeof window !== 'undefined' && window.SIMPLE_INSTRUCTION_PRESET_KEY) ||
+      'simple_instruction'
+    );
+  }
+  function simpleOutputFormat() {
+    return (
+      (typeof window !== 'undefined' && window.SIMPLE_INSTRUCTION_OUTPUT_FORMAT) || ''
+    );
+  }
 
   // Demo/mock agents (see MOCK_AGENTS in app.js) only exist in the frontend —
   // they have no database row, so PATCH would 404. We persist their edits
@@ -158,7 +170,7 @@
     return (
       !Array.isArray(pipeline) ||
       pipeline.length === 0 ||
-      (pipeline.length === 1 && pipeline[0].presetKey === SIMPLE_PRESET_KEY)
+      (pipeline.length === 1 && pipeline[0].presetKey === simplePresetKey())
     );
   }
 
@@ -230,16 +242,16 @@
       ).trim();
       if (instruction) {
         const existing =
-          subAgents.length === 1 && subAgents[0].presetKey === SIMPLE_PRESET_KEY
+          subAgents.length === 1 && subAgents[0].presetKey === simplePresetKey()
             ? subAgents[0]
             : null;
         subAgentsOut = [
           {
             id: existing ? existing.id : newSubAgentId(),
-            presetKey: SIMPLE_PRESET_KEY,
+            presetKey: simplePresetKey(),
             label: 'Trading instruction',
             prompt: instruction,
-            outputFormat: SIMPLE_OUTPUT_FORMAT,
+            outputFormat: simpleOutputFormat(),
           },
         ];
         sendPipeline = true;
@@ -733,7 +745,7 @@
     const instructionEl = document.getElementById('agentEditorSimpleInstruction');
     if (instructionEl) {
       const simpleStep =
-        subAgents.length === 1 && subAgents[0].presetKey === SIMPLE_PRESET_KEY
+        subAgents.length === 1 && subAgents[0].presetKey === simplePresetKey()
           ? subAgents[0]
           : null;
       instructionEl.value = simpleStep ? simpleStep.prompt : '';

@@ -161,6 +161,11 @@ const DEFAULT_FOUNDATION_MODEL = 'deepseek/deepseek-v4-pro';
 const SIMPLE_INSTRUCTION_PRESET_KEY = 'simple_instruction';
 const SIMPLE_INSTRUCTION_OUTPUT_FORMAT =
   'JSON: { "orders": [{ "symbol": "...", "side": "buy|sell|hold", "qty": number, "order_type": "market|limit", "limit_price": number|null, "reason": "..." }] }';
+// Single source of truth for the Simple-mode trading-actions contract. Published
+// on `window` so agent-editor.js (which loads BEFORE this file) reads the exact
+// same preset key + output format at call time instead of keeping its own copy.
+window.SIMPLE_INSTRUCTION_PRESET_KEY = SIMPLE_INSTRUCTION_PRESET_KEY;
+window.SIMPLE_INSTRUCTION_OUTPUT_FORMAT = SIMPLE_INSTRUCTION_OUTPUT_FORMAT;
 const DEFAULT_STARTER_INSTRUCTION =
   'Spread the money across a few of the strongest available stocks. Buy on meaningful dips, take profits after strong run-ups, and never put everything into one stock.';
 
@@ -732,6 +737,8 @@ function renderAgentsError() {
   });
   const builtinEmpty = document.getElementById('agentsEmptyBuiltin');
   if (builtinEmpty) builtinEmpty.hidden = true;
+  const externalEmpty = document.getElementById('agentsEmptyExternal');
+  if (externalEmpty) externalEmpty.hidden = true;
   if (errorEl) errorEl.hidden = false;
 }
 
@@ -901,6 +908,11 @@ function renderAgentCategories(agents) {
   const pinDefaultFirst = (list) =>
     [...list].sort((a, b) => (b.agent_id === defaultId) - (a.agent_id === defaultId));
 
+  // A live search narrows the list: distinguish "no agents at all" (onboarding)
+  // from "none match your search" so we neither mis-say "No foundation agents
+  // yet" nor surface the External onboarding card as if it were a search result.
+  const searching = !!(document.getElementById('agentSearchInput')?.value || '').trim();
+
   const builtin = pinDefaultFirst(agents.filter((a) => a.agent_type === 'builtin'));
   const external = pinDefaultFirst(agents.filter((a) => a.agent_type !== 'builtin'));
 
@@ -908,8 +920,24 @@ function renderAgentCategories(agents) {
   renderAgentCards(externalGrid, external);
 
   const builtinEmpty = document.getElementById('agentsEmptyBuiltin');
-  if (builtinEmpty) builtinEmpty.hidden = builtin.length > 0;
-  if (!external.length) renderExternalPlaceholderCard(externalGrid);
+  if (builtinEmpty) {
+    builtinEmpty.hidden = builtin.length > 0;
+    builtinEmpty.innerHTML = searching
+      ? 'No foundation agents match your search.'
+      : 'No foundation agents yet. Click <strong>Add Agent</strong> to create one.';
+  }
+
+  const externalEmpty = document.getElementById('agentsEmptyExternal');
+  if (external.length > 0) {
+    if (externalEmpty) externalEmpty.hidden = true;
+  } else if (searching) {
+    // A search that matched no external agents — show a no-match note, not the
+    // "Connect your own agent" onboarding card.
+    if (externalEmpty) externalEmpty.hidden = false;
+  } else {
+    if (externalEmpty) externalEmpty.hidden = true;
+    renderExternalPlaceholderCard(externalGrid);
+  }
 }
 
 // Reserved entry point for connect-your-own agents: the connection mechanism

@@ -460,6 +460,27 @@ def test_patch_agent_model_name(client):
     )
     assert empty.status_code == 422
 
+    # Whitespace-only is also rejected: min_length=1 counts the raw length, so
+    # "   " would otherwise pass and then strip to "" in a NOT NULL column.
+    blank_model = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"model_name": "   "},
+        headers=headers,
+    )
+    assert blank_model.status_code == 422
+
+    # The same blank guard covers name (identical strip-to-empty hazard).
+    blank_name = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"name": "   "},
+        headers=headers,
+    )
+    assert blank_name.status_code == 422
+
+    # The model was never mutated by the rejected requests.
+    unchanged = client.get(f"/api/v1/agents/{agent_id}", headers=headers)
+    assert unchanged.json()["agent"]["model_name"] == "deepseek/deepseek-v4-pro"
+
     # model_name alone is a valid update (not "No fields to update").
     only_model = client.patch(
         f"/api/v1/agents/{agent_id}",
