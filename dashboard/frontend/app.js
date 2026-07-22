@@ -1626,17 +1626,19 @@ function initChangePasswordForm() {
     event.preventDefault();
     const current = document.getElementById('currentPasswordInput')?.value;
     const next = newInput?.value;
-    const confirm = document.getElementById('confirmPasswordInput')?.value;
+    const confirmValue = document.getElementById('confirmPasswordInput')?.value;
+    const submitBtn = form.querySelector('button[type="submit"]');
     if (errorEl) errorEl.hidden = true;
     if (successEl) successEl.hidden = true;
 
-    if (next !== confirm) {
+    if (next !== confirmValue) {
       if (errorEl) {
         errorEl.textContent = 'New password and confirmation do not match.';
         errorEl.hidden = false;
       }
       return;
     }
+    if (submitBtn) submitBtn.disabled = true;
     try {
       await AuthAPI.changePassword(current, next);
       form.reset();
@@ -1647,6 +1649,8 @@ function initChangePasswordForm() {
         errorEl.textContent = error.message;
         errorEl.hidden = false;
       }
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
 }
@@ -1744,6 +1748,7 @@ function setAuthMode(mode) {
     }
   }
   if (errorEl) errorEl.hidden = true;
+  renderPolicyHints(document.getElementById('authPasswordHints'), []);
   updateAuthUI();
 }
 
