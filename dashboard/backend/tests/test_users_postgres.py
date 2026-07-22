@@ -219,3 +219,76 @@ def test_malformed_url_is_rejected_before_psycopg_can_echo_it():
     with pytest.raises(ValueError) as excinfo:
         PostgresUserStore('"postgresql://u:sup3r-s3cret@ep-x.neon.tech/atl"')
     assert "sup3r-s3cret" not in str(excinfo.value)
+
+
+@pg_only
+def test_change_password_and_avatar_postgres(pg_client, temp_postgres_store):
+    signup = pg_client.post(
+        "/api/auth/signup",
+        json={"email": "nina@example.com", "display_name": "Nina", "password": "orig-sturdy-pw-1"},
+    )
+    assert signup.status_code == 200
+    token_a = signup.json()["token"]
+    token_b = pg_client.post(
+        "/api/auth/login",
+        json={"email": "nina@example.com", "password": "orig-sturdy-pw-1"},
+    ).json()["token"]
+
+    change = pg_client.post(
+        "/api/auth/change-password",
+        headers={"Authorization": f"Bearer {token_a}"},
+        json={"current_password": "orig-sturdy-pw-1", "new_password": "new-sturdy-pw-2"},
+    )
+    assert change.status_code == 200
+
+    # Prove the write landed in Postgres and sessions were pruned there.
+    user = temp_postgres_store.get_user_by_email("nina@example.com")
+    from dashboard.backend.users import verify_password
+
+    assert verify_password("new-sturdy-pw-2", user["password_hash"])
+    assert pg_client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {token_a}"}
+    ).status_code == 200
+    assert pg_client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {token_b}"}
+    ).status_code == 401
+
+    # Avatar round-trip against the live Postgres store.
+    import base64 as _b64
+
+    tiny_jpeg = _b64.b64encode(b"\xff\xd8\xff" + b"\x00" * 32).decode("ascii")
+    uri = f"data:image/jpeg;base64,{tiny_jpeg}"
+    put = pg_client.put(
+        "/api/auth/avatar",
+        headers={"Authorization": f"Bearer {token_a}"},
+        json={"avatar": uri},
+    )
+    assert put.status_code == 200
+    assert temp_postgres_store.get_user_by_email("nina@example.com")["avatar"] == uri
+
+    delete = pg_client.delete(
+        "/api/auth/avatar", headers={"Authorization": f"Bearer {token_a}"}
+    )
+    assert delete.status_code == 200
+    assert temp_postgres_store.get_user_by_email("nina@example.com")["avatar"] is None
+
+
+@pg_only
+def test_avatar_column_lazy_migration_postgres():
+    """A pre-avatar users table gains the column on next store init."""
+    require_local_postgres_url(TEST_POSTGRES_URL)
+    from dashboard.backend.users_postgres import PostgresUserStore
+
+    store = PostgresUserStore(TEST_POSTGRES_URL)
+    with store._get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("ALTER TABLE users DROP COLUMN IF EXISTS avatar")
+
+    migrated = PostgresUserStore(TEST_POSTGRES_URL)  # re-init runs the lazy ALTER
+    with migrated._get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'users' AND column_name = 'avatar'"
+            )
+            assert cur.fetchone() is not None
