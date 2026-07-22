@@ -98,3 +98,42 @@ def test_login_invalid_password(client):
         json={"email": "bob@example.com", "password": "wrong-password"},
     )
     assert response.status_code == 401
+
+
+def test_signup_rejects_common_password(client):
+    response = client.post(
+        "/api/auth/signup",
+        json={
+            "email": "carol@example.com",
+            "display_name": "Carol",
+            "password": "password1",
+        },
+    )
+    assert response.status_code == 400
+    assert "too common" in response.json()["detail"]
+
+
+def test_signup_rejects_short_password_with_readable_error(client):
+    response = client.post(
+        "/api/auth/signup",
+        json={
+            "email": "carol@example.com",
+            "display_name": "Carol",
+            "password": "short",
+        },
+    )
+    assert response.status_code == 400
+    assert "at least 8" in response.json()["detail"]
+
+
+def test_signup_rejects_password_containing_email_name(client):
+    response = client.post(
+        "/api/auth/signup",
+        json={
+            "email": "carolyn@example.com",
+            "display_name": "Carol",
+            "password": "carolyn-trades-2026",
+        },
+    )
+    assert response.status_code == 400
+    assert "email" in response.json()["detail"]

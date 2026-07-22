@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from dashboard.backend.api import discord_oauth
 from dashboard.backend.users import public_user, user_store
+from dashboard.backend.password_policy import validate_new_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -34,7 +35,7 @@ def _normalize_email(value: str) -> str:
 class SignupRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     display_name: str = Field(min_length=1, max_length=100)
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=1, max_length=128)
 
     @field_validator("email")
     @classmethod
@@ -78,6 +79,10 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> dic
 
 @router.post("/signup", response_model=AuthResponse)
 async def signup(payload: SignupRequest):
+    violations = validate_new_password(payload.password, payload.email)
+    if violations:
+        raise HTTPException(status_code=400, detail=" ".join(violations))
+
     try:
         user = user_store.create_user(
             email=payload.email,
