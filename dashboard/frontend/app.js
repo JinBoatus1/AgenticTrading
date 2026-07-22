@@ -1499,6 +1499,13 @@ const AuthAPI = {
     return this.request('/api/auth/logout', { method: 'POST' });
   },
 
+  changePassword(currentPassword, newPassword) {
+    return this.request('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
+  },
+
   discordStart() {
     return this.request('/api/auth/discord/start', { method: 'POST' });
   },
@@ -1572,6 +1579,76 @@ function renderAvatar(el, user) {
     const source = ((user && (user.display_name || user.email)) || '?').trim();
     el.textContent = source ? source[0].toUpperCase() : '?';
   }
+}
+
+// Mirrors password_policy.py's length + email rules for live feedback.
+// The blocklist rule is server-only; its violation surfaces on submit.
+function localPasswordViolations(password, email) {
+  const violations = [];
+  if (password.length < 8) violations.push('At least 8 characters.');
+  if (password.length > 128) violations.push('At most 128 characters.');
+  const localPart = (email || '').split('@')[0].trim().toLowerCase();
+  if (localPart.length >= 3 && password.toLowerCase().includes(localPart)) {
+    violations.push('Must not contain your email name.');
+  }
+  return violations;
+}
+
+function renderPolicyHints(listEl, violations) {
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  if (!violations.length) {
+    listEl.hidden = true;
+    return;
+  }
+  violations.forEach((text) => {
+    const li = document.createElement('li');
+    li.textContent = text;
+    listEl.appendChild(li);
+  });
+  listEl.hidden = false;
+}
+
+function initChangePasswordForm() {
+  const form = document.getElementById('changePasswordForm');
+  if (!form) return;
+  const newInput = document.getElementById('newPasswordInput');
+  const hints = document.getElementById('passwordPolicyHints');
+  const errorEl = document.getElementById('changePasswordError');
+  const successEl = document.getElementById('changePasswordSuccess');
+
+  newInput?.addEventListener('input', () => {
+    const user = getStoredAuthUser();
+    renderPolicyHints(hints, localPasswordViolations(newInput.value, user?.email));
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const current = document.getElementById('currentPasswordInput')?.value;
+    const next = newInput?.value;
+    const confirm = document.getElementById('confirmPasswordInput')?.value;
+    if (errorEl) errorEl.hidden = true;
+    if (successEl) successEl.hidden = true;
+
+    if (next !== confirm) {
+      if (errorEl) {
+        errorEl.textContent = 'New password and confirmation do not match.';
+        errorEl.hidden = false;
+      }
+      return;
+    }
+    try {
+      await AuthAPI.changePassword(current, next);
+      form.reset();
+      renderPolicyHints(hints, []);
+      if (successEl) successEl.hidden = false;
+    } catch (error) {
+      if (errorEl) {
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+      }
+    }
+  });
 }
 
 function toggleAccountMenu(force) {
@@ -1857,6 +1934,19 @@ function initAuthUI() {
     setAuthMode(authMode === 'signup' ? 'login' : 'signup');
   });
 
+  document.getElementById('authPassword')?.addEventListener('input', (event) => {
+    if (authMode !== 'signup') return;
+    const email = document.getElementById('authEmail')?.value || '';
+    let hints = document.getElementById('authPasswordHints');
+    if (!hints) {
+      hints = document.createElement('ul');
+      hints.id = 'authPasswordHints';
+      hints.className = 'password-policy-hints';
+      event.target.closest('.auth-field')?.after(hints);
+    }
+    renderPolicyHints(hints, localPasswordViolations(event.target.value, email));
+  });
+
   form?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const email = document.getElementById('authEmail')?.value.trim();
@@ -1922,6 +2012,7 @@ function initAuthUI() {
   openAuthFromUrl();
   handleDiscordOAuthReturn();
   wireDiscordAccountButtons();
+  initChangePasswordForm();
   refreshAuthUser();
 }
 

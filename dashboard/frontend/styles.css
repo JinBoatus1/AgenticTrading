@@ -8569,3 +8569,33 @@ body.agent-editor-open {
 .account-menu-item--danger {
     color: #f87171;
 }
+
+/* Account page — password + avatar sections */
+.account-section {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-color);
+}
+
+.account-section-title {
+    margin: 0 0 10px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.account-password-form {
+    max-width: 360px;
+}
+
+.password-policy-hints {
+    margin: 4px 0 0;
+    padding-left: 18px;
+    font-size: 11px;
+    color: #fbbf24;
+}
+
+.account-success {
+    font-size: 12px;
+    color: #34d399;
+}
