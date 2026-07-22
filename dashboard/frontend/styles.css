@@ -8510,3 +8510,59 @@ body.agent-editor-open {
     border: 1px solid rgba(16, 185, 129, 0.45);
     background: rgba(16, 185, 129, 0.12);
 }
+
+/* Agent editor — Simple/Advanced modes (Demo 1) */
+.agent-editor-mode-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.agent-editor-mode-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 6px 14px;
+    cursor: pointer;
+}
+.agent-editor-mode-btn.active {
+    background: var(--border-color);
+    color: var(--text-primary);
+}
+.agent-editor-model-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+.agent-editor-model-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+.agent-editor-model-select {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    padding: 4px 8px;
+}
+.agent-editor-simple textarea {
+    width: 100%;
+    resize: vertical;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    padding: 10px 12px;
+    margin-top: 10px;
+}
+.agent-editor-simple-note {
+    margin: 10px 0 0;
+    font-size: 0.8rem;
+    color: #fbbf24;
+}
