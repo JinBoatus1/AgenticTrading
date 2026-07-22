@@ -752,13 +752,18 @@ async function openAgentInBacktest(agent, runId = null) {
   }
   navigateToPage('playground', { playgroundTab: 'backtest' });
   currentMode = 'backtest';
-  // Same-session re-activate must not clear SELECTED_BACKTEST_RUN_KEY (see applyActiveAgent).
+  // applyActiveAgent ran once above for immediate navigation; activateAgent
+  // re-applies it (idempotent) and fires the server ping we deliberately did
+  // NOT await. The same-session re-apply must not clear SELECTED_BACKTEST_RUN_KEY
+  // (see applyActiveAgent's previousSession guard).
   activateAgent(agent);
   await loadData();
 }
 
 async function openAgentInPaper(agent) {
   if (!agent) return;
+  // Navigate immediately; activateAgent below re-applies (idempotent) and pings
+  // the server fire-and-forget, so a cold API start never blocks the UI.
   applyActiveAgent(agent);
   navigateToPage('playground', { playgroundTab: 'paper' });
   currentMode = 'paper';
