@@ -129,7 +129,7 @@ function formatTokenCount(value) {
 // unavailable). Lets the redesigned My Agents page render without a backend.
 // TODO: Replace mock agent data with backend API data later.
 // ============================================================================
-const MAX_AGENT_CASH_ALLOCATION = 3000;
+const MAX_AGENT_CASH_ALLOCATION = 1000000;
 const DEFAULT_AGENT_CASH_ALLOCATION = 1000;
 const DEFAULT_PORTFOLIO_EQUITY = 10000;
 const AGENT_CASH_OVERRIDE_PREFIX = 'agent-cash-allocation:';

@@ -568,8 +568,8 @@
                     <input id="externalAgentModel" type="text" maxlength="100" placeholder="gpt-4 / rule-based" autocomplete="off">
                 </label>
                 <label class="auth-field">
-                    <span>Initial cash (max $3,000)</span>
-                    <input id="externalAgentCashAllocation" type="number" min="0" max="3000" step="1" value="1000" required aria-describedby="externalAgentCashHint">
+                    <span>Initial cash (max $1,000,000)</span>
+                    <input id="externalAgentCashAllocation" type="number" min="0" max="1000000" step="1" value="1000" required aria-describedby="externalAgentCashHint">
                 </label>
                 <p id="externalAgentCashHint" class="credential-hint">Starting capital budget for this agent's backtests and trading sessions.</p>
                 <p id="createExternalAgentError" class="auth-error" hidden></p>
@@ -605,8 +605,8 @@
                     <input id="builtinAgentDescription" type="text" maxlength="280" placeholder="What is this agent's edge?" autocomplete="off">
                 </label>
                 <label class="auth-field">
-                    <span>Initial cash (max $3,000)</span>
-                    <input id="builtinAgentCashAllocation" type="number" min="0" max="3000" step="1" value="1000" required aria-describedby="builtinAgentCashHint">
+                    <span>Initial cash (max $1,000,000)</span>
+                    <input id="builtinAgentCashAllocation" type="number" min="0" max="1000000" step="1" value="1000" required aria-describedby="builtinAgentCashHint">
                 </label>
                 <p id="builtinAgentCashHint" class="credential-hint">Starting capital budget for this agent's backtests and trading sessions.</p>
                 <p id="createBuiltinAgentError" class="auth-error" hidden></p>
@@ -756,8 +756,8 @@
                 <p id="agentEditorMeta" class="agent-editor-meta"></p>
                 <textarea id="agentEditorDescription" class="agent-editor-description" rows="2" maxlength="280" placeholder="Optional description for this agent…" aria-label="Agent description"></textarea>
                 <label class="agent-editor-cash-field" for="agentEditorCashAllocation">
-                    <span class="agent-editor-cash-label">Initial cash (max $3,000)</span>
-                    <input id="agentEditorCashAllocation" class="agent-editor-cash-input" type="number" min="0" max="3000" step="1" placeholder="0" aria-label="Initial cash">
+                    <span class="agent-editor-cash-label">Initial cash (max $1,000,000)</span>
+                    <input id="agentEditorCashAllocation" class="agent-editor-cash-input" type="number" min="0" max="1000000" step="1" placeholder="0" aria-label="Initial cash">
                 </label>
             </div>
             <div class="agent-editor-header-actions">
