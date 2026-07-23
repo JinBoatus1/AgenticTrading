@@ -1851,7 +1851,7 @@ function openAuthFromUrl() {
     params.delete('auth');
     const clean = params.toString();
     const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', next);
+    window.history.replaceState(getNavigationState(), '', next);
     return;
   }
 
@@ -1859,7 +1859,7 @@ function openAuthFromUrl() {
   params.delete('auth');
   const clean = params.toString();
   const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
-  window.history.replaceState({}, '', next);
+  window.history.replaceState(getNavigationState(), '', next);
 }
 
 function closeAuthModal() {
@@ -1919,7 +1919,7 @@ async function handleDiscordOAuthReturn() {
   params.delete('reason');
   const clean = params.toString();
   const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
-  window.history.replaceState({}, '', next);
+  window.history.replaceState(getNavigationState(), '', next);
 
   if (discord === 'linked') {
     try {
@@ -3616,21 +3616,94 @@ function getSelectedSymbols() {
 }
 
 /**
- * Resolve page from URL for legacy deep links.
+ * Resolve page from URL for legacy deep links + sync History API so browser
+ * Back/Forward undo in-app navigation (see #178).
  */
+const NAV_VIEW_MAP = {
+    home: { page: 'home' },
+    community: { page: 'community' },
+    account: { page: 'account' },
+    backtest: { page: 'playground', playgroundTab: 'backtest' },
+    paper: { page: 'playground', playgroundTab: 'paper' },
+    agents: { page: 'playground', playgroundTab: 'agents' },
+    playground: { page: 'playground', playgroundTab: 'agents' },
+    'my-algo': { page: 'playground', playgroundTab: 'agents' },
+    contest: { page: 'competition', competitionTab: 'daily' },
+    daily: { page: 'competition', competitionTab: 'daily' },
+    competition: { page: 'competition', competitionTab: 'daily' },
+    leaderboard: { page: 'competition', competitionTab: 'leaderboard' },
+    participants: { page: 'competition', competitionTab: 'participants' },
+    about: { page: 'competition', competitionTab: 'about' },
+};
+
 // Persist the current tab so a page refresh restores it instead of going home.
 function persistNavigation() {
     try {
         localStorage.setItem(
             NAV_STATE_KEY,
-            JSON.stringify({
-                page: currentPage,
-                playgroundTab,
-                competitionTab,
-            }),
+            JSON.stringify(getNavigationState()),
         );
     } catch (error) {
         /* localStorage unavailable — ignore */
+    }
+}
+
+function getNavigationState() {
+    return {
+        page: currentPage,
+        playgroundTab,
+        competitionTab,
+    };
+}
+
+function navigationStatesEqual(a, b) {
+    if (!a || !b) return false;
+    return a.page === b.page
+        && (a.playgroundTab || 'agents') === (b.playgroundTab || 'agents')
+        && (a.competitionTab || 'daily') === (b.competitionTab || 'daily');
+}
+
+function viewParamForNavState(state) {
+    if (state.page === 'home') return 'home';
+    if (state.page === 'community') return 'community';
+    if (state.page === 'account') return 'account';
+    if (state.page === 'playground') {
+        if (state.playgroundTab === 'backtest') return 'backtest';
+        if (state.playgroundTab === 'paper') return 'paper';
+        return 'agents';
+    }
+    if (state.page === 'competition') {
+        if (state.competitionTab === 'leaderboard') return 'leaderboard';
+        if (state.competitionTab === 'participants') return 'participants';
+        if (state.competitionTab === 'about') return 'about';
+        return 'contest';
+    }
+    return state.page;
+}
+
+function buildNavigationUrl(state) {
+    const params = new URLSearchParams(window.location.search);
+    params.set('view', viewParamForNavState(state));
+    params.delete('mode');
+    const clean = params.toString();
+    return `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+}
+
+/**
+ * Keep the History stack in sync with the visible page/subtab.
+ * @param {{ replace?: boolean }} [options]
+ */
+function syncNavigationHistory({ replace = false } = {}) {
+    const state = getNavigationState();
+    const url = buildNavigationUrl(state);
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (!replace && url === current && navigationStatesEqual(window.history.state, state)) {
+        return;
+    }
+    if (replace) {
+        window.history.replaceState(state, '', url);
+    } else {
+        window.history.pushState(state, '', url);
     }
 }
 
@@ -3646,6 +3719,7 @@ function applyInitialNavigation() {
     navigateToPage(initial.page, {
         playgroundTab: initial.playgroundTab || 'agents',
         competitionTab: initial.competitionTab || 'daily',
+        history: 'replace',
     });
     if (typeof initHomePage === 'function') {
         initHomePage();
@@ -3658,24 +3732,14 @@ function resolveInitialNavigation() {
     const hash = window.location.hash.replace('#', '');
     const legacy = view || hash;
 
-    const legacyMap = {
-        home: { page: 'home' },
-        community: { page: 'community' },
-        account: { page: 'account' },
-        backtest: { page: 'playground', playgroundTab: 'backtest' },
-        paper: { page: 'playground', playgroundTab: 'paper' },
-        contest: { page: 'competition', competitionTab: 'daily' },
-        'my-algo': { page: 'playground', playgroundTab: 'agents' },
-    };
-
     // Discord / share deep links land on the backtest playground.
     if (params.get('agent_id') || params.get('run_id')) {
         return { page: 'playground', playgroundTab: 'backtest' };
     }
 
     // An explicit URL view/hash always wins.
-    if (legacy && legacyMap[legacy]) {
-        return legacyMap[legacy];
+    if (legacy && NAV_VIEW_MAP[legacy]) {
+        return { ...NAV_VIEW_MAP[legacy] };
     }
 
     // Otherwise restore the last visited tab across refreshes.
@@ -3690,6 +3754,18 @@ function resolveInitialNavigation() {
     }
 
     return { page: 'home' };
+}
+
+function onNavigationPopState(event) {
+    const fromState = event.state;
+    const target = (fromState && fromState.page)
+        ? fromState
+        : resolveInitialNavigation();
+    navigateToPage(target.page, {
+        playgroundTab: target.playgroundTab || 'agents',
+        competitionTab: target.competitionTab || 'daily',
+        history: 'none',
+    });
 }
 
 /**
@@ -3747,18 +3823,17 @@ async function applyAgentRunDeepLink() {
         localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, runId);
     }
 
-    navigateToPage('playground', { playgroundTab: 'backtest' });
+    navigateToPage('playground', { playgroundTab: 'backtest', history: 'replace' });
     currentMode = 'backtest';
     await loadData();
 
     params.delete('agent_id');
     params.delete('run_id');
-    if (!params.get('view') && !params.get('mode')) {
-        params.set('view', 'backtest');
-    }
+    params.set('view', 'backtest');
+    params.delete('mode');
     const clean = params.toString();
     const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', next);
+    window.history.replaceState(getNavigationState(), '', next);
 }
 
 function updatePlaygroundSubtabs() {
@@ -3836,6 +3911,9 @@ function navigateToPage(page, options = {}) {
         options = { ...options, playgroundTab: options.playgroundTab || 'agents' };
     }
 
+    const historyMode = options.history || 'push';
+    const prevState = getNavigationState();
+
     currentPage = page;
 
     if (options.playgroundTab) playgroundTab = options.playgroundTab;
@@ -3906,6 +3984,11 @@ function navigateToPage(page, options = {}) {
 
     clearNavBootState();
     persistNavigation();
+
+    if (historyMode === 'none') return;
+    const nextState = getNavigationState();
+    if (historyMode === 'push' && navigationStatesEqual(prevState, nextState)) return;
+    syncNavigationHistory({ replace: historyMode === 'replace' });
 }
 
 function switchPlaygroundTab(tab) {
@@ -3913,7 +3996,9 @@ function switchPlaygroundTab(tab) {
         navigateToPage('playground', { playgroundTab: tab });
         return;
     }
+    if (playgroundTab === tab) return;
     showPlaygroundPanel(tab);
+    syncNavigationHistory({ replace: false });
 }
 
 function switchCompetitionTab(tab) {
@@ -3921,7 +4006,9 @@ function switchCompetitionTab(tab) {
         navigateToPage('competition', { competitionTab: tab });
         return;
     }
+    if (competitionTab === tab) return;
     showCompetitionPanel(tab);
+    syncNavigationHistory({ replace: false });
 }
 
 function openAddAgentModal() {
@@ -3935,6 +4022,8 @@ function closeAddAgentModal() {
 }
 
 function initNavigation() {
+    window.addEventListener('popstate', onNavigationPopState);
+
     document.querySelectorAll('.primary-nav .mode-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             navigateToPage(e.currentTarget.dataset.mode);
