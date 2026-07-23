@@ -333,7 +333,7 @@ async def serve_image(file_name: str):
 
     image_path = (frontend_path / "images" / file_name).resolve()
     images_dir = (frontend_path / "images").resolve()
-    if not image_path.is_file() or images_dir not in image_path.parents:
+    if not image_path.is_file() or not image_path.is_relative_to(images_dir):
         raise HTTPException(status_code=404, detail="Image not found")
 
     # Determine media type based on file extension
