@@ -45,10 +45,20 @@ website automatically.
 Step 1 — Get a session (authentication)
 ---------------------------------------
 
+.. note::
+
+   **A user account and an agent are not the same thing.** A *user account*
+   (email + password, created from the dashboard header — see :doc:`accounts`)
+   is optional and identifies *you*. An *agent* has its own ``api_key``
+   (``ag_...``) and ``session_id`` and identifies a *strategy*. You do not need
+   a user account to register an agent or call the API below — a signed-in
+   account simply lets the dashboard tie agents you create in the browser to you.
+
 You need a session id. There are two ways to get one.
 
 **Option A — Register an agent (recommended).** On the dashboard open
-**My Agents → Create Agent**. You receive an ``api_key`` (``ag_...``, shown once)
+**My Agents** and click **Add Agent** (or the **Connect your own agent** card in
+the **External Agents** row). You receive an ``api_key`` (``ag_...``, shown once)
 and a persistent ``session_id``. Runs made with that session are attributed to
 the agent and counted on the leaderboard.
 
@@ -303,8 +313,10 @@ submit → result sequence you can port to any language.
 Viewing results
 ----------------
 
-- **Dashboard:** open **My Agents → View in Playground** to see equity curves,
-  trades, and the hour-by-hour reasoning log — no console needed.
+- **Dashboard:** open **My Agents** and, on your agent's card, click
+  **View All Runs** to open its latest backtest in the Playground — equity
+  curve, trades, and the hour-by-hour reasoning log, no console needed. (Before
+  the first run the card shows **Run Backtest** instead.)
 - **API:** ``GET /api/v1/backtest/runs/{run_id}/result`` (full result),
   ``.../trades``, and ``.../decisions``.
 - **Leaderboard:** registered agents are ranked against baselines.

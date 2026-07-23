@@ -1695,6 +1695,24 @@ const AuthAPI = {
     return this.request('/api/auth/logout', { method: 'POST' });
   },
 
+  changePassword(currentPassword, newPassword) {
+    return this.request('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
+  },
+
+  setAvatar(dataUri) {
+    return this.request('/api/auth/avatar', {
+      method: 'PUT',
+      body: JSON.stringify({ avatar: dataUri }),
+    });
+  },
+
+  removeAvatar() {
+    return this.request('/api/auth/avatar', { method: 'DELETE' });
+  },
+
   discordStart() {
     return this.request('/api/auth/discord/start', { method: 'POST' });
   },
@@ -1750,29 +1768,226 @@ function updateAccountPage() {
     signedOut.hidden = true;
     if (nameEl) nameEl.textContent = user.display_name || '—';
     if (emailEl) emailEl.textContent = user.email || '—';
+    renderAvatar(document.getElementById('accountAvatarPreview'), user);
+    const removeBtn = document.getElementById('avatarRemoveBtn');
+    if (removeBtn) removeBtn.hidden = !user.avatar;
   } else {
     signedIn.hidden = true;
     signedOut.hidden = false;
   }
 }
 
+function renderAvatar(el, user) {
+  if (!el) return;
+  el.innerHTML = '';
+  if (user && user.avatar) {
+    const img = document.createElement('img');
+    img.src = user.avatar;   // server-validated data: URI
+    img.alt = '';
+    el.appendChild(img);
+  } else {
+    const source = ((user && (user.display_name || user.email)) || '?').trim();
+    el.textContent = source ? source[0].toUpperCase() : '?';
+  }
+}
+
+const AVATAR_MAX_INPUT_BYTES = 10 * 1024 * 1024;
+const AVATAR_MAX_OUTPUT_BYTES = 100 * 1024;
+
+async function compressAvatar(file) {
+  if (file.size > AVATAR_MAX_INPUT_BYTES) {
+    throw new Error('Image is too large (max 10 MB).');
+  }
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch (error) {
+    // createImageBitmap rejects with a developer-facing DOMException ("The source
+    // image could not be decoded") for anything the browser cannot decode: a
+    // truncated download, or a non-image renamed to .png. Show copy the user can
+    // act on and keep the original in the console for debugging.
+    console.warn('Avatar decode failed:', error);
+    throw new Error('That file could not be read as an image. Try a JPG, PNG, or WebP.');
+  }
+  const MAX_DIM = 256;
+  const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height);
+  for (const quality of [0.85, 0.6]) {
+    const dataUri = canvas.toDataURL('image/jpeg', quality);
+    const base64 = dataUri.slice(dataUri.indexOf(',') + 1);
+    const decodedBytes = Math.floor(base64.length * 3 / 4);
+    if (decodedBytes <= AVATAR_MAX_OUTPUT_BYTES) return dataUri;
+  }
+  throw new Error('Could not compress the image under 100 KB. Try a simpler image.');
+}
+
+function applyUpdatedUser(user) {
+  localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  window.AUTH_USER = user;
+  updateAuthUI();
+}
+
+function initAvatarControls() {
+  const fileInput = document.getElementById('avatarFileInput');
+  const uploadBtn = document.getElementById('avatarUploadBtn');
+  const removeBtn = document.getElementById('avatarRemoveBtn');
+  const errorEl = document.getElementById('avatarError');
+  if (!fileInput || !uploadBtn) return;
+
+  uploadBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files && fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    if (errorEl) errorEl.hidden = true;
+    uploadBtn.disabled = true;
+    try {
+      const dataUri = await compressAvatar(file);
+      const data = await AuthAPI.setAvatar(dataUri);
+      applyUpdatedUser(data.user);
+    } catch (error) {
+      if (errorEl) {
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+      }
+    } finally {
+      uploadBtn.disabled = false;
+    }
+  });
+
+  removeBtn?.addEventListener('click', async () => {
+    if (errorEl) errorEl.hidden = true;
+    removeBtn.disabled = true;
+    try {
+      const data = await AuthAPI.removeAvatar();
+      applyUpdatedUser(data.user);
+    } catch (error) {
+      if (errorEl) {
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+      }
+    } finally {
+      removeBtn.disabled = false;
+    }
+  });
+}
+
+// Mirrors password_policy.py's length + email rules for live feedback.
+// The blocklist rule is server-only; its violation surfaces on submit.
+function localPasswordViolations(password, email) {
+  const violations = [];
+  if (password.length < 8) violations.push('At least 8 characters.');
+  if (password.length > 128) violations.push('At most 128 characters.');
+  const localPart = (email || '').split('@')[0].trim().toLowerCase();
+  if (localPart.length >= 3 && password.toLowerCase().includes(localPart)) {
+    violations.push('Must not contain your email name.');
+  }
+  return violations;
+}
+
+function renderPolicyHints(listEl, violations) {
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  if (!violations.length) {
+    listEl.hidden = true;
+    return;
+  }
+  violations.forEach((text) => {
+    const li = document.createElement('li');
+    li.textContent = text;
+    listEl.appendChild(li);
+  });
+  listEl.hidden = false;
+}
+
+function initChangePasswordForm() {
+  const form = document.getElementById('changePasswordForm');
+  if (!form) return;
+  const newInput = document.getElementById('newPasswordInput');
+  const hints = document.getElementById('passwordPolicyHints');
+  const errorEl = document.getElementById('changePasswordError');
+  const successEl = document.getElementById('changePasswordSuccess');
+
+  newInput?.addEventListener('input', () => {
+    const user = getStoredAuthUser();
+    renderPolicyHints(hints, localPasswordViolations(newInput.value, user?.email));
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const current = document.getElementById('currentPasswordInput')?.value;
+    const next = newInput?.value;
+    const confirmValue = document.getElementById('confirmPasswordInput')?.value;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (errorEl) errorEl.hidden = true;
+    if (successEl) successEl.hidden = true;
+
+    if (next !== confirmValue) {
+      if (errorEl) {
+        errorEl.textContent = 'New password and confirmation do not match.';
+        errorEl.hidden = false;
+      }
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await AuthAPI.changePassword(current, next);
+      form.reset();
+      renderPolicyHints(hints, []);
+      if (successEl) successEl.hidden = false;
+    } catch (error) {
+      if (errorEl) {
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+      }
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+}
+
+function toggleAccountMenu(force) {
+  const menu = document.getElementById('accountMenu');
+  const btn = document.getElementById('authAccountBtn');
+  if (!menu || !btn) return;
+  const open = force !== undefined ? force : menu.hidden;
+  menu.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function closeAccountMenu() {
+  toggleAccountMenu(false);
+}
+
 function updateAuthUI() {
   const user = getStoredAuthUser();
   const label = document.getElementById('authUserLabel');
   const signInBtn = document.getElementById('authSignInBtn');
-  const accountBtn = document.getElementById('authAccountBtn');
-  if (!signInBtn || !accountBtn) {
+  const menuWrap = document.getElementById('accountMenuWrap');
+  if (!signInBtn || !menuWrap) {
     return;
   }
 
   if (user) {
     if (label) label.textContent = user.display_name || user.email;
     signInBtn.hidden = true;
-    accountBtn.hidden = false;
+    menuWrap.hidden = false;
+    renderAvatar(document.getElementById('authAvatar'), user);
+    const nameEl = document.getElementById('accountMenuName');
+    const emailEl = document.getElementById('accountMenuEmail');
+    if (nameEl) nameEl.textContent = user.display_name || '—';
+    if (emailEl) emailEl.textContent = user.email || '';
   } else {
     if (label) label.textContent = '';
     signInBtn.hidden = false;
-    accountBtn.hidden = true;
+    menuWrap.hidden = true;
+    closeAccountMenu();
   }
 
   updateAccountPage();
@@ -1830,6 +2045,7 @@ function setAuthMode(mode) {
     }
   }
   if (errorEl) errorEl.hidden = true;
+  renderPolicyHints(document.getElementById('authPasswordHints'), []);
   updateAuthUI();
 }
 
@@ -1988,7 +2204,29 @@ function initAuthUI() {
 
   signInBtn?.addEventListener('click', () => openAuthModal('login'));
   accountSignInBtn?.addEventListener('click', () => openAuthModal('login'));
-  accountBtn?.addEventListener('click', () => navigateToPage('account'));
+  accountBtn?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleAccountMenu();
+  });
+  document.getElementById('accountMenuAccountBtn')?.addEventListener('click', () => {
+    closeAccountMenu();
+    navigateToPage('account');
+  });
+  document.getElementById('accountMenuLogoutBtn')?.addEventListener('click', () => {
+    closeAccountMenu();
+    logoutUser();
+  });
+  document.addEventListener('click', (event) => {
+    const wrap = document.getElementById('accountMenuWrap');
+    if (wrap && !wrap.hidden && !wrap.contains(event.target)) {
+      closeAccountMenu();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeAccountMenu();
+    }
+  });
   logoutBtn?.addEventListener('click', () => {
     logoutUser();
   });
@@ -1996,6 +2234,19 @@ function initAuthUI() {
   backdrop?.addEventListener('click', closeAuthModal);
   switchBtn?.addEventListener('click', () => {
     setAuthMode(authMode === 'signup' ? 'login' : 'signup');
+  });
+
+  document.getElementById('authPassword')?.addEventListener('input', (event) => {
+    if (authMode !== 'signup') return;
+    const email = document.getElementById('authEmail')?.value || '';
+    let hints = document.getElementById('authPasswordHints');
+    if (!hints) {
+      hints = document.createElement('ul');
+      hints.id = 'authPasswordHints';
+      hints.className = 'password-policy-hints';
+      event.target.closest('.auth-field')?.after(hints);
+    }
+    renderPolicyHints(hints, localPasswordViolations(event.target.value, email));
   });
 
   form?.addEventListener('submit', async (event) => {
@@ -2063,6 +2314,8 @@ function initAuthUI() {
   openAuthFromUrl();
   handleDiscordOAuthReturn();
   wireDiscordAccountButtons();
+  initChangePasswordForm();
+  initAvatarControls();
   refreshAuthUser();
 }
 
