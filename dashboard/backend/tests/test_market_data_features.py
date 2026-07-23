@@ -156,9 +156,16 @@ def test_enabled_simulation_is_passed_to_background_runner(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["success"] is True
+    body = response.json()
+    assert body["success"] is True
+    assert body["data_source"] == VNPY_SIMULATION
     assert len(spy.calls) == 1
-    assert spy.calls[0][0][-1] == VNPY_SIMULATION
+    # Positional args: start, end, session, prompt, model, pipeline, agent_id,
+    # data_source, live_run_id (live_run_id is minted by /backtest/run).
+    args = spy.calls[0][0]
+    assert args[7] == VNPY_SIMULATION
+    assert args[8] == body["live_run_id"]
+    assert str(args[8]).startswith("agent_")
 
 
 @pytest.mark.parametrize(
