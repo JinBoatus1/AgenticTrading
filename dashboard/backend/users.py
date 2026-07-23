@@ -2,6 +2,7 @@
 User accounts and auth session storage (SQLite, same database file as backtests).
 """
 
+import base64
 import hashlib
 import os
 import secrets
@@ -18,6 +19,7 @@ from dashboard.backend.db_url import describe_database_url
 SESSION_TTL_DAYS = 7
 BCRYPT_ROUNDS = 12
 LEGACY_PBKDF2_ITERATIONS = 100_000
+BCRYPT_MAX_BYTES = 72
 
 
 def _utcnow() -> datetime:
@@ -28,9 +30,39 @@ def _utcnow_iso() -> str:
     return _utcnow().replace(microsecond=0).isoformat()
 
 
+def _bcrypt_secret(password: str) -> bytes:
+    """
+    Return the bytes to feed bcrypt, without ever silently dropping any of them.
+
+    bcrypt hashes at most the first 72 bytes and ignores the rest with no error, so
+    two passwords sharing a 72-byte prefix verify against the same hash. NIST 800-63B
+    5.1.1.2 forbids truncating a subscriber's secret, and password_policy.MAX_LENGTH
+    accepts 128 characters, so anything past the cap is folded into a fixed-size
+    digest first -- then every byte the user typed affects the hash.
+
+    base64 of the digest, not the raw digest: raw SHA-256 output can contain NUL
+    bytes, which C bcrypt implementations treat as end-of-string -- that would
+    reintroduce truncation at the first NUL. The base64 form is 44 ASCII bytes,
+    comfortably inside the cap.
+
+    CodeQL flags the SHA-256 below as py/weak-sensitive-data-hashing. It is a false
+    positive: this digest is never stored or compared as a credential, it is only a
+    length-reduction step whose sole consumer is bcrypt, which supplies the salt and
+    the work factor. The digest is also deliberately conditional -- passwords at or
+    under the cap reach bcrypt untouched. That keeps the common path a single bcrypt
+    call, and it keeps "password shucking" (cracking a leaked unsalted SHA-256 of
+    the same secret, then confirming it with one bcrypt call) off the table for every
+    password short enough to plausibly appear in such a corpus.
+    """
+    raw = password.encode("utf-8")
+    if len(raw) <= BCRYPT_MAX_BYTES:
+        return raw
+    return base64.b64encode(hashlib.sha256(raw).digest())
+
+
 def hash_password(password: str) -> str:
     hashed = bcrypt.hashpw(
-        password.encode("utf-8"),
+        _bcrypt_secret(password),
         bcrypt.gensalt(rounds=BCRYPT_ROUNDS),
     )
     return hashed.decode("utf-8")
@@ -53,11 +85,17 @@ def _verify_legacy_pbkdf2(password: str, password_hash: str) -> bool:
 
 def verify_password(password: str, password_hash: str) -> bool:
     if password_hash.startswith(("$2a$", "$2b$", "$2y$")):
+        encoded = password_hash.encode("utf-8")
         try:
-            return bcrypt.checkpw(
-                password.encode("utf-8"),
-                password_hash.encode("utf-8"),
-            )
+            if bcrypt.checkpw(_bcrypt_secret(password), encoded):
+                return True
+            # Accounts created before the pre-hash above stored bcrypt(raw), where
+            # bcrypt itself dropped everything past byte 72. Only over-cap passwords
+            # can hash differently under the two schemes, so this second, more
+            # expensive check runs for those alone -- never on the common path.
+            if len(password.encode("utf-8")) > BCRYPT_MAX_BYTES:
+                return bcrypt.checkpw(password.encode("utf-8"), encoded)
+            return False
         except ValueError:
             return False
     return _verify_legacy_pbkdf2(password, password_hash)
@@ -72,6 +110,7 @@ def public_user(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
         "display_name": data["display_name"],
         "role": data["role"],
         "created_at": data["created_at"],
+        "avatar": data.get("avatar"),
         "discord_linked": bool(discord_user_id),
         "discord_user_id": str(discord_user_id) if discord_user_id else None,
     }
@@ -129,6 +168,8 @@ class UserStore:
             cursor.execute(
                 "ALTER TABLE users ADD COLUMN discord_user_id TEXT"
             )
+        if "avatar" not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN avatar TEXT")
         cursor.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_users_discord_user_id
@@ -247,6 +288,42 @@ class UserStore:
         cursor.execute("DELETE FROM auth_sessions WHERE token = ?", (token,))
         conn.commit()
         conn.close()
+
+    def update_password(self, user_id: int, new_password: str) -> None:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(new_password), user_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def delete_other_sessions(self, user_id: int, keep_token: Optional[str]) -> None:
+        """Revoke every session for the user except keep_token (None = all)."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        if keep_token:
+            cursor.execute(
+                "DELETE FROM auth_sessions WHERE user_id = ? AND token != ?",
+                (user_id, keep_token),
+            )
+        else:
+            cursor.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+
+    def set_avatar(self, user_id: int, avatar: Optional[str]) -> Dict[str, Any]:
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET avatar = ? WHERE id = ?", (avatar, user_id))
+        conn.commit()
+        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            raise ValueError("user_not_found")
+        return public_user(row)
 
     def get_user_by_discord_id(self, discord_user_id: str) -> Optional[Dict[str, Any]]:
         discord_id = str(discord_user_id).strip()

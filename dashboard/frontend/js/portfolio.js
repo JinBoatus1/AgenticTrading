@@ -1,7 +1,7 @@
 /*
  * portfolio.js — "My Portfolio" section for the My Agents page.
  *
- * Layout (mock): left Portfolio Overview + right Capital Allocation pie.
+ * Layout: left Portfolio Overview + right Capital Allocation pie.
  * Signed-in users load GET /api/v1/portfolio; guests keep SAMPLE DATA mock.
  */
 
@@ -64,7 +64,12 @@ function normalizeSummary(summary) {
     const allocated = summary.allocated != null
         ? Number(summary.allocated)
         : Math.max(total - available, 0);
-    return { totalValue: total, cashAvailable: available, allocated };
+    return {
+        totalValue: total,
+        cashAvailable: available,
+        allocated,
+        pnlUnavailable: !!summary.pnlUnavailable,
+    };
 }
 
 function summaryFromLivePortfolio(portfolio) {
@@ -77,6 +82,11 @@ function summaryFromLivePortfolio(portfolio) {
         totalValue: equity,
         cashAvailable: cash,
         allocated,
+        // The ledger tracks cash only — no marks, no history, so there is no
+        // P/L to report. Flagged rather than left at 0 so the overview can
+        // show "—" instead of rendering a fabricated "$0.00" that reads as a
+        // real, flat day.
+        pnlUnavailable: true,
     };
 }
 
@@ -106,7 +116,7 @@ function renderPortfolioOverview(summary) {
             </div>
             <div class="pf-overview-hero-col pf-overview-hero-col--right">
                 <span class="pf-overview-label">Today's P&amp;L</span>
-                <span class="pf-overview-pnl">${pfMoney(0)}</span>
+                <span class="pf-overview-pnl">${s.pnlUnavailable ? '—' : pfMoney(0)}</span>
             </div>
         </div>
         <div class="pf-overview-split">
@@ -212,15 +222,18 @@ function pfAllocationSignature(data) {
         .join('|');
 }
 
-function renderAllocationChart(key, data) {
+function renderAllocationChart(key, data, settleRetries = 60) {
     const canvas = document.getElementById(`${key}AllocationChart`);
     const legendEl = document.getElementById(`${key}AllocationLegend`);
     if (!canvas || typeof Chart === 'undefined') return;
 
     // Avoid first paint at 0×0 (layout not settled) — that causes a size jump.
+    // Bounded: a hidden panel never gains width, so an unbounded retry would
+    // spin at 60fps forever. After ~1s create the chart anyway and let
+    // Chart.js's responsive resize take over once the panel is visible.
     const wrap = canvas.parentElement;
-    if (!pfChartInstances[key] && wrap && wrap.clientWidth < 8) {
-        requestAnimationFrame(() => renderAllocationChart(key, data));
+    if (!pfChartInstances[key] && wrap && wrap.clientWidth < 8 && settleRetries > 0) {
+        requestAnimationFrame(() => renderAllocationChart(key, data, settleRetries - 1));
         return;
     }
 
@@ -273,7 +286,6 @@ function renderAllocationChart(key, data) {
                     resize: { animation: { duration: 0 } },
                     show: { animations: { colors: false, numbers: { duration: 650 } } },
                 },
-                rotation: -0.5 * Math.PI,
                 plugins: {
                     legend: { display: false },
                     tooltip: {
@@ -302,7 +314,7 @@ function renderAllocationChart(key, data) {
             <li class="allocation-legend-row">
                 <span class="allocation-legend-name">
                     <span class="allocation-legend-dot" style="background:${s.color}"></span>
-                    ${s.label}
+                    ${escapeHtml(s.label)}
                 </span>
                 <span class="allocation-legend-pct">${s.pct}%</span>
                 <span class="allocation-legend-value">${pfMoney(displayValue)}</span>
@@ -334,6 +346,15 @@ function renderPortfolioFromLive(portfolio, agents) {
     updateAgentAllocationFromAgents(agents);
 }
 
+// ---------------------------------------------------------------------------
+// Public entry point — called when the My Agents tab becomes visible.
+// ---------------------------------------------------------------------------
+
+// Renders are async and callers do not await them, so two can be in flight at
+// once (switching to My Agents starts one, and the loadAgents() that follows
+// starts another with a fresher agent list). Responses are not guaranteed to
+// arrive in request order, so without this sequence guard a slower earlier
+// request can repaint the panel with stale agents after the newer one landed.
 async function renderPortfolio(agents) {
     const list = agents || [];
     const seq = ++portfolioRenderSeq;
@@ -358,5 +379,24 @@ async function renderPortfolio(agents) {
     }
 }
 
+/**
+ * Repaint the panel from whatever is already cached — no network.
+ *
+ * Lets the My Agents tab paint instantly on a revisit while the authoritative
+ * refresh rides along with loadAgents(), instead of both firing their own
+ * GET /api/v1/portfolio on every tab switch.
+ */
+function repaintPortfolioFromCache(agents) {
+    const list = agents || [];
+    if (livePortfolio) {
+        renderPortfolioFromLive(livePortfolio, list);
+    } else if (!isPortfolioSignedIn()) {
+        renderPortfolioFromMock(list);
+    }
+    // Signed in but nothing cached yet: leave it be — the render that
+    // loadAgents() kicks off is about to paint the real figures.
+}
+
 window.renderPortfolio = renderPortfolio;
+window.repaintPortfolioFromCache = repaintPortfolioFromCache;
 window.updateAgentAllocationFromAgents = updateAgentAllocationFromAgents;

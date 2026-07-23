@@ -38,8 +38,9 @@ async def get_ticker(symbols: str = "AAPL,NVDA,MSFT,BTC"):
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
+        print(f"/ticker quote fetch failed: {e!r}")
         return {
             "success": False,
-            "error": str(e),
+            "error": "Failed to fetch market quotes",
             "quotes": []
         }

@@ -43,7 +43,8 @@ class PostgresUserStore:
                         password_hash TEXT NOT NULL,
                         role TEXT NOT NULL DEFAULT 'user',
                         created_at TEXT NOT NULL,
-                        discord_user_id TEXT
+                        discord_user_id TEXT,
+                        avatar TEXT
                     )
                     """
                 )
@@ -52,6 +53,12 @@ class PostgresUserStore:
                     """
                     ALTER TABLE users
                     ADD COLUMN IF NOT EXISTS discord_user_id TEXT
+                    """
+                )
+                cur.execute(
+                    """
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS avatar TEXT
                     """
                 )
                 cur.execute(
@@ -175,6 +182,40 @@ class PostgresUserStore:
         with self._get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM auth_sessions WHERE token = %s", (token,))
+
+    def update_password(self, user_id: int, new_password: str) -> None:
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET password_hash = %s WHERE id = %s",
+                    (hash_password(new_password), user_id),
+                )
+
+    def delete_other_sessions(self, user_id: int, keep_token: Optional[str]) -> None:
+        """Revoke every session for the user except keep_token (None = all)."""
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                if keep_token:
+                    cur.execute(
+                        "DELETE FROM auth_sessions WHERE user_id = %s AND token != %s",
+                        (user_id, keep_token),
+                    )
+                else:
+                    cur.execute(
+                        "DELETE FROM auth_sessions WHERE user_id = %s", (user_id,)
+                    )
+
+    def set_avatar(self, user_id: int, avatar: Optional[str]) -> Dict[str, Any]:
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET avatar = %s WHERE id = %s RETURNING *",
+                    (avatar, user_id),
+                )
+                row = cur.fetchone()
+        if not row:
+            raise ValueError("user_not_found")
+        return public_user(row)
 
     def get_user_by_discord_id(self, discord_user_id: str) -> Optional[Dict[str, Any]]:
         discord_id = str(discord_user_id).strip()

@@ -14,25 +14,45 @@
     <script>
     (function () {
         var NAV_STATE_KEY = 'nav-state';
+        // Single source of truth for ?view= / #hash -> page + subtab. It lives
+        // here rather than in app.js because the anti-FOUC boot below has to run
+        // before app.js loads; app.js reads it back off `window` so the boot CSS
+        // and the real navigation can never disagree about which page a URL means.
+        var NAV_VIEW_MAP = {
+            home: { page: 'home' },
+            community: { page: 'community' },
+            account: { page: 'account' },
+            backtest: { page: 'playground', playgroundTab: 'backtest' },
+            paper: { page: 'playground', playgroundTab: 'paper' },
+            agents: { page: 'playground', playgroundTab: 'agents' },
+            playground: { page: 'playground', playgroundTab: 'agents' },
+            'my-algo': { page: 'playground', playgroundTab: 'agents' },
+            contest: { page: 'competition', competitionTab: 'daily' },
+            daily: { page: 'competition', competitionTab: 'daily' },
+            competition: { page: 'competition', competitionTab: 'daily' },
+            leaderboard: { page: 'competition', competitionTab: 'leaderboard' },
+            participants: { page: 'competition', competitionTab: 'participants' },
+            about: { page: 'competition', competitionTab: 'about' },
+        };
+        window.NAV_VIEW_MAP = NAV_VIEW_MAP;
         function resolveBootNavigation() {
             var params = new URLSearchParams(window.location.search);
             var view = params.get('view') || params.get('mode');
             var hash = window.location.hash.replace('#', '');
             var legacy = view || hash;
-            var legacyMap = {
-                home: { page: 'home' },
-                community: { page: 'community' },
-                account: { page: 'account' },
-                backtest: { page: 'playground', playgroundTab: 'backtest' },
-                paper: { page: 'playground', playgroundTab: 'paper' },
-                contest: { page: 'competition', competitionTab: 'daily' },
-                'my-algo': { page: 'playground', playgroundTab: 'agents' },
-            };
             // Discord / share deep links: open Playground backtest immediately.
             if (params.get('agent_id') || params.get('run_id')) {
                 return { page: 'playground', playgroundTab: 'backtest' };
             }
-            if (legacy && legacyMap[legacy]) return legacyMap[legacy];
+            if (legacy && NAV_VIEW_MAP[legacy]) {
+                // Copy: the map is shared with app.js and must stay immutable.
+                var mapped = NAV_VIEW_MAP[legacy];
+                return {
+                    page: mapped.page,
+                    playgroundTab: mapped.playgroundTab,
+                    competitionTab: mapped.competitionTab,
+                };
+            }
             try {
                 var saved = JSON.parse(localStorage.getItem(NAV_STATE_KEY) || 'null');
                 var valid = ['home', 'playground', 'competition', 'community', 'account'];
@@ -144,9 +164,21 @@
             </nav>
             <div id="authControls" class="header-account">
                 <button id="authSignInBtn" class="auth-btn auth-btn-primary" type="button">Sign in</button>
-                <button id="authAccountBtn" class="auth-account-btn" type="button" hidden aria-label="Account">
-                    <span id="authUserLabel" class="auth-user-label"></span>
-                </button>
+                <div id="accountMenuWrap" class="account-menu-wrap" hidden>
+                    <button id="authAccountBtn" class="auth-account-btn" type="button" aria-label="Account menu" aria-haspopup="true" aria-expanded="false">
+                        <span id="authAvatar" class="auth-avatar" aria-hidden="true"></span>
+                        <span id="authUserLabel" class="auth-user-label"></span>
+                        <span class="auth-caret" aria-hidden="true">▾</span>
+                    </button>
+                    <div id="accountMenu" class="account-menu" hidden>
+                        <div class="account-menu-identity">
+                            <span id="accountMenuName" class="account-menu-name"></span>
+                            <span id="accountMenuEmail" class="account-menu-email"></span>
+                        </div>
+                        <button id="accountMenuAccountBtn" class="account-menu-item" type="button">Account</button>
+                        <button id="accountMenuLogoutBtn" class="account-menu-item account-menu-item--danger" type="button">Log out</button>
+                    </div>
+                </div>
             </div>
         </div>
     </header>
@@ -643,7 +675,7 @@
             <button class="subtab-btn" data-playground-tab="paper">Paper Trading</button>
         </div>
         <div id="playgroundAgentsPanel" class="playground-panel">
-            <!-- My Portfolio: Overview + Capital Allocation (mock layout) -->
+            <!-- My Portfolio: Overview + Capital Allocation (live ledger when signed in, sample data for guests) -->
             <div class="page-header">
                 <div>
                     <h2 class="page-title">My Portfolio
@@ -1467,6 +1499,39 @@
             <div class="account-actions">
                 <button id="authLogoutBtn" class="auth-btn auth-btn-secondary" type="button">Log out</button>
             </div>
+            <div class="account-section">
+                <h3 class="account-section-title">Profile photo</h3>
+                <div class="account-avatar-row">
+                    <span id="accountAvatarPreview" class="auth-avatar auth-avatar--large" aria-hidden="true"></span>
+                    <div class="account-avatar-actions">
+                        <input id="avatarFileInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+                        <button id="avatarUploadBtn" class="auth-btn auth-btn-secondary" type="button">Upload photo</button>
+                        <button id="avatarRemoveBtn" class="auth-btn auth-btn-secondary" type="button" hidden>Remove</button>
+                    </div>
+                </div>
+                <p id="avatarError" class="auth-error" hidden></p>
+            </div>
+            <div class="account-section">
+                <h3 class="account-section-title">Change password</h3>
+                <form id="changePasswordForm" class="auth-form account-password-form">
+                    <label class="auth-field">
+                        <span>Current password</span>
+                        <input id="currentPasswordInput" type="password" autocomplete="current-password" required>
+                    </label>
+                    <label class="auth-field">
+                        <span>New password</span>
+                        <input id="newPasswordInput" type="password" autocomplete="new-password" required>
+                    </label>
+                    <label class="auth-field">
+                        <span>Confirm new password</span>
+                        <input id="confirmPasswordInput" type="password" autocomplete="new-password" required>
+                    </label>
+                    <ul id="passwordPolicyHints" class="password-policy-hints" hidden></ul>
+                    <p id="changePasswordError" class="auth-error" hidden></p>
+                    <p id="changePasswordSuccess" class="account-success" hidden>Password updated. Other devices were signed out.</p>
+                    <button class="auth-btn auth-btn-primary" type="submit">Update password</button>
+                </form>
+            </div>
         </div>
         <div id="accountSignedOut" class="account-card account-card--empty" hidden>
             <p class="account-empty-copy">Sign in to view your account.</p>
@@ -1481,8 +1546,8 @@
     <script src="market-events/MarketEventFeed.js"></script>
     <script src="js/portfolio.js?v=11"></script>
     <script src="js/agent-editor.js?v=9"></script>
-    <script src="app.js?v=26"></script>
-    <script src="js/leaderboard.js?v=15"></script>
+    <script src="app.js?v=31"></script>
+    <script src="js/leaderboard.js?v=16"></script>
     <script src="home-page.js?v=34"></script>
     <!-- Load order: must come after app.js (API/API_BASE/escapeHtml) and
          market-events/marketEventRelativeTime.js (formatMarketEventRelativeTime),
