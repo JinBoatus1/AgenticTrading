@@ -10,7 +10,7 @@ Invite: [discord.gg/9HnQ6XDG98](https://discord.gg/9HnQ6XDG98)
 
 `/agent` shows **your** agents from the lab website — not everyone else's.
 
-1. Sign in on the website.
+1. Sign in on the website. (No account yet? Click **Sign in** in the header, then **Need an account? Sign up**.)
 2. Click **Open Discord** (header or My Agents). The first time, Discord asks you to authorize once.
 3. After linking, run `/agent` in Discord to pick one of your built-in agents.
 

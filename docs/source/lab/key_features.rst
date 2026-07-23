@@ -5,3 +5,4 @@ Key Features
 - **Educational playground** — Explore trading without wiring up APIs and infrastructure yourself.
 - **Interactive backtesting** — Custom date ranges and assets from the web dashboard.
 - **Performance metrics** — Final portfolio value, cumulative return, max drawdown, Sharpe ratio, and equity-curve comparison views.
+- **Optional accounts** — Sign in to persist your agents, attribute leaderboard runs, and link Discord.

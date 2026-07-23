@@ -11,6 +11,13 @@ Run a backtest in the dashboard
 
 Results appear in **Trading Performance** (agent vs. buy-and-hold vs. DJIA).
 
+Accounts (optional)
+-------------------
+
+Backtests and paper trading work without signing in. Creating an account
+persists the agents you register, attributes leaderboard runs to them, and lets
+you link Discord. See :doc:`accounts` to sign up and manage your profile.
+
 CLI backtest (optional)
 -----------------------
 
