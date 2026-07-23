@@ -2067,7 +2067,7 @@ function openAuthFromUrl() {
     params.delete('auth');
     const clean = params.toString();
     const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', next);
+    window.history.replaceState(getNavigationState(), '', next);
     return;
   }
 
@@ -2075,7 +2075,7 @@ function openAuthFromUrl() {
   params.delete('auth');
   const clean = params.toString();
   const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
-  window.history.replaceState({}, '', next);
+  window.history.replaceState(getNavigationState(), '', next);
 }
 
 function closeAuthModal() {
@@ -2135,7 +2135,7 @@ async function handleDiscordOAuthReturn() {
   params.delete('reason');
   const clean = params.toString();
   const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
-  window.history.replaceState({}, '', next);
+  window.history.replaceState(getNavigationState(), '', next);
 
   if (discord === 'linked') {
     try {
@@ -2287,8 +2287,9 @@ function initAuthUI() {
           // (params were kept), retry it now that the owner is signed in. This
           // waits on the claim: until it lands the account does not own the
           // agent yet and the deep link's fetch 403s.
-          const deepLinkParams = new URLSearchParams(window.location.search);
-          if (deepLinkParams.get('agent_id') || deepLinkParams.get('run_id')) {
+          // The params were parked in sessionStorage, not left in the URL, so
+          // that they could not leak into every later history entry.
+          if (readPendingDeepLink()) {
             applyAgentRunDeepLink();
           }
         })
@@ -2376,7 +2377,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         currentMode = 'backtest';
         await loadData();
     });
-    await applyAgentRunDeepLink();
+    // Guarded: this awaits loadData() internally, and an unhandled rejection here
+    // used to abort the rest of boot — including initNavigation(), which wires
+    // every nav button. A failed deep link must not cost the user navigation.
+    try {
+        await applyAgentRunDeepLink();
+    } catch (error) {
+        console.warn('Deep link failed:', error.message);
+    }
     const config = loadConfigFromURL();
     window.CURRENT_CONFIG = config;
     console.log('⚙️ Experiment config:', config);
@@ -3869,21 +3877,99 @@ function getSelectedSymbols() {
 }
 
 /**
- * Resolve page from URL for legacy deep links.
+ * Resolve page from URL for legacy deep links + sync History API so browser
+ * Back/Forward undo in-app navigation (see #178).
  */
+// Defined by the anti-FOUC boot script in app.html's <head> (it needs the map
+// before this file loads) and read back here so the two can never drift: the
+// boot copy picks which page CSS paints, this copy picks which page renders.
+// A divergence would paint one page and render another — a flash bug no test
+// in this repo can catch, so there is deliberately only ever one object.
+const NAV_VIEW_MAP = window.NAV_VIEW_MAP;
+
 // Persist the current tab so a page refresh restores it instead of going home.
 function persistNavigation() {
     try {
         localStorage.setItem(
             NAV_STATE_KEY,
-            JSON.stringify({
-                page: currentPage,
-                playgroundTab,
-                competitionTab,
-            }),
+            JSON.stringify(getNavigationState()),
         );
     } catch (error) {
         /* localStorage unavailable — ignore */
+    }
+}
+
+function getNavigationState() {
+    return {
+        page: currentPage,
+        playgroundTab,
+        competitionTab,
+    };
+}
+
+function navigationStatesEqual(a, b) {
+    if (!a || !b) return false;
+    return a.page === b.page
+        && (a.playgroundTab || 'agents') === (b.playgroundTab || 'agents')
+        && (a.competitionTab || 'daily') === (b.competitionTab || 'daily');
+}
+
+/**
+ * Inverse of NAV_VIEW_MAP: nav state -> the ?view= slug that restores it.
+ *
+ * INVARIANT: every slug returned here must be a key of NAV_VIEW_MAP, and every
+ * distinct state NAV_VIEW_MAP can produce must be reachable from some return
+ * below. Break the first half and the URL this writes won't restore on refresh
+ * or Back; break the second and a page becomes unlinkable. The two are
+ * hand-maintained inverses — change one, check the other.
+ *
+ * Several NAV_VIEW_MAP keys are read-only aliases that this never emits
+ * ('contest', 'competition', 'playground', 'my-algo'); old links keep working,
+ * new URLs get the canonical slug.
+ */
+function viewParamForNavState(state) {
+    if (state.page === 'home') return 'home';
+    if (state.page === 'community') return 'community';
+    if (state.page === 'account') return 'account';
+    if (state.page === 'playground') {
+        if (state.playgroundTab === 'backtest') return 'backtest';
+        if (state.playgroundTab === 'paper') return 'paper';
+        return 'agents';
+    }
+    if (state.page === 'competition') {
+        if (state.competitionTab === 'leaderboard') return 'leaderboard';
+        if (state.competitionTab === 'participants') return 'participants';
+        if (state.competitionTab === 'about') return 'about';
+        // 'daily', not the legacy 'contest' alias: a copied URL should name the
+        // board the user is actually looking at, not the all-time contest.
+        return 'daily';
+    }
+    return state.page;
+}
+
+function buildNavigationUrl(state) {
+    const params = new URLSearchParams(window.location.search);
+    params.set('view', viewParamForNavState(state));
+    params.delete('mode');
+    const clean = params.toString();
+    return `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+}
+
+/**
+ * Keep the History stack in sync with the visible page/subtab.
+ * @param {{ replace?: boolean }} [options]
+ */
+function syncNavigationHistory({ replace = false } = {}) {
+    const state = getNavigationState();
+    const url = buildNavigationUrl(state);
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (!replace && url === current && navigationStatesEqual(window.history.state, state)) {
+        return;
+    }
+    if (replace) {
+        window.history.replaceState(state, '', url);
+    } else {
+        window.history.pushState(state, '', url);
     }
 }
 
@@ -3895,10 +3981,17 @@ function clearNavBootState() {
 }
 
 function applyInitialNavigation() {
+    // Registered here, not in initNavigation(): initNavigation runs at the very
+    // end of a long async boot, behind several awaits that can reject and abort
+    // the whole DOMContentLoaded handler. Back is not worth hanging off that
+    // single point of failure when the listener is free and order-independent.
+    window.addEventListener('popstate', onNavigationPopState);
+
     const initial = resolveInitialNavigation();
     navigateToPage(initial.page, {
         playgroundTab: initial.playgroundTab || 'agents',
         competitionTab: initial.competitionTab || 'daily',
+        history: 'replace',
     });
     if (typeof initHomePage === 'function') {
         initHomePage();
@@ -3911,24 +4004,14 @@ function resolveInitialNavigation() {
     const hash = window.location.hash.replace('#', '');
     const legacy = view || hash;
 
-    const legacyMap = {
-        home: { page: 'home' },
-        community: { page: 'community' },
-        account: { page: 'account' },
-        backtest: { page: 'playground', playgroundTab: 'backtest' },
-        paper: { page: 'playground', playgroundTab: 'paper' },
-        contest: { page: 'competition', competitionTab: 'daily' },
-        'my-algo': { page: 'playground', playgroundTab: 'agents' },
-    };
-
     // Discord / share deep links land on the backtest playground.
     if (params.get('agent_id') || params.get('run_id')) {
         return { page: 'playground', playgroundTab: 'backtest' };
     }
 
     // An explicit URL view/hash always wins.
-    if (legacy && legacyMap[legacy]) {
-        return legacyMap[legacy];
+    if (legacy && NAV_VIEW_MAP[legacy]) {
+        return { ...NAV_VIEW_MAP[legacy] };
     }
 
     // Otherwise restore the last visited tab across refreshes.
@@ -3945,14 +4028,82 @@ function resolveInitialNavigation() {
     return { page: 'home' };
 }
 
+function onNavigationPopState(event) {
+    const fromState = event.state;
+    const target = (fromState && fromState.page)
+        ? fromState
+        : resolveInitialNavigation();
+    navigateToPage(target.page, {
+        playgroundTab: target.playgroundTab || 'agents',
+        competitionTab: target.competitionTab || 'daily',
+        history: 'none',
+    });
+}
+
 /**
- * Open a specific agent + backtest run from ?agent_id=&run_id= (Discord links).
+ * A deep link that needs sign-in is parked here rather than left in the URL.
+ *
+ * The URL is the wrong place to hold it now that every navigation rewrites the
+ * query string: buildNavigationUrl copies window.location.search wholesale, so
+ * agent_id/run_id would ride along on every later pushState, and
+ * resolveInitialNavigation checks them *before* ?view= — so a refresh from any
+ * page would snap back to the backtest tab. sessionStorage (not localStorage)
+ * because a stale pending link must not outlive the tab and hijack a later visit.
+ */
+const PENDING_DEEP_LINK_KEY = 'pending-agent-run-deep-link';
+
+function readPendingDeepLink() {
+    try {
+        const saved = JSON.parse(sessionStorage.getItem(PENDING_DEEP_LINK_KEY) || 'null');
+        if (saved && (saved.agentId || saved.runId)) return saved;
+    } catch (error) {
+        /* corrupt/unavailable — treat as no pending link */
+    }
+    return null;
+}
+
+function savePendingDeepLink(link) {
+    try {
+        sessionStorage.setItem(PENDING_DEEP_LINK_KEY, JSON.stringify(link));
+    } catch (error) {
+        /* sessionStorage unavailable — the post-sign-in retry is best effort */
+    }
+}
+
+function clearPendingDeepLink() {
+    try {
+        sessionStorage.removeItem(PENDING_DEEP_LINK_KEY);
+    } catch (error) {
+        /* ignore */
+    }
+}
+
+/** Drop agent_id/run_id from the visible URL without touching the history stack. */
+function stripDeepLinkParamsFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('agent_id') && !params.has('run_id')) return;
+    params.delete('agent_id');
+    params.delete('run_id');
+    const clean = params.toString();
+    const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+    window.history.replaceState(getNavigationState(), '', next);
+}
+
+/**
+ * Open a specific agent + backtest run from ?agent_id=&run_id= (Discord links),
+ * or from a link parked by a previous signed-out attempt.
  */
 async function applyAgentRunDeepLink() {
     const params = new URLSearchParams(window.location.search);
-    const agentId = (params.get('agent_id') || '').trim();
-    const runId = (params.get('run_id') || '').trim();
+    const pending = readPendingDeepLink();
+    const agentId = (params.get('agent_id') || pending?.agentId || '').trim();
+    const runId = (params.get('run_id') || pending?.runId || '').trim();
     if (!agentId && !runId) return;
+
+    // Consume the link up front so it cannot leak into later history entries.
+    // Everything below works off the locals; the signed-out branch re-parks it.
+    stripDeepLinkParamsFromUrl();
+    clearPendingDeepLink();
 
     try {
         await loadAgents();
@@ -3980,7 +4131,8 @@ async function applyAgentRunDeepLink() {
     if (agentId && !agent && agentAuthError) {
         const signedIn = !!(localStorage.getItem(AUTH_TOKEN_KEY) && getStoredAuthUser());
         if (!signedIn) {
-            // Leave agent_id/run_id in the URL so a successful sign-in retries.
+            // Park it so a successful sign-in retries — see PENDING_DEEP_LINK_KEY.
+            savePendingDeepLink({ agentId, runId });
             alert('Sign in with the account that owns this agent to open its backtest from Discord.');
             openAuthModal('login');
             return;
@@ -4000,18 +4152,11 @@ async function applyAgentRunDeepLink() {
         localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, runId);
     }
 
-    navigateToPage('playground', { playgroundTab: 'backtest' });
+    navigateToPage('playground', { playgroundTab: 'backtest', history: 'replace' });
     currentMode = 'backtest';
     await loadData();
-
-    params.delete('agent_id');
-    params.delete('run_id');
-    if (!params.get('view') && !params.get('mode')) {
-        params.set('view', 'backtest');
-    }
-    const clean = params.toString();
-    const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', next);
+    // No URL cleanup left to do: the deep-link params were stripped on entry and
+    // navigateToPage's 'replace' already wrote ?view=backtest onto this entry.
 }
 
 function updatePlaygroundSubtabs() {
@@ -4093,6 +4238,9 @@ function navigateToPage(page, options = {}) {
         options = { ...options, playgroundTab: options.playgroundTab || 'agents' };
     }
 
+    const historyMode = options.history || 'push';
+    const prevState = getNavigationState();
+
     currentPage = page;
 
     if (options.playgroundTab) playgroundTab = options.playgroundTab;
@@ -4163,6 +4311,11 @@ function navigateToPage(page, options = {}) {
 
     clearNavBootState();
     persistNavigation();
+
+    if (historyMode === 'none') return;
+    const nextState = getNavigationState();
+    if (historyMode === 'push' && navigationStatesEqual(prevState, nextState)) return;
+    syncNavigationHistory({ replace: historyMode === 'replace' });
 }
 
 function switchPlaygroundTab(tab) {
@@ -4170,7 +4323,12 @@ function switchPlaygroundTab(tab) {
         navigateToPage('playground', { playgroundTab: tab });
         return;
     }
+    // Re-clicking the active subtab deliberately falls through: showPlaygroundPanel
+    // re-runs its loaders, which users rely on as a refresh. It cannot double-push
+    // history — syncNavigationHistory early-returns when the URL and state are
+    // already the current entry, which is exactly this case.
     showPlaygroundPanel(tab);
+    syncNavigationHistory({ replace: false });
 }
 
 function switchCompetitionTab(tab) {
@@ -4178,7 +4336,9 @@ function switchCompetitionTab(tab) {
         navigateToPage('competition', { competitionTab: tab });
         return;
     }
+    // Falls through on a re-click for the same reason as switchPlaygroundTab.
     showCompetitionPanel(tab);
+    syncNavigationHistory({ replace: false });
 }
 
 function openAddAgentModal() {
@@ -4283,19 +4443,9 @@ function initNavigation() {
 function switchMode(mode) {
     console.log('Switching to mode:', mode);
 
-    const legacyMap = {
-        backtest: { page: 'playground', playgroundTab: 'backtest' },
-        paper: { page: 'playground', playgroundTab: 'paper' },
-        contest: { page: 'competition', competitionTab: 'daily' },
-        'my-algo': { page: 'playground', playgroundTab: 'agents' },
-        home: { page: 'home' },
-        agents: { page: 'playground', playgroundTab: 'agents' },
-        playground: { page: 'playground', playgroundTab: 'agents' },
-        competition: { page: 'competition', competitionTab: 'daily' },
-        account: { page: 'account' },
-    };
-
-    const target = legacyMap[mode] || { page: mode };
+    // Shares NAV_VIEW_MAP rather than keeping a third copy of the same table;
+    // it is a superset of the slugs this used to carry, so nothing regresses.
+    const target = NAV_VIEW_MAP[mode] || { page: mode };
     navigateToPage(target.page, {
         playgroundTab: target.playgroundTab,
         competitionTab: target.competitionTab,
