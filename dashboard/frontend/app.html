@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=54">
+    <link rel="stylesheet" href="styles.css?v=59">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
     (function () {
@@ -643,7 +643,7 @@
             <button class="subtab-btn" data-playground-tab="paper">Paper Trading</button>
         </div>
         <div id="playgroundAgentsPanel" class="playground-panel">
-            <!-- My Portfolio -->
+            <!-- My Portfolio: Overview + Capital Allocation (mock layout) -->
             <div class="page-header">
                 <div>
                     <h2 class="page-title">My Portfolio
@@ -652,19 +652,17 @@
                 </div>
             </div>
 
-            <!-- Summary cards: Total / Available / Allocated -->
-            <div id="portfolioSummaryGrid" class="portfolio-summary-grid"></div>
-
-            <!-- How allocated capital is split across agents -->
-            <div class="allocation-grid allocation-grid--single">
-                <section class="section-card allocation-card">
-                    <h3 class="allocation-title">Capital Allocation by Agent</h3>
+            <div class="portfolio-top-grid">
+                <section class="section-card pf-overview-card" id="portfolioOverviewCard" aria-label="Portfolio Overview">
+                    <!-- filled by portfolio.js -->
+                </section>
+                <section class="section-card allocation-card pf-allocation-card">
+                    <h3 class="allocation-title">Capital Allocation</h3>
                     <div class="allocation-body">
                         <div class="allocation-chart-wrap">
                             <canvas id="agentAllocationChart"></canvas>
                         </div>
                         <div class="allocation-detail">
-                            <div class="allocation-total" id="agentAllocationTotal"></div>
                             <ul class="allocation-legend" id="agentAllocationLegend"></ul>
                         </div>
                     </div>
@@ -1481,7 +1479,7 @@
     <script src="market-events/marketEventRelativeTime.js"></script>
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
-    <script src="js/portfolio.js?v=6"></script>
+    <script src="js/portfolio.js?v=9"></script>
     <script src="js/agent-editor.js?v=8"></script>
     <script src="app.js?v=25"></script>
     <script src="js/leaderboard.js?v=13"></script>
