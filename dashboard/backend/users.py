@@ -44,6 +44,15 @@ def _bcrypt_secret(password: str) -> bytes:
     bytes, which C bcrypt implementations treat as end-of-string -- that would
     reintroduce truncation at the first NUL. The base64 form is 44 ASCII bytes,
     comfortably inside the cap.
+
+    CodeQL flags the SHA-256 below as py/weak-sensitive-data-hashing. It is a false
+    positive: this digest is never stored or compared as a credential, it is only a
+    length-reduction step whose sole consumer is bcrypt, which supplies the salt and
+    the work factor. The digest is also deliberately conditional -- passwords at or
+    under the cap reach bcrypt untouched. That keeps the common path a single bcrypt
+    call, and it keeps "password shucking" (cracking a leaked unsalted SHA-256 of
+    the same secret, then confirming it with one bcrypt call) off the table for every
+    password short enough to plausibly appear in such a corpus.
     """
     raw = password.encode("utf-8")
     if len(raw) <= BCRYPT_MAX_BYTES:
