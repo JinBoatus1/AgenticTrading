@@ -137,10 +137,45 @@ function formatTokenCount(value) {
 // unavailable). Lets the redesigned My Agents page render without a backend.
 // TODO: Replace mock agent data with backend API data later.
 // ============================================================================
-const MAX_AGENT_CASH_ALLOCATION = 3000;
+const MAX_AGENT_CASH_ALLOCATION = 1000000;
 const DEFAULT_AGENT_CASH_ALLOCATION = 1000;
 const DEFAULT_PORTFOLIO_EQUITY = 10000;
 const AGENT_CASH_OVERRIDE_PREFIX = 'agent-cash-allocation:';
+
+const DEFAULT_AGENT_KEY_PREFIX = 'default-agent-id:';
+
+function defaultAgentKey() {
+  return `${DEFAULT_AGENT_KEY_PREFIX}${window.BROWSER_OWNER_ID || 'anon'}`;
+}
+
+function getDefaultAgentId() {
+  try {
+    return localStorage.getItem(defaultAgentKey());
+  } catch (e) {
+    return null;
+  }
+}
+
+function setDefaultAgentId(agentId) {
+  try {
+    localStorage.setItem(defaultAgentKey(), agentId);
+  } catch (e) {
+    /* storage unavailable — badge simply won't persist */
+  }
+}
+
+const DEFAULT_AGENT_PROVISION_GUARD_PREFIX = 'default-agent-provisioned:';
+const DEFAULT_FOUNDATION_MODEL = 'deepseek/deepseek-v4-pro';
+const SIMPLE_INSTRUCTION_PRESET_KEY = 'simple_instruction';
+const SIMPLE_INSTRUCTION_OUTPUT_FORMAT =
+  'JSON: { "orders": [{ "symbol": "...", "side": "buy|sell|hold", "qty": number, "order_type": "market|limit", "limit_price": number|null, "reason": "..." }] }';
+// Single source of truth for the Simple-mode trading-actions contract. Published
+// on `window` so agent-editor.js (which loads BEFORE this file) reads the exact
+// same preset key + output format at call time instead of keeping its own copy.
+window.SIMPLE_INSTRUCTION_PRESET_KEY = SIMPLE_INSTRUCTION_PRESET_KEY;
+window.SIMPLE_INSTRUCTION_OUTPUT_FORMAT = SIMPLE_INSTRUCTION_OUTPUT_FORMAT;
+const DEFAULT_STARTER_INSTRUCTION =
+  'Spread the money across a few of the strongest available stocks. Buy on meaningful dips, take profits after strong run-ups, and never put everything into one stock.';
 
 function formatAgentCashAllocation(value) {
   if (value == null || value === '') return '—';
@@ -616,19 +651,21 @@ function renderAgentCardActions(agent, statusKey) {
   } else {
     primary = `<button class="agent-card-cta agent-run-backtest-btn" type="button" data-agent-id="${id}">Run Backtest</button>`;
   }
+  const configure = `<button class="agent-card-cta agent-card-cta--configure agent-configure-btn" type="button" data-agent-id="${id}">Configure</button>`;
   const rotate =
     agent.agent_type === 'builtin'
       ? ''
       : `<button class="agent-menu-item agent-rotate-key-btn" type="button" data-agent-id="${id}">New API key</button>`;
   return `
     <div class="agent-card-actions agent-card-actions--status">
+      ${configure}
       ${primary}
       <div class="agent-card-menu">
         <button class="agent-menu-toggle" type="button" aria-label="More actions" aria-expanded="false" data-agent-id="${id}">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>
         </button>
         <div class="agent-menu-dropdown" hidden>
-          <button class="agent-menu-item agent-edit-btn" type="button" data-agent-id="${id}">Edit</button>
+          <button class="agent-menu-item agent-set-default-btn" type="button" data-agent-id="${id}">Set as default</button>
           ${rotate}
           <button class="agent-menu-item agent-menu-item--danger agent-delete-btn" type="button" data-agent-id="${id}">Delete</button>
         </div>
@@ -656,21 +693,9 @@ function applyAgentNameOverride(agent) {
 }
 
 function applyAgentFilters() {
-  const filter = document.getElementById('agentFilterSelect')?.value || 'all';
   const query = (document.getElementById('agentSearchInput')?.value || '').trim().toLowerCase();
-  const activeId = localStorage.getItem(ACTIVE_AGENT_KEY);
 
   let list = allAgents.map(decorateAgent);
-  if (filter === 'builtin') {
-    list = list.filter((a) => a.agent_type === 'builtin');
-  } else if (filter === 'external') {
-    list = list.filter((a) => a.agent_type !== 'builtin');
-  } else if (filter === 'active') {
-    list = list.filter((a) => a.is_active || a.agent_id === activeId);
-  } else if (filter === 'registered') {
-    list = list.filter((a) => !(a.is_active || a.agent_id === activeId));
-  }
-
   if (query) {
     list = list.filter(
       (a) =>
@@ -679,13 +704,14 @@ function applyAgentFilters() {
     );
   }
 
-  renderAgentsGrid(list);
+  renderAgentCategories(list);
 }
 
 function setAgentViewMode(mode) {
   agentViewMode = mode === 'list' ? 'list' : 'grid';
-  const grid = document.getElementById('agentsGrid');
-  if (grid) grid.classList.toggle('agents-grid--list', agentViewMode === 'list');
+  document.querySelectorAll('.agents-section .agents-grid').forEach((grid) => {
+    grid.classList.toggle('agents-grid--list', agentViewMode === 'list');
+  });
   document.getElementById('agentViewGrid')?.classList.toggle('active', agentViewMode === 'grid');
   document.getElementById('agentViewList')?.classList.toggle('active', agentViewMode === 'list');
 }
@@ -731,11 +757,14 @@ function isDemoMode() {
 // Distinct error-state shown when the agents API is unreachable — never mask a
 // backend outage by rendering fake data.
 function renderAgentsError() {
-  const grid = document.getElementById('agentsGrid');
-  const empty = document.getElementById('agentsEmptyState');
   const errorEl = document.getElementById('agentsErrorState');
-  if (grid) grid.innerHTML = '';
-  if (empty) empty.hidden = true;
+  document.querySelectorAll('.agents-section .agents-grid').forEach((grid) => {
+    grid.innerHTML = '';
+  });
+  const builtinEmpty = document.getElementById('agentsEmptyBuiltin');
+  if (builtinEmpty) builtinEmpty.hidden = true;
+  const externalEmpty = document.getElementById('agentsEmptyExternal');
+  if (externalEmpty) externalEmpty.hidden = true;
   if (errorEl) errorEl.hidden = false;
 }
 
@@ -791,19 +820,10 @@ function bindAgentCardMenus(grid) {
   });
 }
 
-function renderAgentsGrid(agents) {
-  const grid = document.getElementById('agentsGrid');
-  const empty = document.getElementById('agentsEmptyState');
-  const errorEl = document.getElementById('agentsErrorState');
-  if (!grid) return;
-
-  if (errorEl) errorEl.hidden = true;  // a successful render clears any prior error
+function renderAgentCards(grid, agents) {
   grid.innerHTML = '';
-  if (!agents.length) {
-    if (empty) empty.hidden = false;
-    return;
-  }
-  if (empty) empty.hidden = true;
+
+  const defaultId = getDefaultAgentId();
 
   agents.forEach((agent) => {
     const isBuiltin = agent.agent_type === 'builtin';
@@ -818,7 +838,7 @@ function renderAgentsGrid(agents) {
         <div class="agent-card-identity">
           ${agentRobotIcon()}
           <div class="agent-card-identity-text">
-            <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
+            <h3 class="agent-name">${escapeHtml(agent.name)}${agent.agent_id === defaultId ? ' <span class="agent-default-badge">Default</span>' : ''}</h3>
             <p class="agent-card-submeta">${model} · ${type}</p>
           </div>
         </div>
@@ -832,13 +852,20 @@ function renderAgentsGrid(agents) {
 
   bindAgentCardMenus(grid);
 
-  grid.querySelectorAll('.agent-edit-btn').forEach((btn) => {
+  grid.querySelectorAll('.agent-configure-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const agent = agents.find((a) => a.agent_id === btn.dataset.agentId);
       if (!agent || !window.AgentEditor) return;
       navigateToPage('playground', { playgroundTab: 'agents' });
       showPlaygroundPanel('agents');
       window.AgentEditor.open(agent);
+    });
+  });
+
+  grid.querySelectorAll('.agent-set-default-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setDefaultAgentId(btn.dataset.agentId);
+      applyAgentFilters(); // re-render: badge + pin move to the new default
     });
   });
 
@@ -916,12 +943,71 @@ function renderAgentsGrid(agents) {
   });
 }
 
+function renderAgentCategories(agents) {
+  const builtinGrid = document.getElementById('agentsGridBuiltin');
+  const externalGrid = document.getElementById('agentsGridExternal');
+  const errorEl = document.getElementById('agentsErrorState');
+  if (!builtinGrid || !externalGrid) return;
+
+  if (errorEl) errorEl.hidden = true; // a successful render clears any prior error
+
+  const defaultId = getDefaultAgentId();
+  const pinDefaultFirst = (list) =>
+    [...list].sort((a, b) => (b.agent_id === defaultId) - (a.agent_id === defaultId));
+
+  // A live search narrows the list: distinguish "no agents at all" (onboarding)
+  // from "none match your search" so we neither mis-say "No foundation agents
+  // yet" nor surface the External onboarding card as if it were a search result.
+  const searching = !!(document.getElementById('agentSearchInput')?.value || '').trim();
+
+  const builtin = pinDefaultFirst(agents.filter((a) => a.agent_type === 'builtin'));
+  const external = pinDefaultFirst(agents.filter((a) => a.agent_type !== 'builtin'));
+
+  renderAgentCards(builtinGrid, builtin);
+  renderAgentCards(externalGrid, external);
+
+  const builtinEmpty = document.getElementById('agentsEmptyBuiltin');
+  if (builtinEmpty) {
+    builtinEmpty.hidden = builtin.length > 0;
+    builtinEmpty.innerHTML = searching
+      ? 'No foundation agents match your search.'
+      : 'No foundation agents yet. Click <strong>Add Agent</strong> to create one.';
+  }
+
+  const externalEmpty = document.getElementById('agentsEmptyExternal');
+  if (external.length > 0) {
+    if (externalEmpty) externalEmpty.hidden = true;
+  } else if (searching) {
+    // A search that matched no external agents — show a no-match note, not the
+    // "Connect your own agent" onboarding card.
+    if (externalEmpty) externalEmpty.hidden = false;
+  } else {
+    if (externalEmpty) externalEmpty.hidden = true;
+    renderExternalPlaceholderCard(externalGrid);
+  }
+}
+
+// Reserved entry point for connect-your-own agents: the connection mechanism
+// is still an open team decision, so this opens the existing creation flow.
+function renderExternalPlaceholderCard(grid) {
+  const card = document.createElement('div');
+  card.className = 'section-card agent-card agent-card--placeholder';
+  card.innerHTML = `
+    <div class="agent-card-identity-text">
+      <h3 class="agent-name">Connect your own agent</h3>
+      <p class="agent-card-submeta">Run your own trading agent against our backtests via an API key.</p>
+    </div>
+    <button class="agent-card-cta agent-card-cta--outline" type="button">Connect agent</button>`;
+  card.querySelector('button')?.addEventListener('click', openCreateExternalAgentModal);
+  grid.appendChild(card);
+}
+
 document.addEventListener('click', (event) => {
   if (event.target.closest?.('.agent-card-menu')) return;
-  document.querySelectorAll('#agentsGrid .agent-menu-dropdown').forEach((el) => {
+  document.querySelectorAll('.agents-grid .agent-menu-dropdown').forEach((el) => {
     el.hidden = true;
   });
-  document.querySelectorAll('#agentsGrid .agent-menu-toggle').forEach((el) => {
+  document.querySelectorAll('.agents-grid .agent-menu-toggle').forEach((el) => {
     el.setAttribute('aria-expanded', 'false');
   });
 });
@@ -1027,6 +1113,60 @@ async function onBacktestAgentSelectChange() {
   }
 }
 
+// First-visit onboarding: a brand-new owner gets one real Foundation agent so
+// the row is never empty. The guard key means "we provisioned once for this
+// browser identity" — deleting the agent must NOT resurrect it.
+let defaultAgentProvisionInFlight = false;
+
+async function ensureDefaultFoundationAgent(agents) {
+  if (isDemoMode()) return false;
+  if (agents.some((a) => a.agent_type === 'builtin')) return false;
+  const guardKey = `${DEFAULT_AGENT_PROVISION_GUARD_PREFIX}${window.BROWSER_OWNER_ID || 'anon'}`;
+  try {
+    if (localStorage.getItem(guardKey)) return false;
+  } catch (e) {
+    return false; // no storage → cannot guard → do not provision
+  }
+  if (defaultAgentProvisionInFlight) return false;
+  defaultAgentProvisionInFlight = true;
+  try {
+    const data = await API.post(`${API_BASE}/api/v1/agents`, {
+      name: 'My Foundation Agent',
+      model_name: DEFAULT_FOUNDATION_MODEL,
+      agent_type: 'builtin',
+      description: 'Your starter agent — configure it and run a backtest.',
+      cash_allocation: DEFAULT_AGENT_CASH_ALLOCATION,
+    });
+    const agent = data?.agent;
+    if (!agent?.agent_id) return false;
+    localStorage.setItem(guardKey, agent.agent_id);
+    try {
+      await API.patch(`${API_BASE}/api/v1/agents/${encodeURIComponent(agent.agent_id)}`, {
+        pipeline: [
+          {
+            id: `sub_starter_${agent.agent_id}`,
+            presetKey: SIMPLE_INSTRUCTION_PRESET_KEY,
+            label: 'Trading instruction',
+            prompt: DEFAULT_STARTER_INSTRUCTION,
+            outputFormat: SIMPLE_INSTRUCTION_OUTPUT_FORMAT,
+          },
+        ],
+      });
+    } catch (seedError) {
+      // Non-fatal: the agent exists; the editor just opens with a blank instruction.
+      console.warn('Starter instruction seed failed:', seedError.message);
+    }
+    if (!getDefaultAgentId()) setDefaultAgentId(agent.agent_id);
+    return true;
+  } catch (error) {
+    // Non-fatal: the row falls back to its empty state with the Add Agent CTA.
+    console.warn('Default agent provisioning skipped:', error.message);
+    return false;
+  } finally {
+    defaultAgentProvisionInFlight = false;
+  }
+}
+
 async function loadAgents() {
   try {
     let data = await API.get(`${API_BASE}/api/v1/agents`);
@@ -1063,9 +1203,18 @@ async function loadAgents() {
 
     // Demo only: seed illustrative agents so the page has content without a
     // backend. Real users get the genuine empty-state (rendered by
-    // renderAgentsGrid) instead of fabricated agents.
+    // renderAgentCategories) instead of fabricated agents.
     if (!agents.length && isDemoMode()) {
       agents = visibleMockAgents();
+    }
+
+    if (await ensureDefaultFoundationAgent(agents)) {
+      try {
+        const refreshed = await API.get(`${API_BASE}/api/v1/agents`);
+        agents = refreshed.agents || agents;
+      } catch (refreshError) {
+        console.warn('Refresh after default-agent provisioning failed:', refreshError.message);
+      }
     }
 
     allAgents = agents;
@@ -3835,7 +3984,6 @@ function initNavigation() {
         });
     });
 
-    document.getElementById('agentFilterSelect')?.addEventListener('change', applyAgentFilters);
     document.getElementById('agentSearchInput')?.addEventListener('input', applyAgentFilters);
     document.getElementById('agentViewGrid')?.addEventListener('click', () => setAgentViewMode('grid'));
     document.getElementById('agentViewList')?.addEventListener('click', () => setAgentViewMode('list'));

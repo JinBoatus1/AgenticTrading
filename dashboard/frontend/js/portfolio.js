@@ -11,7 +11,7 @@
 // ---------------------------------------------------------------------------
 // Mock data
 // TODO: Replace mock portfolio data with backend API data later.
-// Portfolio budget defaults to $10,000; agents allocate $1,000–$3,000 each.
+// Portfolio budget defaults to $10,000; agents allocate up to $1,000,000 each.
 // ---------------------------------------------------------------------------
 const PORTFOLIO_MOCK = {
     summary: {

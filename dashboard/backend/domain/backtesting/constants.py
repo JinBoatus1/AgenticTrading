@@ -9,9 +9,11 @@ for backward compatibility (``bha.INITIAL_CAPITAL``).
 here.
 
 Capital scale (product):
-- User portfolio budget: ``DEFAULT_PORTFOLIO_EQUITY`` ($10,000)
+- Portfolio-view equity: ``DEFAULT_PORTFOLIO_EQUITY`` ($10,000) — a display
+  default only, NOT a cap on the sum of agent allocations
 - Per-agent starting cash: default ``DEFAULT_AGENT_CASH_ALLOCATION`` ($1,000),
-  max ``MAX_AGENT_CASH_ALLOCATION`` ($3,000)
+  max ``MAX_AGENT_CASH_ALLOCATION`` ($1,000,000) — so a single agent may
+  allocate far above the portfolio-view figure above
 - Backtests / protocol use the agent's cash allocation (falling back to
   ``INITIAL_CAPITAL``)
 """
@@ -23,12 +25,14 @@ from typing import Any, Optional
 # Default starting capital for a backtest when no agent allocation is set.
 INITIAL_CAPITAL = 1000
 
-# User-level portfolio budget (sum of agent allocations should fit under this).
+# Portfolio-view equity default (display/simulation). NOT a cap on agent cash
+# allocations — a single agent may allocate up to MAX_AGENT_CASH_ALLOCATION,
+# which is 100x this figure.
 DEFAULT_PORTFOLIO_EQUITY = 10_000
 
 # Per-agent cash allocation bounds (also enforced by the agents API).
 DEFAULT_AGENT_CASH_ALLOCATION = 1000
-MAX_AGENT_CASH_ALLOCATION = 3000
+MAX_AGENT_CASH_ALLOCATION = 1_000_000
 
 
 def resolve_initial_capital(cash_allocation: Optional[Any] = None) -> float:

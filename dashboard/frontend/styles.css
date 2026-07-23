@@ -7049,21 +7049,6 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market
     font-size: 13px;
 }
 
-.agent-toolbar-select {
-    padding: 8px 12px;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-input);
-    color: var(--text-primary);
-    font-size: 12px;
-    cursor: pointer;
-}
-
-.agent-toolbar-select:focus {
-    outline: none;
-    border-color: var(--info-color);
-}
-
 .agent-toolbar-search {
     position: relative;
     display: flex;
@@ -8402,16 +8387,6 @@ body.agent-editor-open {
     color: #f87171;
 }
 
-.agent-action-btn.agent-edit-btn {
-    border-color: rgba(34, 211, 238, 0.45);
-    background: rgba(34, 211, 238, 0.14);
-    color: var(--home-accent-cyan, #22d3ee);
-}
-
-.agent-action-btn.agent-edit-btn:hover {
-    background: rgba(34, 211, 238, 0.24);
-}
-
 @media (max-width: 1100px) {
     .agent-editor-layout {
         grid-template-columns: 1fr;
@@ -8473,4 +8448,106 @@ body.agent-editor-open {
     .agent-sub-actions {
         justify-content: flex-start;
     }
+}
+
+/* My Agents — category rows (Demo 1) */
+.agents-category { margin-top: 28px; }
+.agents-category:first-child { margin-top: 8px; }
+.agents-category-head { margin-bottom: 14px; }
+.agents-category-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 2px;
+}
+.agents-category-sub {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+.agent-card--placeholder {
+    border-style: dashed;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+/* Configure CTA + Default badge (Demo 1) */
+.agent-card-actions--status { flex-wrap: wrap; }
+.agent-card-cta--configure {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    flex-basis: 100%;
+}
+.agent-card-cta--configure:hover { border-color: var(--text-secondary); }
+.agent-default-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    vertical-align: middle;
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.45);
+    background: rgba(16, 185, 129, 0.12);
+}
+
+/* Agent editor — Simple/Advanced modes (Demo 1) */
+.agent-editor-mode-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.agent-editor-mode-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 6px 14px;
+    cursor: pointer;
+}
+.agent-editor-mode-btn.active {
+    background: var(--border-color);
+    color: var(--text-primary);
+}
+.agent-editor-model-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+.agent-editor-model-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+.agent-editor-model-select {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    padding: 4px 8px;
+}
+.agent-editor-simple textarea {
+    width: 100%;
+    resize: vertical;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    padding: 10px 12px;
+    margin-top: 10px;
+}
+.agent-editor-simple-note {
+    margin: 10px 0 0;
+    font-size: 0.8rem;
+    color: #fbbf24;
 }
