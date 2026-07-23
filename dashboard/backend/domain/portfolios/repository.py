@@ -49,6 +49,13 @@ class PortfolioStore:
         return conn
 
     def _init_schema(self) -> None:
+        # Runs once per process, from __init__ (same as every other store).
+        # ADDING A COLUMN LATER (#175 allocate/reclaim)? It needs its own
+        # `ALTER TABLE ... ADD COLUMN` guarded by an OperationalError catch,
+        # *not* only a new line in the CREATE below: CREATE TABLE IF NOT EXISTS
+        # silently no-ops once the table exists, so a deployment whose table
+        # predates the column would never gain it. Mirror the change in
+        # repository_postgres.py, which carries the same warning.
         conn = self._get_connection()
         conn.execute(
             """
@@ -65,9 +72,6 @@ class PortfolioStore:
         conn.close()
 
     def get(self, owner_user_id: int) -> Optional[Dict[str, Any]]:
-        # Re-run IF NOT EXISTS so a hot-reload / shared DB never 500s on a
-        # missing table (CREATE is cheap and idempotent).
-        self._init_schema()
         conn = self._get_connection()
         row = conn.execute(
             "SELECT * FROM user_portfolios WHERE owner_user_id = ?",
@@ -82,7 +86,6 @@ class PortfolioStore:
         *,
         equity: float = DEFAULT_PORTFOLIO_EQUITY,
     ) -> Dict[str, Any]:
-        self._init_schema()
         now = _utcnow_iso()
         equity_f = float(equity)
         conn = self._get_connection()
@@ -97,7 +100,10 @@ class PortfolioStore:
         conn.commit()
         conn.close()
         created = self.get(owner_user_id)
-        assert created is not None
+        if created is None:  # pragma: no cover - the INSERT above just committed
+            raise RuntimeError(
+                f"portfolio for user {owner_user_id} vanished immediately after INSERT"
+            )
         return created
 
     def get_or_create(

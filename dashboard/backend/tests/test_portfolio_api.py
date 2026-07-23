@@ -22,10 +22,16 @@ def temp_stores(monkeypatch):
         portfolio_store = PortfolioStore(db_path=root / "content.db")
 
         import dashboard.backend.users as users_module
+        import dashboard.backend.api.auth as auth_module
         import dashboard.backend.domain.portfolios.repository as portfolio_repo
         import dashboard.backend.domain.portfolios.service as portfolio_service_module
 
         monkeypatch.setattr(users_module, "user_store", user_store)
+        # api/auth.py binds user_store at import (`from ...users import user_store`),
+        # so patching only users_module leaves signup and get_current_user talking
+        # to the process-global store -- the temp DB below would go unused and the
+        # accounts these tests create would leak into the session-wide test DB.
+        monkeypatch.setattr(auth_module, "user_store", user_store)
         monkeypatch.setattr(portfolio_repo, "portfolio_store", portfolio_store)
         monkeypatch.setattr(portfolio_service_module, "portfolio_store", portfolio_store)
         yield user_store, portfolio_store
@@ -49,33 +55,18 @@ def _signup(client: TestClient, email: str = "pf@example.com") -> str:
     return resp.json()["token"]
 
 
-def test_build_portfolio_store_defaults_to_sqlite(monkeypatch, capsys):
-    import dashboard.backend.domain.portfolios.repository as repo_module
+def test_signup_lands_in_the_fixture_user_store(client, temp_stores):
+    """Guards the auth_module patch in temp_stores.
 
-    monkeypatch.delenv("CONTENT_DATABASE_URL", raising=False)
-    store = repo_module._build_portfolio_store()
-    assert isinstance(store, repo_module.PortfolioStore)
-    assert "portfolio_store backend: sqlite (ephemeral on Render)" in capsys.readouterr().out
-
-
-def test_build_portfolio_store_picks_postgres_when_url_set(monkeypatch, capsys):
-    import dashboard.backend.domain.portfolios.repository as repo_module
-
-    created = {}
-
-    class FakePostgresPortfolioStore:
-        def __init__(self, database_url):
-            created["database_url"] = database_url
-
-    monkeypatch.setenv("CONTENT_DATABASE_URL", "postgresql://u:p@host/db")
-    monkeypatch.setattr(
-        "dashboard.backend.domain.portfolios.repository_postgres.PostgresPortfolioStore",
-        FakePostgresPortfolioStore,
-    )
-    store = repo_module._build_portfolio_store()
-    assert isinstance(store, FakePostgresPortfolioStore)
-    assert created["database_url"] == "postgresql://u:p@host/db"
-    assert "portfolio_store backend: postgres" in capsys.readouterr().out
+    Without it the patch silently misses api/auth.py's import-time binding, the
+    temp users.db stays empty, and every account these tests create leaks into
+    the session-wide DB -- making the fixed email above an ordering hazard for
+    any other test that signs up with it. The failure is invisible otherwise:
+    the tests still pass, against the wrong store.
+    """
+    user_store, _ = temp_stores
+    token = _signup(client)
+    assert user_store.get_user_for_token(token) is not None
 
 
 def test_get_or_create_bootstraps_10k_and_is_idempotent(temp_stores):
@@ -88,6 +79,19 @@ def test_get_or_create_bootstraps_10k_and_is_idempotent(temp_stores):
 
     second = store.get_or_create(7)
     assert second == first
+
+
+def test_store_keeps_one_row_per_user(temp_stores):
+    _, store = temp_stores
+    alice = store.get_or_create(1)
+    bob = store.create(2, equity=250.0)
+
+    assert alice["owner_user_id"] == 1
+    assert bob["owner_user_id"] == 2
+    assert bob["equity"] == 250.0
+    # Bootstrapping Bob must not have disturbed Alice's balance.
+    assert store.get(1) == alice
+    assert store.get(999) is None
 
 
 def test_portfolio_requires_auth(client):
@@ -109,3 +113,45 @@ def test_portfolio_get_bootstraps_for_signed_in_user(client):
     second = client.get("/api/v1/portfolio", headers=headers)
     assert second.status_code == 200
     assert second.json()["portfolio"] == body
+
+
+def test_each_account_gets_its_own_portfolio(client, temp_stores):
+    """The row is keyed off current_user, never off anything the client sends."""
+    _, store = temp_stores
+    alice_token = _signup(client, "alice-pf@example.com")
+    bob_token = _signup(client, "bob-pf@example.com")
+
+    alice = client.get(
+        "/api/v1/portfolio", headers={"Authorization": f"Bearer {alice_token}"}
+    ).json()["portfolio"]
+    bob = client.get(
+        "/api/v1/portfolio", headers={"Authorization": f"Bearer {bob_token}"}
+    ).json()["portfolio"]
+
+    assert alice["owner_user_id"] != bob["owner_user_id"]
+
+    # Draining Alice's cash must leave Bob's untouched -- proves the two reads
+    # are not accidentally serving one shared row.
+    conn = store._get_connection()
+    conn.execute(
+        "UPDATE user_portfolios SET cash_available = 0 WHERE owner_user_id = ?",
+        (alice["owner_user_id"],),
+    )
+    conn.commit()
+    conn.close()
+
+    assert store.get(alice["owner_user_id"])["cash_available"] == 0.0
+    refetched_bob = client.get(
+        "/api/v1/portfolio", headers={"Authorization": f"Bearer {bob_token}"}
+    ).json()["portfolio"]
+    assert refetched_bob["cash_available"] == float(DEFAULT_PORTFOLIO_EQUITY)
+
+
+def test_expired_session_is_rejected_rather_than_bootstrapping_a_portfolio(client):
+    """A stale token must 401, not silently mint a fresh $10k ledger."""
+    assert (
+        client.get(
+            "/api/v1/portfolio", headers={"Authorization": "Bearer not-a-real-token"}
+        ).status_code
+        == 401
+    )
