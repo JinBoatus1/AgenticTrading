@@ -191,9 +191,9 @@ JSON schema:
             "updated_blocks": updated,
         }
     except Exception as exc:
-        print(f"LLM chat error: {exc}")
+        print(f"LLM chat error: {exc!r}")
         fallback = _process_chat_fallback(message, current)
-        fallback["reply"] += f"\n\n(LLM unavailable: {exc}. Used rule-based fallback.)"
+        fallback["reply"] += "\n\n(LLM unavailable — used rule-based fallback.)"
         return fallback
 
 

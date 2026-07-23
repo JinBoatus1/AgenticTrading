@@ -52,8 +52,9 @@ def get_baselines_from_db() -> Dict:
             }
     
     except Exception as e:
+        print(f"Paper baselines fetch failed: {e!r}")
         return {
             "success": False,
-            "error": str(e),
+            "error": "Failed to fetch baselines",
             "baselines": {}
         }

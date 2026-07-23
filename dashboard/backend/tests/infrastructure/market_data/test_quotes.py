@@ -337,3 +337,31 @@ def test_quotes_module_has_no_api_or_scripts_imports():
     for m in mods:
         assert not m.startswith("dashboard.backend.api"), m
         assert not m.startswith("dashboard.scripts"), m
+
+
+# ---------------------------------------------------------------------------
+# Symbol validation (CodeQL py/partial-ssrf #48–#50). ``symbol`` arrives from
+# ``/ticker?symbols=`` and is interpolated into the Alpaca URL path, so a
+# crafted "symbol" could steer the request to a different endpoint under the
+# server's API key. URL-breaking symbols must be rejected before any request.
+# ---------------------------------------------------------------------------
+
+
+def test_get_quote_rejects_url_breaking_symbols(md, fake_requests):
+    assert md.get_quote("../../v1/account") is None
+    assert md.get_quote("AAPL?feed=sip") is None
+    assert md.get_quote("AAPL#frag") is None
+    assert md.get_quote("") is None
+    assert fake_requests.calls == []
+
+
+def test_prev_close_rejects_url_breaking_symbols(md, fake_requests):
+    assert md._get_previous_close("../../v1/account") is None
+    assert fake_requests.calls == []
+
+
+def test_get_quote_still_requests_dotted_and_hyphenated_tickers(md, fake_requests):
+    # Real ticker classes the allowlist must not break (BRK.B, BF-B style).
+    md.get_quote("BRK.B")
+    md.get_quote("BF-B")
+    assert len(fake_requests.calls) >= 2
