@@ -8,14 +8,22 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+# These are imported as *modules*, not `from ... import <name>`, because the
+# fixture below monkeypatches attributes on them and the tests must read those
+# attributes at call time to see the patched value. Importing the classes
+# directly as well would bind two names to one module (CodeQL
+# py/import-and-import-from) and make it easy to grab a stale, unpatched store.
+import dashboard.backend.api.auth as auth_module
+import dashboard.backend.domain.agents.repository as agent_repo
+import dashboard.backend.domain.agents.service as agent_service_module
+import dashboard.backend.domain.portfolios.repository as portfolio_repo
+import dashboard.backend.domain.portfolios.service as portfolio_service_module
+import dashboard.backend.users as users_module
 from dashboard.backend.app import app
-from dashboard.backend.domain.agents.repository import AgentStore
 from dashboard.backend.domain.backtesting.constants import (
     DEFAULT_AGENT_CASH_ALLOCATION,
     DEFAULT_PORTFOLIO_EQUITY,
 )
-from dashboard.backend.domain.portfolios.repository import PortfolioStore
-from dashboard.backend.users import UserStore
 
 
 @pytest.fixture
@@ -23,17 +31,10 @@ def env(monkeypatch):
     """Auth + portfolio + agents share one content DB (ledger ↔ sleeve)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
-        user_store = UserStore(db_path=root / "users.db")
+        user_store = users_module.UserStore(db_path=root / "users.db")
         content_db = root / "content.db"
-        portfolio_store = PortfolioStore(db_path=content_db)
-        agent_store = AgentStore(db_path=content_db)
-
-        import dashboard.backend.users as users_module
-        import dashboard.backend.api.auth as auth_module
-        import dashboard.backend.domain.portfolios.repository as portfolio_repo
-        import dashboard.backend.domain.portfolios.service as portfolio_service_module
-        import dashboard.backend.domain.agents.repository as agent_repo
-        import dashboard.backend.domain.agents.service as agent_service_module
+        portfolio_store = portfolio_repo.PortfolioStore(db_path=content_db)
+        agent_store = agent_repo.AgentStore(db_path=content_db)
 
         monkeypatch.setattr(users_module, "user_store", user_store)
         # auth.py binds user_store at import time — patch that name too.
@@ -324,8 +325,6 @@ def test_patch_failure_leaves_the_ledger_untouched(env):
     )
     agent_id = created.json()["agent"]["agent_id"]
 
-    import dashboard.backend.domain.agents.service as agent_service_module
-
     def boom(*args, **kwargs):
         raise RuntimeError("simulated failure writing the non-cash fields")
 
@@ -471,11 +470,10 @@ def test_service_serialises_concurrent_allocations_for_one_user(env, monkeypatch
     import threading
     import time
 
-    from dashboard.backend.domain.agents.repository import agent_store as real_store
-    from dashboard.backend.domain.portfolios.service import (
-        InsufficientCashError,
-        portfolio_service,
-    )
+    # Read through the module so this picks up the fixture's patched store.
+    real_store = agent_repo.agent_store
+    InsufficientCashError = portfolio_service_module.InsufficientCashError
+    portfolio_service = portfolio_service_module.portfolio_service
 
     client, agent_store, _ = env
     _, user = _signup(client, email="svc-race@example.com")
