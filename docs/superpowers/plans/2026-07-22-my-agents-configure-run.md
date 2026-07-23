@@ -2,6 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Update (2026-07-23, PR #181):** the $1,000,000 cap this plan introduced was
+> lowered back to **$3,000** once the account-bound $10k cash ledger (#174/#175)
+> became real — a sleeve larger than the account can no longer be funded. Cap
+> references below reflect the plan as executed on 2026-07-22, not current code.
+
 **Goal:** Rebuild the My Agents tab so a first-time non-technical user sees a default agent in two category rows, presses Configure, sets capital + one plain-language instruction + a model, and runs a backtest unaided.
 
 **Architecture:** Frontend-heavy (vanilla JS, no build step). Simple mode is a *data convention*: a one-step `pipeline` with `presetKey: "simple_instruction"` and a fixed trading-actions `outputFormat` — it reuses the existing PATCH save path and the existing backtest pipeline path end-to-end. The only backend deltas are making `model_name` PATCH-editable (column already exists) and raising the cash cap constant. No new routes, no DB migration.

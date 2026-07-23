@@ -1120,19 +1120,6 @@ async function loadHomePortfolioLedger() {
     }
 }
 
-function syncHomePortfolioAlloc(equity = HOME_PORTFOLIO.equity) {
-    const total = Number(equity) || HOME_PORTFOLIO.equity;
-    if (homePortfolioLive) {
-        const cash = Math.max(0, Math.round(Number(homePortfolioLive.cash_available) || 0));
-        const invested = Math.max(0, Math.round(Number(homePortfolioLive.allocated) || 0));
-        return { cash, stocks: invested, crypto: 0, invested };
-    }
-    const cash = Math.round(total * 0.62);
-    const stocks = Math.round(total * 0.28);
-    const crypto = Math.max(0, Math.round(total - cash - stocks));
-    return { cash, stocks, crypto, invested: stocks + crypto };
-}
-
 async function updateHomePortfolioModule() {
     const user = getHomeAuthUser();
     const signedIn = isHomeSignedIn();
@@ -1154,7 +1141,6 @@ async function updateHomePortfolioModule() {
     const dayPnl = homePortfolioDayPnl();
     const dayPct = equity ? (dayPnl / equity) * 100 : 0;
     const live = signedIn && !!homePortfolioLive;
-    syncHomePortfolioAlloc(equity);
 
     if (!signedIn || !user) {
         if (avatar) avatar.textContent = 'G';
