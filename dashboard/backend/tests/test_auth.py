@@ -289,8 +289,10 @@ def test_avatar_put_and_delete_flow(client):
 
 
 def test_avatar_requires_auth(client):
-    assert client.put("/api/auth/avatar", json={"avatar": _avatar_uri()}).status_code == 401
-    assert client.delete("/api/auth/avatar").status_code == 401
+    put = client.put("/api/auth/avatar", json={"avatar": _avatar_uri()})
+    assert put.status_code == 401
+    delete = client.delete("/api/auth/avatar")
+    assert delete.status_code == 401
 
 
 def test_avatar_rejects_unsupported_mime(client):
