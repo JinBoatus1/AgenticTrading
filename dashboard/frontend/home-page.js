@@ -1148,6 +1148,9 @@ function renderHomeAgentStatusCard(agent) {
     const body = (typeof renderAgentCardBody === 'function')
         ? renderAgentCardBody(agent, status.key)
         : '';
+    const actions = (typeof renderAgentCardActions === 'function')
+        ? renderAgentCardActions(agent, status.key)
+        : '';
 
     return `
       <div class="agent-card agent-card--status agent-card--home agent-card--${status.key}">
@@ -1162,6 +1165,7 @@ function renderHomeAgentStatusCard(agent) {
           <span class="status-badge ${status.className}"><span class="status-badge-dot" aria-hidden="true"></span>${status.label}</span>
         </div>
         ${body}
+        ${actions}
       </div>`;
 }
 
@@ -1193,16 +1197,40 @@ function updateHomeAgentModule() {
     filled.innerHTML = renderHomeAgentStatusCard(agent);
 
     filled.querySelectorAll('.agent-view-runs-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-            if (typeof openAgentInBacktest === 'function') {
-                const runId = typeof resolveBacktestCardMetrics === 'function'
-                    ? resolveBacktestCardMetrics(agent).runId
-                    : null;
-                await openAgentInBacktest(agent, runId);
+        btn.addEventListener('click', async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof openAgentInBacktest !== 'function') {
+                if (typeof navigateToPage === 'function') {
+                    navigateToPage('playground', { playgroundTab: 'backtest' });
+                }
                 return;
             }
-            if (typeof navigateToPage === 'function') {
-                navigateToPage('playground', { playgroundTab: 'backtest' });
+            const runId = typeof resolveLatestAgentRunId === 'function'
+                ? resolveLatestAgentRunId(agent)
+                : (typeof resolveBacktestCardMetrics === 'function'
+                    ? resolveBacktestCardMetrics(agent).runId
+                    : null);
+            await openAgentInBacktest(agent, runId);
+        });
+    });
+
+    filled.querySelectorAll('.agent-run-backtest-btn').forEach((btn) => {
+        btn.addEventListener('click', async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof openAgentInBacktest === 'function') {
+                await openAgentInBacktest(agent);
+            }
+        });
+    });
+
+    filled.querySelectorAll('.agent-open-btn').forEach((btn) => {
+        btn.addEventListener('click', async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof openAgentInPaper === 'function') {
+                await openAgentInPaper(agent);
             }
         });
     });

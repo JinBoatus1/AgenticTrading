@@ -55,3 +55,4 @@ When a backtest finishes for a selected agent, the bot includes a **Dashboard** 
 - Only one backtest runs on the server at a time.
 - Prefer **built-in** agents for Discord backtests (results land on that agent's website card).
 - If `/agent` says you are not linked, use **Open Discord** on the site while signed in.
+- `/backtest` returns immediately ("queued"). When the job finishes, the bot **posts results + chart in the channel** and @mentions you — you do not need to keep the ephemeral "thinking" message open. Long runs (10–30 min) still deliver.
