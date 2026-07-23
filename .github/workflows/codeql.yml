@@ -21,6 +21,16 @@ on:
     # Weekly re-scan (Mondays 06:31 UTC) so newly-published CodeQL queries
     # run against existing code, not only against new commits.
     - cron: "31 6 * * 1"
+  # Manual re-run — e.g. after narrowing the query suite in codeql-config.yml —
+  # without having to push an empty commit.
+  workflow_dispatch:
+
+# Cancel a superseded run only on pull requests (github.ref = refs/pull/N/merge);
+# pushes to main keep every commit's scan, since code-scanning results are
+# tracked per-commit on the default branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:
