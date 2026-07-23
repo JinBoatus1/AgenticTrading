@@ -288,6 +288,29 @@ def test_avatar_put_and_delete_flow(client):
     assert delete.json()["user"]["avatar"] is None
 
 
+def test_avatar_replace_overwrites_previous(client):
+    token = _signup_and_token(client, email="nina@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    first = _avatar_uri()
+    # A different but equally valid JPEG payload, so an UPDATE that silently kept the
+    # old value (or wrote nothing) fails here instead of passing on an identical URI.
+    second = _avatar_uri(
+        payload_b64=base64.b64encode(b"\xff\xd8\xff" + b"\x11" * 48).decode("ascii")
+    )
+    assert first != second
+
+    put_first = client.put("/api/auth/avatar", headers=headers, json={"avatar": first})
+    assert put_first.status_code == 200
+
+    put_second = client.put("/api/auth/avatar", headers=headers, json={"avatar": second})
+    assert put_second.status_code == 200
+    assert put_second.json()["user"]["avatar"] == second
+
+    # Durable, not merely echoed back by the write response.
+    me = client.get("/api/auth/me", headers=headers)
+    assert me.json()["user"]["avatar"] == second
+
+
 def test_avatar_requires_auth(client):
     put = client.put("/api/auth/avatar", json={"avatar": _avatar_uri()})
     assert put.status_code == 401

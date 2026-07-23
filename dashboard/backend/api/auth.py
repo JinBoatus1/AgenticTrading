@@ -200,20 +200,34 @@ async def change_password(
     return {"status": "ok"}
 
 
+def _store_avatar(user_id: int, value: Optional[str]) -> dict:
+    """
+    Write the avatar, mapping a vanished account to 401 instead of 500.
+
+    Both twin stores raise ValueError("user_not_found") when the row is gone between
+    the session lookup in get_current_user and this write. That is a session that
+    outlived its account -- an auth failure the client can act on (sign in again),
+    not a server fault. Unreachable today (nothing deletes users), which is exactly
+    why it is worth pinning down before account deletion lands in a later phase.
+    """
+    try:
+        return user_store.set_avatar(user_id, value)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Session is no longer valid.") from exc
+
+
 @router.put("/avatar")
 async def set_avatar(payload: AvatarRequest, current_user: dict = Depends(get_current_user)):
     try:
         value = _validate_avatar_data_uri(payload.avatar)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    user = user_store.set_avatar(current_user["id"], value)
-    return {"user": user}
+    return {"user": _store_avatar(current_user["id"], value)}
 
 
 @router.delete("/avatar")
 async def delete_avatar(current_user: dict = Depends(get_current_user)):
-    user = user_store.set_avatar(current_user["id"], None)
-    return {"user": user}
+    return {"user": _store_avatar(current_user["id"], None)}
 
 
 @router.post("/discord/start")

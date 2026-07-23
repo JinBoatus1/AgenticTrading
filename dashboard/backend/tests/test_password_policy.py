@@ -27,6 +27,12 @@ def test_rejects_blocklisted_password():
     assert any("too common" in v for v in violations)
 
 
+def test_blocklist_ignores_surrounding_whitespace():
+    # Padding a blocklisted password with spaces is not extra entropy.
+    violations = validate_new_password("  password1  ", "alice@example.com")
+    assert any("too common" in v for v in violations)
+
+
 def test_blocklist_is_case_insensitive():
     violations = validate_new_password("PaSsWoRd1", "alice@example.com")
     assert any("too common" in v for v in violations)

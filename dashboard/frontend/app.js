@@ -1798,7 +1798,17 @@ async function compressAvatar(file) {
   if (file.size > AVATAR_MAX_INPUT_BYTES) {
     throw new Error('Image is too large (max 10 MB).');
   }
-  const bitmap = await createImageBitmap(file);
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch (error) {
+    // createImageBitmap rejects with a developer-facing DOMException ("The source
+    // image could not be decoded") for anything the browser cannot decode: a
+    // truncated download, or a non-image renamed to .png. Show copy the user can
+    // act on and keep the original in the console for debugging.
+    console.warn('Avatar decode failed:', error);
+    throw new Error('That file could not be read as an image. Try a JPG, PNG, or WebP.');
+  }
   const MAX_DIM = 256;
   const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
   const width = Math.max(1, Math.round(bitmap.width * scale));

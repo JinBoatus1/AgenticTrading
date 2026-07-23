@@ -2,6 +2,7 @@
 User accounts and auth session storage (SQLite, same database file as backtests).
 """
 
+import base64
 import hashlib
 import os
 import secrets
@@ -18,6 +19,7 @@ from dashboard.backend.db_url import describe_database_url
 SESSION_TTL_DAYS = 7
 BCRYPT_ROUNDS = 12
 LEGACY_PBKDF2_ITERATIONS = 100_000
+BCRYPT_MAX_BYTES = 72
 
 
 def _utcnow() -> datetime:
@@ -28,9 +30,30 @@ def _utcnow_iso() -> str:
     return _utcnow().replace(microsecond=0).isoformat()
 
 
+def _bcrypt_secret(password: str) -> bytes:
+    """
+    Return the bytes to feed bcrypt, without ever silently dropping any of them.
+
+    bcrypt hashes at most the first 72 bytes and ignores the rest with no error, so
+    two passwords sharing a 72-byte prefix verify against the same hash. NIST 800-63B
+    5.1.1.2 forbids truncating a subscriber's secret, and password_policy.MAX_LENGTH
+    accepts 128 characters, so anything past the cap is folded into a fixed-size
+    digest first -- then every byte the user typed affects the hash.
+
+    base64 of the digest, not the raw digest: raw SHA-256 output can contain NUL
+    bytes, which C bcrypt implementations treat as end-of-string -- that would
+    reintroduce truncation at the first NUL. The base64 form is 44 ASCII bytes,
+    comfortably inside the cap.
+    """
+    raw = password.encode("utf-8")
+    if len(raw) <= BCRYPT_MAX_BYTES:
+        return raw
+    return base64.b64encode(hashlib.sha256(raw).digest())
+
+
 def hash_password(password: str) -> str:
     hashed = bcrypt.hashpw(
-        password.encode("utf-8"),
+        _bcrypt_secret(password),
         bcrypt.gensalt(rounds=BCRYPT_ROUNDS),
     )
     return hashed.decode("utf-8")
@@ -53,11 +76,17 @@ def _verify_legacy_pbkdf2(password: str, password_hash: str) -> bool:
 
 def verify_password(password: str, password_hash: str) -> bool:
     if password_hash.startswith(("$2a$", "$2b$", "$2y$")):
+        encoded = password_hash.encode("utf-8")
         try:
-            return bcrypt.checkpw(
-                password.encode("utf-8"),
-                password_hash.encode("utf-8"),
-            )
+            if bcrypt.checkpw(_bcrypt_secret(password), encoded):
+                return True
+            # Accounts created before the pre-hash above stored bcrypt(raw), where
+            # bcrypt itself dropped everything past byte 72. Only over-cap passwords
+            # can hash differently under the two schemes, so this second, more
+            # expensive check runs for those alone -- never on the common path.
+            if len(password.encode("utf-8")) > BCRYPT_MAX_BYTES:
+                return bcrypt.checkpw(password.encode("utf-8"), encoded)
+            return False
         except ValueError:
             return False
     return _verify_legacy_pbkdf2(password, password_hash)
