@@ -10,6 +10,7 @@ from dashboard.backend.api.routers.external_backtest import router as external_b
 from dashboard.backend.api.health import router as health_router
 from dashboard.backend.api.routers.leaderboard import router as leaderboard_router
 from dashboard.backend.api.routers.news import router as news_router
+from dashboard.backend.api.routers.portfolio import router as portfolio_router
 from dashboard.backend.api.routers.runs import router as runs_router
 from dashboard.backend.api.routers.strategies import router as strategies_router
 from dashboard.backend.api.v2.router import v2_router
@@ -26,5 +27,6 @@ api_router.include_router(runs_router)
 api_router.include_router(environments_router)
 api_router.include_router(leaderboard_router)
 api_router.include_router(strategies_router)
+api_router.include_router(portfolio_router)
 api_router.include_router(news_router)
 api_router.include_router(v2_router)

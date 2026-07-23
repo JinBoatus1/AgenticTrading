@@ -4050,7 +4050,11 @@ function showPlaygroundPanel(tab) {
         loadPaperTradingData();
     } else {
         currentMode = 'agents';
-        if (typeof renderPortfolio === 'function') renderPortfolio(allAgents.map(decorateAgent));
+        if (typeof renderPortfolio === 'function') {
+            Promise.resolve(renderPortfolio(allAgents.map(decorateAgent))).catch((error) => {
+                console.warn('renderPortfolio failed:', error?.message || error);
+            });
+        }
         loadAgents();
     }
 
