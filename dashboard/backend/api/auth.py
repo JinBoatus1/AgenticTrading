@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 from typing import Optional
 from urllib.parse import urlencode
@@ -8,7 +9,8 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
 from dashboard.backend.api import discord_oauth
-from dashboard.backend.users import public_user, user_store
+from dashboard.backend.users import public_user, user_store, verify_password
+from dashboard.backend.password_policy import validate_new_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -34,7 +36,7 @@ def _normalize_email(value: str) -> str:
 class SignupRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     display_name: str = Field(min_length=1, max_length=100)
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=1, max_length=128)
 
     @field_validator("email")
     @classmethod
@@ -50,6 +52,52 @@ class LoginRequest(BaseModel):
     @classmethod
     def validate_email(cls, value: str) -> str:
         return _normalize_email(value)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=1, max_length=128)
+
+
+AVATAR_MAX_DECODED_BYTES = 100 * 1024
+
+# Declared mime -> required leading bytes. WebP is RIFF-framed, checked separately.
+_AVATAR_MAGIC = {
+    "image/jpeg": b"\xff\xd8\xff",
+    "image/png": b"\x89PNG\r\n\x1a\n",
+}
+
+
+class AvatarRequest(BaseModel):
+    avatar: str = Field(min_length=1, max_length=200_000)
+
+
+def _validate_avatar_data_uri(value: str) -> str:
+    """Server-side avatar gate: allowlisted mime, valid base64, magic-number
+    match, <= 100 KB decoded. Never trust the client's canvas pipeline."""
+    mime = None
+    payload = None
+    for candidate in ("image/jpeg", "image/png", "image/webp"):
+        prefix = f"data:{candidate};base64,"
+        if value.startswith(prefix):
+            mime = candidate
+            payload = value[len(prefix):]
+            break
+    if mime is None:
+        raise ValueError("Avatar must be a base64 data URI (JPEG, PNG, or WebP).")
+    try:
+        decoded = base64.b64decode(payload, validate=True)
+    except ValueError as exc:  # binascii.Error subclasses ValueError
+        raise ValueError("Avatar data is not valid base64.") from exc
+    if len(decoded) > AVATAR_MAX_DECODED_BYTES:
+        raise ValueError("Avatar image must be 100 KB or smaller.")
+    if mime == "image/webp":
+        ok = len(decoded) >= 12 and decoded[:4] == b"RIFF" and decoded[8:12] == b"WEBP"
+    else:
+        ok = decoded.startswith(_AVATAR_MAGIC[mime])
+    if not ok:
+        raise ValueError("Avatar image bytes do not match the declared format.")
+    return value
 
 
 class AuthResponse(BaseModel):
@@ -78,6 +126,10 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> dic
 
 @router.post("/signup", response_model=AuthResponse)
 async def signup(payload: SignupRequest):
+    violations = validate_new_password(payload.password, payload.email)
+    if violations:
+        raise HTTPException(status_code=400, detail=" ".join(violations))
+
     try:
         user = user_store.create_user(
             email=payload.email,
@@ -114,6 +166,68 @@ async def logout(authorization: Optional[str] = Header(default=None)):
     if token:
         user_store.delete_session(token)
     return {"status": "ok"}
+
+
+@router.post("/change-password")
+async def change_password(
+    payload: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user),
+    authorization: Optional[str] = Header(default=None),
+):
+    if not verify_password(payload.current_password, current_user["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    violations = validate_new_password(payload.new_password, current_user["email"])
+    if violations:
+        raise HTTPException(status_code=400, detail=" ".join(violations))
+    user_store.update_password(current_user["id"], payload.new_password)
+    # Best-effort: revoke every other session so a stolen token dies with the old
+    # password. Deliberately NOT atomic with the update above -- the two are separate
+    # transactions/connections in both twin stores. The password change is already
+    # durable here; if revocation raises (e.g. a transient Postgres blip on the prod
+    # pool), turning it into a 500 would wrongly tell the client the change failed and
+    # make a retry hit "Current password is incorrect". So swallow + surface via
+    # print() (logger output is invisible under the deployed config) and still
+    # return ok. Revocation is defence-in-depth, not a hard guarantee.
+    try:
+        user_store.delete_other_sessions(
+            current_user["id"], keep_token=_extract_bearer_token(authorization)
+        )
+    except Exception as exc:  # noqa: BLE001 -- password change already committed
+        print(
+            f"WARNING: change-password committed for user {current_user['id']} but "
+            f"other-session revocation failed: {exc!r}"
+        )
+    return {"status": "ok"}
+
+
+def _store_avatar(user_id: int, value: Optional[str]) -> dict:
+    """
+    Write the avatar, mapping a vanished account to 401 instead of 500.
+
+    Both twin stores raise ValueError("user_not_found") when the row is gone between
+    the session lookup in get_current_user and this write. That is a session that
+    outlived its account -- an auth failure the client can act on (sign in again),
+    not a server fault. Unreachable today (nothing deletes users), which is exactly
+    why it is worth pinning down before account deletion lands in a later phase.
+    """
+    try:
+        return user_store.set_avatar(user_id, value)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Session is no longer valid.") from exc
+
+
+@router.put("/avatar")
+async def set_avatar(payload: AvatarRequest, current_user: dict = Depends(get_current_user)):
+    try:
+        value = _validate_avatar_data_uri(payload.avatar)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"user": _store_avatar(current_user["id"], value)}
+
+
+@router.delete("/avatar")
+async def delete_avatar(current_user: dict = Depends(get_current_user)):
+    return {"user": _store_avatar(current_user["id"], None)}
 
 
 @router.post("/discord/start")

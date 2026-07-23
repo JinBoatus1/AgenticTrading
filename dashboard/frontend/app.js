@@ -1699,6 +1699,24 @@ const AuthAPI = {
     return this.request('/api/auth/logout', { method: 'POST' });
   },
 
+  changePassword(currentPassword, newPassword) {
+    return this.request('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
+  },
+
+  setAvatar(dataUri) {
+    return this.request('/api/auth/avatar', {
+      method: 'PUT',
+      body: JSON.stringify({ avatar: dataUri }),
+    });
+  },
+
+  removeAvatar() {
+    return this.request('/api/auth/avatar', { method: 'DELETE' });
+  },
+
   discordStart() {
     return this.request('/api/auth/discord/start', { method: 'POST' });
   },
@@ -1754,29 +1772,226 @@ function updateAccountPage() {
     signedOut.hidden = true;
     if (nameEl) nameEl.textContent = user.display_name || '—';
     if (emailEl) emailEl.textContent = user.email || '—';
+    renderAvatar(document.getElementById('accountAvatarPreview'), user);
+    const removeBtn = document.getElementById('avatarRemoveBtn');
+    if (removeBtn) removeBtn.hidden = !user.avatar;
   } else {
     signedIn.hidden = true;
     signedOut.hidden = false;
   }
 }
 
+function renderAvatar(el, user) {
+  if (!el) return;
+  el.innerHTML = '';
+  if (user && user.avatar) {
+    const img = document.createElement('img');
+    img.src = user.avatar;   // server-validated data: URI
+    img.alt = '';
+    el.appendChild(img);
+  } else {
+    const source = ((user && (user.display_name || user.email)) || '?').trim();
+    el.textContent = source ? source[0].toUpperCase() : '?';
+  }
+}
+
+const AVATAR_MAX_INPUT_BYTES = 10 * 1024 * 1024;
+const AVATAR_MAX_OUTPUT_BYTES = 100 * 1024;
+
+async function compressAvatar(file) {
+  if (file.size > AVATAR_MAX_INPUT_BYTES) {
+    throw new Error('Image is too large (max 10 MB).');
+  }
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch (error) {
+    // createImageBitmap rejects with a developer-facing DOMException ("The source
+    // image could not be decoded") for anything the browser cannot decode: a
+    // truncated download, or a non-image renamed to .png. Show copy the user can
+    // act on and keep the original in the console for debugging.
+    console.warn('Avatar decode failed:', error);
+    throw new Error('That file could not be read as an image. Try a JPG, PNG, or WebP.');
+  }
+  const MAX_DIM = 256;
+  const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height);
+  for (const quality of [0.85, 0.6]) {
+    const dataUri = canvas.toDataURL('image/jpeg', quality);
+    const base64 = dataUri.slice(dataUri.indexOf(',') + 1);
+    const decodedBytes = Math.floor(base64.length * 3 / 4);
+    if (decodedBytes <= AVATAR_MAX_OUTPUT_BYTES) return dataUri;
+  }
+  throw new Error('Could not compress the image under 100 KB. Try a simpler image.');
+}
+
+function applyUpdatedUser(user) {
+  localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  window.AUTH_USER = user;
+  updateAuthUI();
+}
+
+function initAvatarControls() {
+  const fileInput = document.getElementById('avatarFileInput');
+  const uploadBtn = document.getElementById('avatarUploadBtn');
+  const removeBtn = document.getElementById('avatarRemoveBtn');
+  const errorEl = document.getElementById('avatarError');
+  if (!fileInput || !uploadBtn) return;
+
+  uploadBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files && fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    if (errorEl) errorEl.hidden = true;
+    uploadBtn.disabled = true;
+    try {
+      const dataUri = await compressAvatar(file);
+      const data = await AuthAPI.setAvatar(dataUri);
+      applyUpdatedUser(data.user);
+    } catch (error) {
+      if (errorEl) {
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+      }
+    } finally {
+      uploadBtn.disabled = false;
+    }
+  });
+
+  removeBtn?.addEventListener('click', async () => {
+    if (errorEl) errorEl.hidden = true;
+    removeBtn.disabled = true;
+    try {
+      const data = await AuthAPI.removeAvatar();
+      applyUpdatedUser(data.user);
+    } catch (error) {
+      if (errorEl) {
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+      }
+    } finally {
+      removeBtn.disabled = false;
+    }
+  });
+}
+
+// Mirrors password_policy.py's length + email rules for live feedback.
+// The blocklist rule is server-only; its violation surfaces on submit.
+function localPasswordViolations(password, email) {
+  const violations = [];
+  if (password.length < 8) violations.push('At least 8 characters.');
+  if (password.length > 128) violations.push('At most 128 characters.');
+  const localPart = (email || '').split('@')[0].trim().toLowerCase();
+  if (localPart.length >= 3 && password.toLowerCase().includes(localPart)) {
+    violations.push('Must not contain your email name.');
+  }
+  return violations;
+}
+
+function renderPolicyHints(listEl, violations) {
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  if (!violations.length) {
+    listEl.hidden = true;
+    return;
+  }
+  violations.forEach((text) => {
+    const li = document.createElement('li');
+    li.textContent = text;
+    listEl.appendChild(li);
+  });
+  listEl.hidden = false;
+}
+
+function initChangePasswordForm() {
+  const form = document.getElementById('changePasswordForm');
+  if (!form) return;
+  const newInput = document.getElementById('newPasswordInput');
+  const hints = document.getElementById('passwordPolicyHints');
+  const errorEl = document.getElementById('changePasswordError');
+  const successEl = document.getElementById('changePasswordSuccess');
+
+  newInput?.addEventListener('input', () => {
+    const user = getStoredAuthUser();
+    renderPolicyHints(hints, localPasswordViolations(newInput.value, user?.email));
+  });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const current = document.getElementById('currentPasswordInput')?.value;
+    const next = newInput?.value;
+    const confirmValue = document.getElementById('confirmPasswordInput')?.value;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (errorEl) errorEl.hidden = true;
+    if (successEl) successEl.hidden = true;
+
+    if (next !== confirmValue) {
+      if (errorEl) {
+        errorEl.textContent = 'New password and confirmation do not match.';
+        errorEl.hidden = false;
+      }
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await AuthAPI.changePassword(current, next);
+      form.reset();
+      renderPolicyHints(hints, []);
+      if (successEl) successEl.hidden = false;
+    } catch (error) {
+      if (errorEl) {
+        errorEl.textContent = error.message;
+        errorEl.hidden = false;
+      }
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+}
+
+function toggleAccountMenu(force) {
+  const menu = document.getElementById('accountMenu');
+  const btn = document.getElementById('authAccountBtn');
+  if (!menu || !btn) return;
+  const open = force !== undefined ? force : menu.hidden;
+  menu.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function closeAccountMenu() {
+  toggleAccountMenu(false);
+}
+
 function updateAuthUI() {
   const user = getStoredAuthUser();
   const label = document.getElementById('authUserLabel');
   const signInBtn = document.getElementById('authSignInBtn');
-  const accountBtn = document.getElementById('authAccountBtn');
-  if (!signInBtn || !accountBtn) {
+  const menuWrap = document.getElementById('accountMenuWrap');
+  if (!signInBtn || !menuWrap) {
     return;
   }
 
   if (user) {
     if (label) label.textContent = user.display_name || user.email;
     signInBtn.hidden = true;
-    accountBtn.hidden = false;
+    menuWrap.hidden = false;
+    renderAvatar(document.getElementById('authAvatar'), user);
+    const nameEl = document.getElementById('accountMenuName');
+    const emailEl = document.getElementById('accountMenuEmail');
+    if (nameEl) nameEl.textContent = user.display_name || '—';
+    if (emailEl) emailEl.textContent = user.email || '';
   } else {
     if (label) label.textContent = '';
     signInBtn.hidden = false;
-    accountBtn.hidden = true;
+    menuWrap.hidden = true;
+    closeAccountMenu();
   }
 
   updateAccountPage();
@@ -1834,6 +2049,7 @@ function setAuthMode(mode) {
     }
   }
   if (errorEl) errorEl.hidden = true;
+  renderPolicyHints(document.getElementById('authPasswordHints'), []);
   updateAuthUI();
 }
 
@@ -1855,7 +2071,7 @@ function openAuthFromUrl() {
     params.delete('auth');
     const clean = params.toString();
     const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', next);
+    window.history.replaceState(getNavigationState(), '', next);
     return;
   }
 
@@ -1863,7 +2079,7 @@ function openAuthFromUrl() {
   params.delete('auth');
   const clean = params.toString();
   const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
-  window.history.replaceState({}, '', next);
+  window.history.replaceState(getNavigationState(), '', next);
 }
 
 function closeAuthModal() {
@@ -1923,7 +2139,7 @@ async function handleDiscordOAuthReturn() {
   params.delete('reason');
   const clean = params.toString();
   const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
-  window.history.replaceState({}, '', next);
+  window.history.replaceState(getNavigationState(), '', next);
 
   if (discord === 'linked') {
     try {
@@ -1992,7 +2208,29 @@ function initAuthUI() {
 
   signInBtn?.addEventListener('click', () => openAuthModal('login'));
   accountSignInBtn?.addEventListener('click', () => openAuthModal('login'));
-  accountBtn?.addEventListener('click', () => navigateToPage('account'));
+  accountBtn?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleAccountMenu();
+  });
+  document.getElementById('accountMenuAccountBtn')?.addEventListener('click', () => {
+    closeAccountMenu();
+    navigateToPage('account');
+  });
+  document.getElementById('accountMenuLogoutBtn')?.addEventListener('click', () => {
+    closeAccountMenu();
+    logoutUser();
+  });
+  document.addEventListener('click', (event) => {
+    const wrap = document.getElementById('accountMenuWrap');
+    if (wrap && !wrap.hidden && !wrap.contains(event.target)) {
+      closeAccountMenu();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeAccountMenu();
+    }
+  });
   logoutBtn?.addEventListener('click', () => {
     logoutUser();
   });
@@ -2000,6 +2238,19 @@ function initAuthUI() {
   backdrop?.addEventListener('click', closeAuthModal);
   switchBtn?.addEventListener('click', () => {
     setAuthMode(authMode === 'signup' ? 'login' : 'signup');
+  });
+
+  document.getElementById('authPassword')?.addEventListener('input', (event) => {
+    if (authMode !== 'signup') return;
+    const email = document.getElementById('authEmail')?.value || '';
+    let hints = document.getElementById('authPasswordHints');
+    if (!hints) {
+      hints = document.createElement('ul');
+      hints.id = 'authPasswordHints';
+      hints.className = 'password-policy-hints';
+      event.target.closest('.auth-field')?.after(hints);
+    }
+    renderPolicyHints(hints, localPasswordViolations(event.target.value, email));
   });
 
   form?.addEventListener('submit', async (event) => {
@@ -2040,8 +2291,9 @@ function initAuthUI() {
           // (params were kept), retry it now that the owner is signed in. This
           // waits on the claim: until it lands the account does not own the
           // agent yet and the deep link's fetch 403s.
-          const deepLinkParams = new URLSearchParams(window.location.search);
-          if (deepLinkParams.get('agent_id') || deepLinkParams.get('run_id')) {
+          // The params were parked in sessionStorage, not left in the URL, so
+          // that they could not leak into every later history entry.
+          if (readPendingDeepLink()) {
             applyAgentRunDeepLink();
           }
         })
@@ -2067,6 +2319,8 @@ function initAuthUI() {
   openAuthFromUrl();
   handleDiscordOAuthReturn();
   wireDiscordAccountButtons();
+  initChangePasswordForm();
+  initAvatarControls();
   refreshAuthUser();
 }
 
@@ -2127,7 +2381,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         currentMode = 'backtest';
         await loadData();
     });
-    await applyAgentRunDeepLink();
+    // Guarded: this awaits loadData() internally, and an unhandled rejection here
+    // used to abort the rest of boot — including initNavigation(), which wires
+    // every nav button. A failed deep link must not cost the user navigation.
+    try {
+        await applyAgentRunDeepLink();
+    } catch (error) {
+        console.warn('Deep link failed:', error.message);
+    }
     const config = loadConfigFromURL();
     window.CURRENT_CONFIG = config;
     console.log('⚙️ Experiment config:', config);
@@ -2742,7 +3003,7 @@ function showTickerStatus(message) {
     stopTickerScroll();
     tickerTrack.dataset.tickerReady = '0';
     tickerTrack.style.transform = 'none';
-    tickerTrack.innerHTML = `<div class="ticker-placeholder">${message}</div>`;
+    tickerTrack.innerHTML = `<div class="ticker-placeholder">${escapeHtml(message)}</div>`;
 }
 
 /**
@@ -3620,21 +3881,99 @@ function getSelectedSymbols() {
 }
 
 /**
- * Resolve page from URL for legacy deep links.
+ * Resolve page from URL for legacy deep links + sync History API so browser
+ * Back/Forward undo in-app navigation (see #178).
  */
+// Defined by the anti-FOUC boot script in app.html's <head> (it needs the map
+// before this file loads) and read back here so the two can never drift: the
+// boot copy picks which page CSS paints, this copy picks which page renders.
+// A divergence would paint one page and render another — a flash bug no test
+// in this repo can catch, so there is deliberately only ever one object.
+const NAV_VIEW_MAP = window.NAV_VIEW_MAP;
+
 // Persist the current tab so a page refresh restores it instead of going home.
 function persistNavigation() {
     try {
         localStorage.setItem(
             NAV_STATE_KEY,
-            JSON.stringify({
-                page: currentPage,
-                playgroundTab,
-                competitionTab,
-            }),
+            JSON.stringify(getNavigationState()),
         );
     } catch (error) {
         /* localStorage unavailable — ignore */
+    }
+}
+
+function getNavigationState() {
+    return {
+        page: currentPage,
+        playgroundTab,
+        competitionTab,
+    };
+}
+
+function navigationStatesEqual(a, b) {
+    if (!a || !b) return false;
+    return a.page === b.page
+        && (a.playgroundTab || 'agents') === (b.playgroundTab || 'agents')
+        && (a.competitionTab || 'daily') === (b.competitionTab || 'daily');
+}
+
+/**
+ * Inverse of NAV_VIEW_MAP: nav state -> the ?view= slug that restores it.
+ *
+ * INVARIANT: every slug returned here must be a key of NAV_VIEW_MAP, and every
+ * distinct state NAV_VIEW_MAP can produce must be reachable from some return
+ * below. Break the first half and the URL this writes won't restore on refresh
+ * or Back; break the second and a page becomes unlinkable. The two are
+ * hand-maintained inverses — change one, check the other.
+ *
+ * Several NAV_VIEW_MAP keys are read-only aliases that this never emits
+ * ('contest', 'competition', 'playground', 'my-algo'); old links keep working,
+ * new URLs get the canonical slug.
+ */
+function viewParamForNavState(state) {
+    if (state.page === 'home') return 'home';
+    if (state.page === 'community') return 'community';
+    if (state.page === 'account') return 'account';
+    if (state.page === 'playground') {
+        if (state.playgroundTab === 'backtest') return 'backtest';
+        if (state.playgroundTab === 'paper') return 'paper';
+        return 'agents';
+    }
+    if (state.page === 'competition') {
+        if (state.competitionTab === 'leaderboard') return 'leaderboard';
+        if (state.competitionTab === 'participants') return 'participants';
+        if (state.competitionTab === 'about') return 'about';
+        // 'daily', not the legacy 'contest' alias: a copied URL should name the
+        // board the user is actually looking at, not the all-time contest.
+        return 'daily';
+    }
+    return state.page;
+}
+
+function buildNavigationUrl(state) {
+    const params = new URLSearchParams(window.location.search);
+    params.set('view', viewParamForNavState(state));
+    params.delete('mode');
+    const clean = params.toString();
+    return `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+}
+
+/**
+ * Keep the History stack in sync with the visible page/subtab.
+ * @param {{ replace?: boolean }} [options]
+ */
+function syncNavigationHistory({ replace = false } = {}) {
+    const state = getNavigationState();
+    const url = buildNavigationUrl(state);
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (!replace && url === current && navigationStatesEqual(window.history.state, state)) {
+        return;
+    }
+    if (replace) {
+        window.history.replaceState(state, '', url);
+    } else {
+        window.history.pushState(state, '', url);
     }
 }
 
@@ -3646,10 +3985,17 @@ function clearNavBootState() {
 }
 
 function applyInitialNavigation() {
+    // Registered here, not in initNavigation(): initNavigation runs at the very
+    // end of a long async boot, behind several awaits that can reject and abort
+    // the whole DOMContentLoaded handler. Back is not worth hanging off that
+    // single point of failure when the listener is free and order-independent.
+    window.addEventListener('popstate', onNavigationPopState);
+
     const initial = resolveInitialNavigation();
     navigateToPage(initial.page, {
         playgroundTab: initial.playgroundTab || 'agents',
         competitionTab: initial.competitionTab || 'daily',
+        history: 'replace',
     });
     if (typeof initHomePage === 'function') {
         initHomePage();
@@ -3662,24 +4008,14 @@ function resolveInitialNavigation() {
     const hash = window.location.hash.replace('#', '');
     const legacy = view || hash;
 
-    const legacyMap = {
-        home: { page: 'home' },
-        community: { page: 'community' },
-        account: { page: 'account' },
-        backtest: { page: 'playground', playgroundTab: 'backtest' },
-        paper: { page: 'playground', playgroundTab: 'paper' },
-        contest: { page: 'competition', competitionTab: 'daily' },
-        'my-algo': { page: 'playground', playgroundTab: 'agents' },
-    };
-
     // Discord / share deep links land on the backtest playground.
     if (params.get('agent_id') || params.get('run_id')) {
         return { page: 'playground', playgroundTab: 'backtest' };
     }
 
     // An explicit URL view/hash always wins.
-    if (legacy && legacyMap[legacy]) {
-        return legacyMap[legacy];
+    if (legacy && NAV_VIEW_MAP[legacy]) {
+        return { ...NAV_VIEW_MAP[legacy] };
     }
 
     // Otherwise restore the last visited tab across refreshes.
@@ -3696,14 +4032,82 @@ function resolveInitialNavigation() {
     return { page: 'home' };
 }
 
+function onNavigationPopState(event) {
+    const fromState = event.state;
+    const target = (fromState && fromState.page)
+        ? fromState
+        : resolveInitialNavigation();
+    navigateToPage(target.page, {
+        playgroundTab: target.playgroundTab || 'agents',
+        competitionTab: target.competitionTab || 'daily',
+        history: 'none',
+    });
+}
+
 /**
- * Open a specific agent + backtest run from ?agent_id=&run_id= (Discord links).
+ * A deep link that needs sign-in is parked here rather than left in the URL.
+ *
+ * The URL is the wrong place to hold it now that every navigation rewrites the
+ * query string: buildNavigationUrl copies window.location.search wholesale, so
+ * agent_id/run_id would ride along on every later pushState, and
+ * resolveInitialNavigation checks them *before* ?view= — so a refresh from any
+ * page would snap back to the backtest tab. sessionStorage (not localStorage)
+ * because a stale pending link must not outlive the tab and hijack a later visit.
+ */
+const PENDING_DEEP_LINK_KEY = 'pending-agent-run-deep-link';
+
+function readPendingDeepLink() {
+    try {
+        const saved = JSON.parse(sessionStorage.getItem(PENDING_DEEP_LINK_KEY) || 'null');
+        if (saved && (saved.agentId || saved.runId)) return saved;
+    } catch (error) {
+        /* corrupt/unavailable — treat as no pending link */
+    }
+    return null;
+}
+
+function savePendingDeepLink(link) {
+    try {
+        sessionStorage.setItem(PENDING_DEEP_LINK_KEY, JSON.stringify(link));
+    } catch (error) {
+        /* sessionStorage unavailable — the post-sign-in retry is best effort */
+    }
+}
+
+function clearPendingDeepLink() {
+    try {
+        sessionStorage.removeItem(PENDING_DEEP_LINK_KEY);
+    } catch (error) {
+        /* ignore */
+    }
+}
+
+/** Drop agent_id/run_id from the visible URL without touching the history stack. */
+function stripDeepLinkParamsFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('agent_id') && !params.has('run_id')) return;
+    params.delete('agent_id');
+    params.delete('run_id');
+    const clean = params.toString();
+    const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
+    window.history.replaceState(getNavigationState(), '', next);
+}
+
+/**
+ * Open a specific agent + backtest run from ?agent_id=&run_id= (Discord links),
+ * or from a link parked by a previous signed-out attempt.
  */
 async function applyAgentRunDeepLink() {
     const params = new URLSearchParams(window.location.search);
-    const agentId = (params.get('agent_id') || '').trim();
-    const runId = (params.get('run_id') || '').trim();
+    const pending = readPendingDeepLink();
+    const agentId = (params.get('agent_id') || pending?.agentId || '').trim();
+    const runId = (params.get('run_id') || pending?.runId || '').trim();
     if (!agentId && !runId) return;
+
+    // Consume the link up front so it cannot leak into later history entries.
+    // Everything below works off the locals; the signed-out branch re-parks it.
+    stripDeepLinkParamsFromUrl();
+    clearPendingDeepLink();
 
     try {
         await loadAgents();
@@ -3731,7 +4135,8 @@ async function applyAgentRunDeepLink() {
     if (agentId && !agent && agentAuthError) {
         const signedIn = !!(localStorage.getItem(AUTH_TOKEN_KEY) && getStoredAuthUser());
         if (!signedIn) {
-            // Leave agent_id/run_id in the URL so a successful sign-in retries.
+            // Park it so a successful sign-in retries — see PENDING_DEEP_LINK_KEY.
+            savePendingDeepLink({ agentId, runId });
             alert('Sign in with the account that owns this agent to open its backtest from Discord.');
             openAuthModal('login');
             return;
@@ -3751,18 +4156,11 @@ async function applyAgentRunDeepLink() {
         localStorage.setItem(SELECTED_BACKTEST_RUN_KEY, runId);
     }
 
-    navigateToPage('playground', { playgroundTab: 'backtest' });
+    navigateToPage('playground', { playgroundTab: 'backtest', history: 'replace' });
     currentMode = 'backtest';
     await loadData();
-
-    params.delete('agent_id');
-    params.delete('run_id');
-    if (!params.get('view') && !params.get('mode')) {
-        params.set('view', 'backtest');
-    }
-    const clean = params.toString();
-    const next = `${window.location.pathname}${clean ? `?${clean}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', next);
+    // No URL cleanup left to do: the deep-link params were stripped on entry and
+    // navigateToPage's 'replace' already wrote ?view=backtest onto this entry.
 }
 
 function updatePlaygroundSubtabs() {
@@ -3844,6 +4242,9 @@ function navigateToPage(page, options = {}) {
         options = { ...options, playgroundTab: options.playgroundTab || 'agents' };
     }
 
+    const historyMode = options.history || 'push';
+    const prevState = getNavigationState();
+
     currentPage = page;
 
     if (options.playgroundTab) playgroundTab = options.playgroundTab;
@@ -3914,6 +4315,11 @@ function navigateToPage(page, options = {}) {
 
     clearNavBootState();
     persistNavigation();
+
+    if (historyMode === 'none') return;
+    const nextState = getNavigationState();
+    if (historyMode === 'push' && navigationStatesEqual(prevState, nextState)) return;
+    syncNavigationHistory({ replace: historyMode === 'replace' });
 }
 
 function switchPlaygroundTab(tab) {
@@ -3921,7 +4327,12 @@ function switchPlaygroundTab(tab) {
         navigateToPage('playground', { playgroundTab: tab });
         return;
     }
+    // Re-clicking the active subtab deliberately falls through: showPlaygroundPanel
+    // re-runs its loaders, which users rely on as a refresh. It cannot double-push
+    // history — syncNavigationHistory early-returns when the URL and state are
+    // already the current entry, which is exactly this case.
     showPlaygroundPanel(tab);
+    syncNavigationHistory({ replace: false });
 }
 
 function switchCompetitionTab(tab) {
@@ -3929,7 +4340,9 @@ function switchCompetitionTab(tab) {
         navigateToPage('competition', { competitionTab: tab });
         return;
     }
+    // Falls through on a re-click for the same reason as switchPlaygroundTab.
     showCompetitionPanel(tab);
+    syncNavigationHistory({ replace: false });
 }
 
 function openAddAgentModal() {
@@ -4034,19 +4447,9 @@ function initNavigation() {
 function switchMode(mode) {
     console.log('Switching to mode:', mode);
 
-    const legacyMap = {
-        backtest: { page: 'playground', playgroundTab: 'backtest' },
-        paper: { page: 'playground', playgroundTab: 'paper' },
-        contest: { page: 'competition', competitionTab: 'daily' },
-        'my-algo': { page: 'playground', playgroundTab: 'agents' },
-        home: { page: 'home' },
-        agents: { page: 'playground', playgroundTab: 'agents' },
-        playground: { page: 'playground', playgroundTab: 'agents' },
-        competition: { page: 'competition', competitionTab: 'daily' },
-        account: { page: 'account' },
-    };
-
-    const target = legacyMap[mode] || { page: mode };
+    // Shares NAV_VIEW_MAP rather than keeping a third copy of the same table;
+    // it is a superset of the slugs this used to carry, so nothing regresses.
+    const target = NAV_VIEW_MAP[mode] || { page: mode };
     navigateToPage(target.page, {
         playgroundTab: target.playgroundTab,
         competitionTab: target.competitionTab,
@@ -4850,7 +5253,7 @@ function displayPaperError(message) {
     
     const positionsList = document.getElementById('positionsList');
     if (positionsList) {
-        positionsList.innerHTML = `<div class="loading" style="color: var(--danger-color);">Error: ${message}</div>`;
+        positionsList.innerHTML = `<div class="loading" style="color: var(--danger-color);">Error: ${escapeHtml(message)}</div>`;
     }
 }
 
@@ -4902,6 +5305,19 @@ function highlightAlgoBlocks(updatedKeys) {
     }, 2500);
 }
 
+/**
+ * Render a chat bubble's text as HTML, supporting only `**bold**`.
+ *
+ * Escape first, then add the markup: every caller passes text the server
+ * controls (an `err.message` carrying a backend `detail` or a backtest job's
+ * stderr tail, the LLM's `reply`, the echoed `team_name`), so the raw string
+ * must never reach `innerHTML`. Escaping leaves `*` alone, so the bold markers
+ * still survive; the only live tags are the ones we generate here.
+ */
+function renderAlgoChatHtml(text) {
+    return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+
 function appendAlgoChatMessage(text, role = 'bot') {
     const container = document.getElementById('algoChatMessages');
     if (!container) return;
@@ -4909,7 +5325,7 @@ function appendAlgoChatMessage(text, role = 'bot') {
     row.className = `algo-chat-msg ${role}`;
     const bubble = document.createElement('div');
     bubble.className = 'algo-chat-bubble';
-    bubble.innerHTML = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    bubble.innerHTML = renderAlgoChatHtml(text);
     row.appendChild(bubble);
     container.appendChild(row);
     container.scrollTop = container.scrollHeight;

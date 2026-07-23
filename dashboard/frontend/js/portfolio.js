@@ -141,6 +141,18 @@ function renderPortfolioSummary(summary) {
 // ---------------------------------------------------------------------------
 const pfChartInstances = {};
 
+/**
+ * Money to print for a slice. `value` drives the arc geometry and is not always
+ * the number to show: over-allocated agent slices are scaled down to fit the
+ * pie (assignedCapital keeps the true figure), and the empty-holdings slice
+ * carries a placeholder arc worth $0 (displayValue pins it to zero).
+ */
+function sliceAmount(slice) {
+    if (slice.displayValue != null) return slice.displayValue;
+    if (slice.assignedCapital != null) return slice.assignedCapital;
+    return slice.value;
+}
+
 function renderAllocationChart(key, data) {
     const canvas = document.getElementById(`${key}AllocationChart`);
     const legendEl = document.getElementById(`${key}AllocationLegend`);
@@ -178,10 +190,7 @@ function renderAllocationChart(key, data) {
                     callbacks: {
                         label: (ctx) => {
                             const slice = data.slices[ctx.dataIndex];
-                            const amount = slice.assignedCapital != null
-                                ? slice.assignedCapital
-                                : slice.value;
-                            return `${slice.label}: ${slice.pct}% · ${pfMoney(amount)}`;
+                            return `${slice.label}: ${slice.pct}% · ${pfMoney(sliceAmount(slice))}`;
                         },
                     },
                 },
@@ -199,7 +208,7 @@ function renderAllocationChart(key, data) {
         const rows = data.slices
             .map(
                 (s) => {
-                    const displayValue = s.assignedCapital != null ? s.assignedCapital : s.value;
+                    const displayValue = sliceAmount(s);
                     return `
             <li class="allocation-legend-row">
                 <span class="allocation-legend-name">
@@ -274,9 +283,14 @@ function cashOnlyAssetAllocation(cashAvailable) {
 }
 
 function emptyHoldingsAllocation() {
+    // A single 0-value slice makes Chart.js draw no arcs at all, so the canvas
+    // reads as a chart that failed to load. Give the placeholder arc a nonzero
+    // geometry value and pin every printed figure to $0 via displayValue.
     return {
         total: 0,
-        slices: [{ label: 'None', pct: 0, value: 0, color: '#64748b' }],
+        slices: [
+            { label: 'None', pct: 0, value: 1, displayValue: 0, color: '#334155' },
+        ],
     };
 }
 
