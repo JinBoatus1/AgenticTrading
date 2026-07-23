@@ -350,9 +350,7 @@ function buildAgentAllocationData(agents, totalPortfolioValue) {
 }
 
 function updateAgentAllocationFromAgents(agents) {
-    // Until allocate (#175) wires the ledger, signed-in pie is 100% Unassigned.
-    const agentSlices = livePortfolio ? [] : agents;
-    renderAllocationChart('agent', buildAgentAllocationData(agentSlices, getTotalPortfolioValue()));
+    renderAllocationChart('agent', buildAgentAllocationData(agents, getTotalPortfolioValue()));
 }
 
 function renderPortfolioFromMock(agents) {

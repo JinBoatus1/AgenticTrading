@@ -17,6 +17,14 @@ from dashboard.backend.db_url import describe_database_url
 from dashboard.backend.domain.backtesting.constants import DEFAULT_PORTFOLIO_EQUITY
 
 
+class InsufficientCashError(ValueError):
+    """Raised when an allocate would drive cash_available below zero."""
+
+
+class CashExceedsEquityError(ValueError):
+    """Raised when a reclaim would drive cash_available above equity."""
+
+
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -117,6 +125,48 @@ class PortfolioStore:
             if raced is None:
                 raise
             return raced
+
+    def adjust_cash_available(self, owner_user_id: int, delta: float) -> Dict[str, Any]:
+        """Apply ``delta`` to cash_available (negative = allocate, positive = reclaim)."""
+        self.get_or_create(owner_user_id)
+        uid = int(owner_user_id)
+        delta_f = float(delta)
+        now = _utcnow_iso()
+        conn = self._get_connection()
+        try:
+            row = conn.execute(
+                "SELECT equity, cash_available FROM user_portfolios WHERE owner_user_id = ?",
+                (uid,),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError(f"portfolio missing for user {uid}")
+            equity = float(row["equity"])
+            cash = float(row["cash_available"])
+            new_cash = cash + delta_f
+            if new_cash < -1e-9:
+                raise InsufficientCashError(
+                    f"Insufficient unallocated cash "
+                    f"(have {cash:.2f}, need {-delta_f:.2f})."
+                )
+            if new_cash > equity + 1e-9:
+                raise CashExceedsEquityError(
+                    f"cash_available {new_cash:.2f} would exceed equity {equity:.2f}."
+                )
+            new_cash = min(max(new_cash, 0.0), equity)
+            conn.execute(
+                """
+                UPDATE user_portfolios
+                SET cash_available = ?, updated_at = ?
+                WHERE owner_user_id = ?
+                """,
+                (new_cash, now, uid),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        updated = self.get(uid)
+        assert updated is not None
+        return updated
 
 
 def _build_portfolio_store():

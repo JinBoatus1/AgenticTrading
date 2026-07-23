@@ -1220,7 +1220,11 @@ async function loadAgents() {
     allAgents = agents;
     applyAgentFilters();
     populateBacktestAgentSelect();
-    if (typeof window.updateAgentAllocationFromAgents === 'function') {
+    if (typeof window.renderPortfolio === 'function') {
+      Promise.resolve(window.renderPortfolio(allAgents.map(decorateAgent))).catch((error) => {
+        console.warn('renderPortfolio after loadAgents failed:', error?.message || error);
+      });
+    } else if (typeof window.updateAgentAllocationFromAgents === 'function') {
       window.updateAgentAllocationFromAgents(allAgents.map(decorateAgent));
     }
     if (typeof window.refreshHomeModules === 'function') {

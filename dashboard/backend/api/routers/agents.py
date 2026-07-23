@@ -93,15 +93,38 @@ async def create_agent(
     """
     ctx = _require_owner_context(request, authorization)
     agent_type = "builtin" if body.agent_type.strip().lower() == "builtin" else "external"
-    agent = agent_service.create_agent(
-        name=body.name.strip(),
-        model_name=body.model_name.strip() or "local-model",
-        owner_user_id=ctx["user_id"],
-        owner_browser_session=ctx["browser_session"],
-        agent_type=agent_type,
-        description=(body.description.strip() if body.description else None),
-        cash_allocation=body.cash_allocation,
+    cash = float(
+        body.cash_allocation
+        if body.cash_allocation is not None
+        else DEFAULT_AGENT_CASH_ALLOCATION
     )
+
+    # Signed-in users fund the sleeve from their account portfolio (#175).
+    if ctx["user_id"] and cash > 0:
+        from dashboard.backend.domain.portfolios.repository import InsufficientCashError
+        from dashboard.backend.domain.portfolios.service import portfolio_service
+
+        try:
+            portfolio_service.debit_for_new_agent(ctx["user_id"], cash)
+        except InsufficientCashError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        agent = agent_service.create_agent(
+            name=body.name.strip(),
+            model_name=body.model_name.strip() or "local-model",
+            owner_user_id=ctx["user_id"],
+            owner_browser_session=ctx["browser_session"],
+            agent_type=agent_type,
+            description=(body.description.strip() if body.description else None),
+            cash_allocation=cash,
+        )
+    except Exception:
+        if ctx["user_id"] and cash > 0:
+            from dashboard.backend.domain.portfolios.service import portfolio_service
+
+            portfolio_service.credit(ctx["user_id"], cash)
+        raise
     return {
         "agent": agent_service.agent_with_stats(agent),
         "session_id": agent["session_id"],
@@ -276,6 +299,27 @@ async def update_agent(
 
     cash_allocation_arg = body.cash_allocation if cash_allocation_provided else _UNSET
 
+    # When a signed-in owner changes cash_allocation, move portfolio ledger cash (#175).
+    if cash_allocation_provided and ctx.get("user_id"):
+        existing = agent_service.get_agent(agent_id)
+        if existing and existing.get("owner_user_id") == ctx["user_id"]:
+            from dashboard.backend.domain.portfolios.repository import InsufficientCashError
+            from dashboard.backend.domain.portfolios.service import (
+                InsufficientSleeveError,
+                portfolio_service,
+            )
+
+            try:
+                portfolio_service.set_agent_allocation(
+                    owner_user_id=ctx["user_id"],
+                    agent=existing,
+                    new_amount=float(body.cash_allocation or 0),
+                )
+                # Sleeve already updated by set_agent_allocation — avoid double write.
+                cash_allocation_arg = _UNSET
+            except (InsufficientCashError, InsufficientSleeveError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     try:
         agent = agent_service.update_agent(
             agent_id,
@@ -298,9 +342,19 @@ async def delete_agent(
     x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
 ):
     ctx = _owner_context(request, authorization)
-    _require_agent_access(agent_id, ctx, api_key=x_api_key)
+    agent = _require_agent_access(agent_id, ctx, api_key=x_api_key)
+    sleeve = float(agent.get("cash_allocation") or 0)
+    owner_user_id = agent.get("owner_user_id")
     agent_service.delete_agent(agent_id)
-    return {"status": "deleted", "agent_id": agent_id}
+    # Return reclaimable cash to the account ledger after the row is gone (#175).
+    if owner_user_id and sleeve > 0:
+        from dashboard.backend.domain.portfolios.service import portfolio_service
+
+        portfolio_service.reclaim_all_on_delete(
+            owner_user_id=int(owner_user_id),
+            cash_allocation=sleeve,
+        )
+    return {"status": "deleted", "agent_id": agent_id, "reclaimed": sleeve}
 
 
 @router.post("/{agent_id}/rotate-api-key")
