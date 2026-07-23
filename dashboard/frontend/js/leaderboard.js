@@ -1015,7 +1015,9 @@ function transformLeaderboardChartData(curveValues, viewType, initialValue) {
 function displayLeaderboardError(message) {
   const tbody = document.getElementById('leaderboardTableBody');
   if (tbody) {
-    tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; padding: 30px; color: var(--danger-color);">Error: ${message}</td></tr>`;
+    // `escapeHtml` is a global from app.js, which app.html loads first — the same
+    // contract js/leaderboard.js already relies on for API/API_BASE.
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; padding: 30px; color: var(--danger-color);">Error: ${escapeHtml(message)}</td></tr>`;
   }
 }
 

@@ -2999,7 +2999,7 @@ function showTickerStatus(message) {
     stopTickerScroll();
     tickerTrack.dataset.tickerReady = '0';
     tickerTrack.style.transform = 'none';
-    tickerTrack.innerHTML = `<div class="ticker-placeholder">${message}</div>`;
+    tickerTrack.innerHTML = `<div class="ticker-placeholder">${escapeHtml(message)}</div>`;
 }
 
 /**
@@ -5249,7 +5249,7 @@ function displayPaperError(message) {
     
     const positionsList = document.getElementById('positionsList');
     if (positionsList) {
-        positionsList.innerHTML = `<div class="loading" style="color: var(--danger-color);">Error: ${message}</div>`;
+        positionsList.innerHTML = `<div class="loading" style="color: var(--danger-color);">Error: ${escapeHtml(message)}</div>`;
     }
 }
 
@@ -5301,6 +5301,19 @@ function highlightAlgoBlocks(updatedKeys) {
     }, 2500);
 }
 
+/**
+ * Render a chat bubble's text as HTML, supporting only `**bold**`.
+ *
+ * Escape first, then add the markup: every caller passes text the server
+ * controls (an `err.message` carrying a backend `detail` or a backtest job's
+ * stderr tail, the LLM's `reply`, the echoed `team_name`), so the raw string
+ * must never reach `innerHTML`. Escaping leaves `*` alone, so the bold markers
+ * still survive; the only live tags are the ones we generate here.
+ */
+function renderAlgoChatHtml(text) {
+    return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+
 function appendAlgoChatMessage(text, role = 'bot') {
     const container = document.getElementById('algoChatMessages');
     if (!container) return;
@@ -5308,7 +5321,7 @@ function appendAlgoChatMessage(text, role = 'bot') {
     row.className = `algo-chat-msg ${role}`;
     const bubble = document.createElement('div');
     bubble.className = 'algo-chat-bubble';
-    bubble.innerHTML = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    bubble.innerHTML = renderAlgoChatHtml(text);
     row.appendChild(bubble);
     container.appendChild(row);
     container.scrollTop = container.scrollHeight;
