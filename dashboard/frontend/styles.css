@@ -6820,89 +6820,210 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market
 }
 
 /* ===========================================================================
-   My Portfolio — summary cards + allocation donut charts (My Agents page)
+   My Portfolio — Overview + Capital Allocation (My Agents page)
    =========================================================================== */
-.portfolio-summary-grid {
+.portfolio-top-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
-    margin-bottom: 16px;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 14px;
+    margin-bottom: 28px;
+    align-items: stretch;
 }
 
-.portfolio-summary-card {
+.pf-overview-card {
     display: flex;
-    align-items: flex-start;
+    flex-direction: column;
+    gap: 22px;
+    padding: 22px 24px 20px;
+    border-radius: 12px;
+}
+
+.pf-overview-head {
+    display: flex;
+    align-items: center;
     gap: 12px;
-    padding: 16px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.portfolio-summary-card:hover {
-    border-color: rgba(34, 211, 238, 0.35);
-    box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.08);
-}
-
-.portfolio-summary-icon {
-    flex-shrink: 0;
-    width: 38px;
-    height: 38px;
+.pf-overview-icon {
+    width: 40px;
+    height: 40px;
     display: grid;
     place-items: center;
-    border-radius: 9px;
+    border-radius: 10px;
     background: rgba(34, 211, 238, 0.1);
     border: 1px solid rgba(34, 211, 238, 0.22);
     color: var(--home-accent-cyan);
 }
 
-.portfolio-summary-icon svg {
-    width: 18px;
-    height: 18px;
+.pf-overview-icon svg {
+    width: 20px;
+    height: 20px;
 }
 
-.portfolio-summary-body {
+/* Beat `.section-card h3 { font-size: 12px }` (higher specificity). */
+.section-card.pf-overview-card .pf-overview-title {
+    margin: 0;
+    margin-bottom: 0;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: normal;
+    color: var(--text-primary);
+}
+
+.pf-overview-hero {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.pf-overview-hero-col {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 8px;
     min-width: 0;
 }
 
-.portfolio-summary-label {
-    font-size: 11px;
+.pf-overview-hero-col--right {
+    text-align: right;
+    align-items: flex-end;
+}
+
+.section-card.pf-overview-card .pf-overview-label {
+    font-size: 15px;
     font-weight: 600;
     color: var(--text-secondary);
+    letter-spacing: 0.01em;
 }
 
-.portfolio-summary-value {
+.section-card.pf-overview-card .pf-overview-total {
+    font-size: 30px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    line-height: 1.15;
+}
+
+.section-card.pf-overview-card .pf-overview-pnl,
+.section-card.pf-overview-card .pf-overview-split-value {
     font-size: 22px;
     font-weight: 700;
-    color: var(--text-primary);
     font-family: var(--font-mono);
-    line-height: 1.1;
+    color: var(--text-primary);
+    line-height: 1.15;
 }
 
-.portfolio-summary-value.is-positive { color: var(--success-color); }
-.portfolio-summary-value.is-negative { color: var(--danger-color); }
-
-.portfolio-summary-sub {
-    font-size: 11px;
-    color: var(--text-muted);
+.pf-overview-split {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
 }
 
-.portfolio-summary-sub.is-positive { color: var(--success-color); }
-.portfolio-summary-sub.is-negative { color: var(--danger-color); }
-.portfolio-summary-sub.is-muted { color: var(--text-muted); }
-
-/* Allocation charts */
-.allocation-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
-    margin-bottom: 24px;
+.pf-overview-split-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
 }
 
+.pf-overview-split-col--right {
+    text-align: right;
+    align-items: flex-end;
+}
+
+.pf-overview-split-row {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.section-card.pf-overview-card .pf-overview-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 15px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    line-height: 1.5;
+}
+
+.pf-overview-pill--alloc {
+    color: #22d3ee;
+    background: rgba(34, 211, 238, 0.12);
+    border: 1px solid rgba(34, 211, 238, 0.28);
+}
+
+.pf-overview-pill--avail {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.pf-overview-bar {
+    display: flex;
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(100, 116, 139, 0.25);
+}
+
+.pf-overview-bar-alloc {
+    height: 100%;
+    background: #22d3ee;
+}
+
+.pf-overview-bar-avail {
+    height: 100%;
+    background: #f59e0b;
+}
+
+.pf-allocation-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px 22px 18px;
+    border-radius: 12px;
+}
+
+.section-card.pf-allocation-card .allocation-title {
+    margin: 0;
+    margin-bottom: 0;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: normal;
+    color: var(--text-primary);
+}
+
+.pf-allocation-card .allocation-body {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex: 1;
+}
+
+.pf-allocation-card .allocation-chart-wrap {
+    flex: 0 0 150px;
+    width: 150px;
+    height: 150px;
+}
+
+.pf-allocation-card .allocation-detail {
+    flex: 1;
+    min-width: 0;
+}
+
+.pf-allocation-card .allocation-legend {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Legacy allocation helpers still used by the donut legend rows */
 .allocation-card {
     display: flex;
     flex-direction: column;
@@ -6971,41 +7092,45 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market
     gap: 6px;
 }
 
-.allocation-legend-row {
+.section-card.pf-allocation-card .allocation-legend-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
-    gap: 8px;
-    font-size: 12px;
+    gap: 10px;
+    font-size: 15px;
     color: var(--text-secondary);
 }
 
-.allocation-legend-name {
+.section-card.pf-allocation-card .allocation-legend-name {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 600;
     color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.allocation-legend-dot {
+.section-card.pf-allocation-card .allocation-legend-dot {
     flex-shrink: 0;
-    width: 9px;
-    height: 9px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
 }
 
-.allocation-legend-pct {
+.section-card.pf-allocation-card .allocation-legend-pct {
     color: var(--text-secondary);
+    font-size: 15px;
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
 }
 
-.allocation-legend-value {
+.section-card.pf-allocation-card .allocation-legend-value {
     color: var(--text-primary);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 15px;
     text-align: right;
     white-space: nowrap;
 }
@@ -7525,14 +7650,25 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market
 }
 
 /* Responsive */
-@media (max-width: 1100px) {
-    .portfolio-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .allocation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 960px) {
+    .portfolio-top-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .pf-allocation-card .allocation-body {
+        justify-content: flex-start;
+    }
 }
 
 @media (max-width: 760px) {
-    .portfolio-summary-grid { grid-template-columns: 1fr; }
-    .allocation-grid { grid-template-columns: 1fr; }
+    .section-card.pf-overview-card .pf-overview-total { font-size: 26px; }
+    .section-card.pf-overview-card .pf-overview-pnl,
+    .section-card.pf-overview-card .pf-overview-split-value { font-size: 20px; }
+    .pf-allocation-card .allocation-chart-wrap {
+        flex-basis: 130px;
+        width: 130px;
+        height: 130px;
+    }
     .agents-section-head { align-items: flex-start; }
     .agent-toolbar-search input { width: 100%; }
 }

@@ -9,8 +9,8 @@ stale copy.
 Two contracts are covered:
 
 1. A live (signed-in) portfolio must not render fabricated P/L. The ledger
-   tracks cash only, so "+$0.00 (0.00%)" would be a made-up flat day presented
-   as real data next to genuine figures.
+   tracks cash only, so a "$0.00" P&L would be a made-up flat day presented
+   as real data next to genuine figures — the overview card shows "—" instead.
 2. Concurrent renders must not repaint out of order. Two are routinely in
    flight (the My Agents tab switch, then loadAgents), and responses are not
    guaranteed to land in request order.
@@ -60,52 +60,59 @@ def _run_node(script: str):
     return json.loads(result.stdout)
 
 
+_OVERVIEW_HARNESS = [
+    # Minimal DOM + formatting stubs; everything under test is the real source.
+    "const pfMoney = (v) => `$${Number(v).toFixed(2)}`;",
+    "const PF_WALLET_ICON = '';",
+    "const root = { innerHTML: '' };",
+    "const document = { getElementById: () => root };",
+]
+
+
 def test_live_portfolio_reports_pnl_as_unavailable_not_zero():
     src = _PORTFOLIO_JS.read_text(encoding="utf-8")
     script = "\n".join(
-        [
-            "const pfMoney = (v) => `$${Number(v).toFixed(2)}`;",
-            "const pfSignedMoney = (v) => `${Number(v) >= 0 ? '+' : ''}$${Number(v).toFixed(2)}`;",
-            "const pfSignedPct = (v) => `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(2)}%`;",
+        _OVERVIEW_HARNESS
+        + [
+            _extract_function(src, "portfolioPct"),
+            _extract_function(src, "normalizeSummary"),
             _extract_function(src, "summaryFromLivePortfolio"),
-            _extract_function(src, "buildSummaryCards"),
-            "const cards = buildSummaryCards(summaryFromLivePortfolio(",
+            _extract_function(src, "renderPortfolioOverview"),
+            "renderPortfolioOverview(summaryFromLivePortfolio(",
             "  { equity: 10000, cash_available: 7500, allocated: 2500 }));",
-            "console.log(JSON.stringify(cards));",
+            "console.log(JSON.stringify(root.innerHTML));",
         ]
     )
-    cards = _run_node(script)
+    html = _run_node(script)
 
-    by_label = {c["label"]: c for c in cards}
-    assert by_label["Day P/L"]["value"] == "—"
-    assert by_label["Total Return"]["value"] == "—"
+    # The P&L slot shows an em dash, never a fabricated flat "$0.00" day.
+    assert "—" in html
+    assert "$0.00" not in html
     # Real figures still render normally.
-    assert by_label["Total Portfolio Value"]["value"] == "$10000.00"
-    assert by_label["Cash Available"]["value"] == "$7500.00"
-    # Nothing anywhere on the cards claims a zero move.
-    blob = json.dumps(cards)
-    assert "0.00%" not in blob
-    assert "+$0.00" not in blob
+    assert "$10000.00" in html
+    assert "$7500.00" in html
+    assert "$2500.00" in html
 
 
 def test_mock_portfolio_still_renders_its_pnl():
     """The guard must key on the live flag, not blank the sample data too."""
     src = _PORTFOLIO_JS.read_text(encoding="utf-8")
     script = "\n".join(
-        [
-            "const pfMoney = (v) => `$${Number(v).toFixed(2)}`;",
-            "const pfSignedMoney = (v) => `${Number(v) >= 0 ? '+' : ''}$${Number(v).toFixed(2)}`;",
-            "const pfSignedPct = (v) => `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(2)}%`;",
-            _extract_function(src, "buildSummaryCards"),
-            "console.log(JSON.stringify(buildSummaryCards(",
-            "  { totalValue: 100, dayPnl: 5, dayPnlPct: 5, totalReturn: 9,",
-            "    totalReturnPct: 9, cashAvailable: 20 })));",
+        _OVERVIEW_HARNESS
+        + [
+            _extract_function(src, "portfolioPct"),
+            _extract_function(src, "normalizeSummary"),
+            _extract_function(src, "renderPortfolioOverview"),
+            "renderPortfolioOverview(",
+            "  { totalValue: 10000, cashAvailable: 2000, allocated: 8000 });",
+            "console.log(JSON.stringify(root.innerHTML));",
         ]
     )
-    by_label = {c["label"]: c for c in _run_node(script)}
+    html = _run_node(script)
 
-    assert by_label["Day P/L"]["value"] == "+$5.00"
-    assert by_label["Total Return"]["value"] == "+$9.00"
+    # Sample data keeps its placeholder P&L rather than the live-only dash.
+    assert "$0.00" in html
+    assert "—" not in html
 
 
 def test_a_slow_earlier_render_cannot_repaint_over_a_newer_one():
@@ -113,7 +120,7 @@ def test_a_slow_earlier_render_cannot_repaint_over_a_newer_one():
     src = _PORTFOLIO_JS.read_text(encoding="utf-8")
     script = "\n".join(
         [
-            "let portfolioRenderToken = 0;",
+            "let portfolioRenderSeq = 0;",
             "const painted = [];",
             "const API_BASE = '';",
             "const isPortfolioSignedIn = () => true;",

@@ -137,7 +137,7 @@ function formatTokenCount(value) {
 // unavailable). Lets the redesigned My Agents page render without a backend.
 // TODO: Replace mock agent data with backend API data later.
 // ============================================================================
-const MAX_AGENT_CASH_ALLOCATION = 1000000;
+const MAX_AGENT_CASH_ALLOCATION = 3000;
 const DEFAULT_AGENT_CASH_ALLOCATION = 1000;
 const DEFAULT_PORTFOLIO_EQUITY = 10000;
 const AGENT_CASH_OVERRIDE_PREFIX = 'agent-cash-allocation:';
@@ -222,7 +222,7 @@ function decorateAgent(agent) {
 const MOCK_AGENTS = [
   {
     agent_id: 'mock-momentum-scout', name: 'Momentum Scout', agent_type: 'builtin',
-    model_name: 'GPT-5.5', is_live: true, cash_allocation: 10000,
+    model_name: 'GPT-5.5', is_live: true, cash_allocation: 3000,
     paper_equity: 12480.32, paper_day_pnl: 184.2, paper_day_pnl_pct: 1.5,
     paper_buying_power: 4820, paper_open_positions: 6,
     paper_last_activity: 'Bought 4 NVDA · 18 min ago',
@@ -232,7 +232,7 @@ const MOCK_AGENTS = [
   },
   {
     agent_id: 'mock-test-agent-2', name: 'test agent 2', agent_type: 'builtin',
-    model_name: 'anthropic/claude-haiku-4-5', run_count: 1, cash_allocation: 10000,
+    model_name: 'anthropic/claude-haiku-4-5', run_count: 1, cash_allocation: 3000,
     latest_run: {
       total_return: 0.08425, sharpe_ratio: 2.67,
       start_date: '2026-06-01', end_date: '2026-06-30',

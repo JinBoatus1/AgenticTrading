@@ -277,8 +277,7 @@ function updateLeaderboardHeader(payload) {
       : (payload.leader || '—');
   }
   if (standingsEl) {
-    standingsEl.textContent = payload.standings_label
-      || (payload.period === 'daily' ? 'Daily Standings' : 'Preseason Standings');
+    standingsEl.textContent = payload.standings_label || 'Ranking';
   }
   if (subtitleEl) {
     subtitleEl.textContent = payload.period === 'daily'

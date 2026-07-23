@@ -226,8 +226,8 @@
       if (!Number.isFinite(value) || value < 0) {
         throw new Error('Initial cash must be zero or greater.');
       }
-      if (value > 1000000) {
-        throw new Error('Initial cash cannot exceed $1,000,000.');
+      if (value > 3000) {
+        throw new Error('Initial cash cannot exceed $3,000.');
       }
       cash_allocation = Math.round(value);
     } else {

@@ -1,56 +1,25 @@
 /*
  * portfolio.js — "My Portfolio" section for the My Agents page.
  *
- * Signed-in users load GET /api/v1/portfolio (account-bound $10k ledger).
- * Guests / demo keep the SAMPLE DATA mock below.
+ * Layout: left Portfolio Overview + right Capital Allocation pie.
+ * Signed-in users load GET /api/v1/portfolio; guests keep SAMPLE DATA mock.
  */
 
-// ---------------------------------------------------------------------------
-// Mock data (guest / demo only)
-// ---------------------------------------------------------------------------
 const PORTFOLIO_MOCK = {
     summary: {
         totalValue: 10000,
-        dayPnl: 0,
-        dayPnlPct: 0,
-        totalReturn: 0,
-        totalReturnPct: 0,
-        cashAvailable: 7000,
-    },
-    allocations: {
-        asset: {
-            total: 10000,
-            slices: [
-                { label: 'Stocks', pct: 25, value: 2500, color: '#22d3ee' },
-                { label: 'Crypto', pct: 5, value: 500, color: '#a855f7' },
-                { label: 'Cash',   pct: 70, value: 7000, color: '#64748b' },
-            ],
-        },
-        stock: {
-            total: 2500,
-            slices: [
-                { label: 'AAPL',  pct: 40, value: 1000, color: '#22d3ee' },
-                { label: 'MSFT',  pct: 30, value: 750, color: '#38bdf8' },
-                { label: 'NVDA',  pct: 20, value: 500, color: '#34d399' },
-                { label: 'Other', pct: 10, value: 250, color: '#475569' },
-            ],
-        },
-        crypto: {
-            total: 500,
-            slices: [
-                { label: 'BTC',   pct: 60, value: 300, color: '#f59e0b' },
-                { label: 'ETH',   pct: 40, value: 200, color: '#818cf8' },
-            ],
-        },
+        cashAvailable: 2000,
+        allocated: 8000,
     },
 };
 
 /** @type {null | { equity: number, cash_available: number, allocated: number }} */
 let livePortfolio = null;
+let portfolioRenderSeq = 0;
 
-// ---------------------------------------------------------------------------
-// Formatting helpers
-// ---------------------------------------------------------------------------
+const PF_WALLET_ICON =
+    '<path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/>';
+
 function pfMoney(value) {
     return new Intl.NumberFormat('en-US', {
         style: 'currency',
@@ -59,180 +28,6 @@ function pfMoney(value) {
         maximumFractionDigits: 2,
     }).format(Number(value) || 0);
 }
-
-function pfSignedMoney(value) {
-    const sign = Number(value) >= 0 ? '+' : '-';
-    return `${sign}${pfMoney(Math.abs(Number(value) || 0))}`;
-}
-
-function pfSignedPct(value) {
-    const sign = Number(value) >= 0 ? '+' : '';
-    return `${sign}${(Number(value) || 0).toFixed(2)}%`;
-}
-
-// ---------------------------------------------------------------------------
-// PortfolioSummaryCard
-// ---------------------------------------------------------------------------
-function buildSummaryCards(summary) {
-    const noPnl = !!summary.pnlUnavailable;
-    return [
-        {
-            label: 'Total Portfolio Value',
-            value: pfMoney(summary.totalValue),
-            sub: noPnl
-                ? 'Account cash ledger'
-                : `vs last close ${pfSignedMoney(summary.dayPnl)} (${pfSignedPct(summary.dayPnlPct)})`,
-            tone: noPnl || summary.dayPnl >= 0 ? 'positive' : 'negative',
-            icon: 'wallet',
-        },
-        {
-            label: 'Day P/L',
-            value: noPnl ? '—' : pfSignedMoney(summary.dayPnl),
-            sub: noPnl ? 'Not tracked yet' : `${pfSignedPct(summary.dayPnlPct)} vs last close`,
-            tone: noPnl ? 'muted' : summary.dayPnl >= 0 ? 'positive' : 'negative',
-            valueTone: noPnl ? '' : summary.dayPnl >= 0 ? 'positive' : 'negative',
-            icon: 'pulse',
-        },
-        {
-            label: 'Total Return',
-            value: noPnl ? '—' : pfSignedMoney(summary.totalReturn),
-            sub: noPnl ? 'Not tracked yet' : `${pfSignedPct(summary.totalReturnPct)} all time`,
-            tone: noPnl ? 'muted' : summary.totalReturn >= 0 ? 'positive' : 'negative',
-            valueTone: noPnl ? '' : summary.totalReturn >= 0 ? 'positive' : 'negative',
-            icon: 'trend',
-        },
-        {
-            label: 'Cash Available',
-            value: pfMoney(summary.cashAvailable),
-            sub: 'Available to trade',
-            tone: 'muted',
-            icon: 'cash',
-        },
-    ];
-}
-
-const PF_ICONS = {
-    wallet: '<path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/>',
-    pulse: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
-    trend: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
-    cash: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
-};
-
-function renderPortfolioSummary(summary) {
-    const grid = document.getElementById('portfolioSummaryGrid');
-    if (!grid) return;
-    const cards = buildSummaryCards(summary);
-    grid.innerHTML = cards
-        .map(
-            (c) => `
-        <div class="portfolio-summary-card">
-            <div class="portfolio-summary-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PF_ICONS[c.icon] || ''}</svg>
-            </div>
-            <div class="portfolio-summary-body">
-                <span class="portfolio-summary-label">${c.label}</span>
-                <span class="portfolio-summary-value ${c.valueTone ? 'is-' + c.valueTone : ''}">${c.value}</span>
-                <span class="portfolio-summary-sub is-${c.tone}">${c.sub}</span>
-            </div>
-        </div>`,
-        )
-        .join('');
-}
-
-// ---------------------------------------------------------------------------
-// AllocationChart
-// ---------------------------------------------------------------------------
-const pfChartInstances = {};
-
-/**
- * Money to print for a slice. `value` drives the arc geometry and is not always
- * the number to show: over-allocated agent slices are scaled down to fit the
- * pie (assignedCapital keeps the true figure), and the empty-holdings slice
- * carries a placeholder arc worth $0 (displayValue pins it to zero).
- */
-function sliceAmount(slice) {
-    if (slice.displayValue != null) return slice.displayValue;
-    if (slice.assignedCapital != null) return slice.assignedCapital;
-    return slice.value;
-}
-
-function renderAllocationChart(key, data) {
-    const canvas = document.getElementById(`${key}AllocationChart`);
-    const legendEl = document.getElementById(`${key}AllocationLegend`);
-    const totalEl = document.getElementById(`${key}AllocationTotal`);
-    if (!canvas || typeof Chart === 'undefined') return;
-
-    const labels = data.slices.map((s) => s.label);
-    const values = data.slices.map((s) => s.value);
-    const colors = data.slices.map((s) => s.color);
-
-    if (pfChartInstances[key]) {
-        pfChartInstances[key].destroy();
-    }
-
-    pfChartInstances[key] = new Chart(canvas.getContext('2d'), {
-        type: 'pie',
-        data: {
-            labels,
-            datasets: [
-                {
-                    data: values,
-                    backgroundColor: colors,
-                    borderColor: 'rgba(10, 14, 39, 0.9)',
-                    borderWidth: 2,
-                    hoverOffset: 6,
-                },
-            ],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: (ctx) => {
-                            const slice = data.slices[ctx.dataIndex];
-                            return `${slice.label}: ${slice.pct}% · ${pfMoney(sliceAmount(slice))}`;
-                        },
-                    },
-                },
-            },
-        },
-    });
-
-    if (totalEl) {
-        totalEl.innerHTML = `
-            <span class="allocation-total-label">Total</span>
-            <span class="allocation-total-value">${pfMoney(data.total)}</span>`;
-    }
-
-    if (legendEl) {
-        const rows = data.slices
-            .map(
-                (s) => {
-                    const displayValue = sliceAmount(s);
-                    return `
-            <li class="allocation-legend-row">
-                <span class="allocation-legend-name">
-                    <span class="allocation-legend-dot" style="background:${s.color}"></span>
-                    ${s.label}
-                </span>
-                <span class="allocation-legend-pct">${s.pct}%</span>
-                <span class="allocation-legend-value">${pfMoney(displayValue)}</span>
-            </li>`;
-                },
-            )
-            .join('');
-        legendEl.innerHTML = rows;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Capital allocation by agent (portfolio-wide: assigned + unassigned)
-// ---------------------------------------------------------------------------
-const AGENT_SLICE_COLORS = ['#22d3ee', '#a855f7', '#34d399', '#fbbf24', '#f87171', '#c084fc', '#38bdf8', '#2dd4bf'];
-const UNASSIGNED_SLICE_COLOR = '#64748b';
 
 function portfolioPct(value, totalPortfolioValue) {
     const total = Number(totalPortfolioValue) || 0;
@@ -248,7 +43,6 @@ function getTotalPortfolioValue() {
 function setPortfolioSampleBadgeVisible(visible) {
     const badge = document.getElementById('portfolioSampleBadge');
     if (!badge) return;
-    // Inline style on the badge beats the UA [hidden] rule — toggle display.
     badge.style.display = visible ? 'inline-block' : 'none';
 }
 
@@ -264,47 +58,99 @@ function isPortfolioSignedIn() {
     }
 }
 
+function normalizeSummary(summary) {
+    const total = Number(summary.totalValue) || 0;
+    const available = Number(summary.cashAvailable) || 0;
+    const allocated = summary.allocated != null
+        ? Number(summary.allocated)
+        : Math.max(total - available, 0);
+    return {
+        totalValue: total,
+        cashAvailable: available,
+        allocated,
+        pnlUnavailable: !!summary.pnlUnavailable,
+    };
+}
+
 function summaryFromLivePortfolio(portfolio) {
     const equity = Number(portfolio.equity) || 0;
     const cash = Number(portfolio.cash_available) || 0;
+    const allocated = portfolio.allocated != null
+        ? Number(portfolio.allocated)
+        : Math.max(equity - cash, 0);
     return {
         totalValue: equity,
-        dayPnl: 0,
-        dayPnlPct: 0,
-        totalReturn: 0,
-        totalReturnPct: 0,
         cashAvailable: cash,
+        allocated,
         // The ledger tracks cash only — no marks, no history, so there is no
-        // P/L to report. Flagged rather than left at 0 so the cards can say
-        // "not available" instead of rendering a fabricated "+$0.00 (0.00%)"
-        // that reads as a real, flat day.
+        // P/L to report. Flagged rather than left at 0 so the overview can
+        // show "—" instead of rendering a fabricated "$0.00" that reads as a
+        // real, flat day.
         pnlUnavailable: true,
     };
 }
 
-function cashOnlyAssetAllocation(cashAvailable) {
-    const cash = Number(cashAvailable) || 0;
-    return {
-        total: cash,
-        slices: [{ label: 'Cash', pct: 100, value: cash, color: '#64748b' }],
-    };
+// ---------------------------------------------------------------------------
+// Portfolio Overview (left card)
+// ---------------------------------------------------------------------------
+function renderPortfolioOverview(summary) {
+    const root = document.getElementById('portfolioOverviewCard');
+    if (!root) return;
+    const s = normalizeSummary(summary);
+    const allocPct = portfolioPct(s.allocated, s.totalValue);
+    const availPct = portfolioPct(s.cashAvailable, s.totalValue);
+    const barAlloc = Math.min(Math.max(allocPct, 0), 100);
+    const barAvail = Math.min(Math.max(100 - barAlloc, 0), 100);
+
+    root.innerHTML = `
+        <div class="pf-overview-head">
+            <span class="pf-overview-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${PF_WALLET_ICON}</svg>
+            </span>
+            <h3 class="pf-overview-title">Portfolio Overview</h3>
+        </div>
+        <div class="pf-overview-hero">
+            <div class="pf-overview-hero-col">
+                <span class="pf-overview-label">Total Portfolio Value</span>
+                <span class="pf-overview-total">${pfMoney(s.totalValue)}</span>
+            </div>
+            <div class="pf-overview-hero-col pf-overview-hero-col--right">
+                <span class="pf-overview-label">Today's P&amp;L</span>
+                <span class="pf-overview-pnl">${s.pnlUnavailable ? '—' : pfMoney(0)}</span>
+            </div>
+        </div>
+        <div class="pf-overview-split">
+            <div class="pf-overview-split-col">
+                <span class="pf-overview-label">Unallocated Cash</span>
+                <span class="pf-overview-split-row">
+                    <span class="pf-overview-split-value">${pfMoney(s.cashAvailable)}</span>
+                    <span class="pf-overview-pill pf-overview-pill--avail">${availPct}%</span>
+                </span>
+            </div>
+            <div class="pf-overview-split-col pf-overview-split-col--right">
+                <span class="pf-overview-label">Allocated to Agents</span>
+                <span class="pf-overview-split-row">
+                    <span class="pf-overview-split-value">${pfMoney(s.allocated)}</span>
+                    <span class="pf-overview-pill pf-overview-pill--alloc">${allocPct}%</span>
+                </span>
+            </div>
+        </div>
+        <div class="pf-overview-bar" role="img" aria-label="Unallocated ${availPct} percent, allocated ${allocPct} percent">
+            <span class="pf-overview-bar-avail" style="width:${barAvail}%"></span>
+            <span class="pf-overview-bar-alloc" style="width:${barAlloc}%"></span>
+        </div>
+    `;
 }
 
-function emptyHoldingsAllocation() {
-    // A single 0-value slice makes Chart.js draw no arcs at all, so the canvas
-    // reads as a chart that failed to load. Give the placeholder arc a nonzero
-    // geometry value and pin every printed figure to $0 via displayValue.
-    return {
-        total: 0,
-        slices: [
-            { label: 'None', pct: 0, value: 1, displayValue: 0, color: '#334155' },
-        ],
-    };
-}
+// ---------------------------------------------------------------------------
+// Capital Allocation donut (right card)
+// ---------------------------------------------------------------------------
+const AGENT_SLICE_COLORS = ['#22d3ee', '#a855f7', '#34d399', '#fbbf24', '#f87171', '#c084fc', '#38bdf8', '#2dd4bf'];
+const AVAILABLE_SLICE_COLOR = '#64748b';
+const pfChartInstances = {};
 
 function buildAgentAllocationData(agents, totalPortfolioValue) {
     const total = Number(totalPortfolioValue) || 0;
-
     const assignedAgents = (agents || []).filter(
         (agent) => agent.cash_allocation != null && Number(agent.cash_allocation) > 0,
     );
@@ -312,7 +158,7 @@ function buildAgentAllocationData(agents, totalPortfolioValue) {
     if (total <= 0) {
         return {
             total: 0,
-            slices: [{ label: 'Unassigned', value: 0, pct: 0, color: UNASSIGNED_SLICE_COLOR }],
+            slices: [{ label: 'Unallocated', value: 0, pct: 0, color: AVAILABLE_SLICE_COLOR }],
         };
     }
 
@@ -320,10 +166,10 @@ function buildAgentAllocationData(agents, totalPortfolioValue) {
         return {
             total,
             slices: [{
-                label: 'Unassigned',
+                label: 'Unallocated',
                 value: total,
                 pct: 100,
-                color: UNASSIGNED_SLICE_COLOR,
+                color: AVAILABLE_SLICE_COLOR,
             }],
         };
     }
@@ -332,43 +178,150 @@ function buildAgentAllocationData(agents, totalPortfolioValue) {
         (sum, agent) => sum + Number(agent.cash_allocation),
         0,
     );
-    const unassigned = Math.max(total - assignedTotal, 0);
+    const available = Math.max(total - assignedTotal, 0);
     const overAllocated = assignedTotal > total;
     const chartScale = overAllocated && assignedTotal > 0 ? total / assignedTotal : 1;
-
     const slices = [];
 
-    if (unassigned > 0) {
-        slices.push({
-            label: 'Unassigned',
-            value: unassigned,
-            pct: portfolioPct(unassigned, total),
-            color: UNASSIGNED_SLICE_COLOR,
-        });
-    }
-
+    // Agents first, Unallocated last (legend + pie order).
     assignedAgents.forEach((agent, index) => {
         const assignedCapital = Number(agent.cash_allocation);
-        const chartValue = assignedCapital * chartScale;
         slices.push({
             label: agent.name || 'Agent',
-            value: chartValue,
+            value: assignedCapital * chartScale,
             assignedCapital,
             pct: portfolioPct(assignedCapital, total),
             color: AGENT_SLICE_COLORS[index % AGENT_SLICE_COLORS.length],
         });
     });
 
+    if (available > 0) {
+        slices.push({
+            label: 'Unallocated',
+            value: available,
+            pct: portfolioPct(available, total),
+            color: AVAILABLE_SLICE_COLOR,
+        });
+    }
+
     if (!slices.length) {
         slices.push({
-            label: 'Unassigned',
+            label: 'Unallocated',
             value: total,
             pct: 100,
-            color: UNASSIGNED_SLICE_COLOR,
+            color: AVAILABLE_SLICE_COLOR,
         });
     }
 
     return { total, slices, overAllocated };
+}
+
+function pfAllocationSignature(data) {
+    return (data.slices || [])
+        .map((s) => `${s.label}:${Number(s.value) || 0}:${s.color}`)
+        .join('|');
+}
+
+function renderAllocationChart(key, data, settleRetries = 60) {
+    const canvas = document.getElementById(`${key}AllocationChart`);
+    const legendEl = document.getElementById(`${key}AllocationLegend`);
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    // Avoid first paint at 0×0 (layout not settled) — that causes a size jump.
+    // Bounded: a hidden panel never gains width, so an unbounded retry would
+    // spin at 60fps forever. After ~1s create the chart anyway and let
+    // Chart.js's responsive resize take over once the panel is visible.
+    const wrap = canvas.parentElement;
+    if (!pfChartInstances[key] && wrap && wrap.clientWidth < 8 && settleRetries > 0) {
+        requestAnimationFrame(() => renderAllocationChart(key, data, settleRetries - 1));
+        return;
+    }
+
+    const labels = data.slices.map((s) => s.label);
+    const values = data.slices.map((s) => s.value);
+    const colors = data.slices.map((s) => s.color);
+    const signature = pfAllocationSignature(data);
+    canvas._pfSliceData = data;
+
+    if (pfChartInstances[key]) {
+        if (canvas._pfSignature === signature) {
+            // Same slices — refresh legend only, do not re-animate.
+        } else {
+            const chart = pfChartInstances[key];
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = values;
+            chart.data.datasets[0].backgroundColor = colors;
+            canvas._pfSignature = signature;
+            // Animate data morph; skip resize animation so layout settle doesn't twitch.
+            chart.update();
+        }
+    } else {
+        canvas._pfSignature = signature;
+        pfChartInstances[key] = new Chart(canvas.getContext('2d'), {
+            type: 'pie',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        data: values,
+                        backgroundColor: colors,
+                        borderColor: 'rgba(10, 14, 39, 0.95)',
+                        borderWidth: 2,
+                        hoverOffset: 4,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                resizeDelay: 80,
+                animation: {
+                    duration: 650,
+                    easing: 'easeOutQuart',
+                    animateRotate: true,
+                    animateScale: true,
+                },
+                transitions: {
+                    // Prevent layout/resize from replaying the entrance animation.
+                    resize: { animation: { duration: 0 } },
+                    show: { animations: { colors: false, numbers: { duration: 650 } } },
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const sliceData = canvas._pfSliceData || data;
+                                const slice = sliceData.slices[ctx.dataIndex];
+                                if (!slice) return '';
+                                const amount = slice.assignedCapital != null
+                                    ? slice.assignedCapital
+                                    : slice.value;
+                                return `${slice.label}: ${slice.pct}% · ${pfMoney(amount)}`;
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
+    if (legendEl) {
+        legendEl.innerHTML = data.slices
+            .map((s) => {
+                const displayValue = s.assignedCapital != null ? s.assignedCapital : s.value;
+                return `
+            <li class="allocation-legend-row">
+                <span class="allocation-legend-name">
+                    <span class="allocation-legend-dot" style="background:${s.color}"></span>
+                    ${escapeHtml(s.label)}
+                </span>
+                <span class="allocation-legend-pct">${s.pct}%</span>
+                <span class="allocation-legend-value">${pfMoney(displayValue)}</span>
+            </li>`;
+            })
+            .join('');
+    }
 }
 
 function updateAgentAllocationFromAgents(agents) {
@@ -378,11 +331,7 @@ function updateAgentAllocationFromAgents(agents) {
 function renderPortfolioFromMock(agents) {
     livePortfolio = null;
     setPortfolioSampleBadgeVisible(true);
-    const data = PORTFOLIO_MOCK;
-    renderPortfolioSummary(data.summary);
-    renderAllocationChart('asset', data.allocations.asset);
-    renderAllocationChart('stock', data.allocations.stock);
-    renderAllocationChart('crypto', data.allocations.crypto);
+    renderPortfolioOverview(PORTFOLIO_MOCK.summary);
     renderAllocationChart('agent', buildAgentAllocationData(agents, getTotalPortfolioValue()));
 }
 
@@ -393,10 +342,7 @@ function renderPortfolioFromLive(portfolio, agents) {
         allocated: Number(portfolio.allocated) || 0,
     };
     setPortfolioSampleBadgeVisible(false);
-    renderPortfolioSummary(summaryFromLivePortfolio(livePortfolio));
-    renderAllocationChart('asset', cashOnlyAssetAllocation(livePortfolio.cash_available));
-    renderAllocationChart('stock', emptyHoldingsAllocation());
-    renderAllocationChart('crypto', emptyHoldingsAllocation());
+    renderPortfolioOverview(summaryFromLivePortfolio(livePortfolio));
     updateAgentAllocationFromAgents(agents);
 }
 
@@ -407,22 +353,19 @@ function renderPortfolioFromLive(portfolio, agents) {
 // Renders are async and callers do not await them, so two can be in flight at
 // once (switching to My Agents starts one, and the loadAgents() that follows
 // starts another with a fresher agent list). Responses are not guaranteed to
-// arrive in request order, so without this token a slower earlier request can
-// repaint the panel with stale agents after the newer one has already landed.
-let portfolioRenderToken = 0;
-
+// arrive in request order, so without this sequence guard a slower earlier
+// request can repaint the panel with stale agents after the newer one landed.
 async function renderPortfolio(agents) {
     const list = agents || [];
-    const token = ++portfolioRenderToken;
-    const isCurrent = () => token === portfolioRenderToken;
-
+    const seq = ++portfolioRenderSeq;
     if (!isPortfolioSignedIn() || typeof API === 'undefined' || typeof API_BASE === 'undefined') {
+        if (seq !== portfolioRenderSeq) return;
         renderPortfolioFromMock(list);
         return;
     }
     try {
         const data = await API.get(`${API_BASE}/api/v1/portfolio`);
-        if (!isCurrent()) return;
+        if (seq !== portfolioRenderSeq) return;
         const portfolio = data && data.portfolio;
         if (!portfolio) {
             renderPortfolioFromMock(list);
@@ -430,8 +373,9 @@ async function renderPortfolio(agents) {
         }
         renderPortfolioFromLive(portfolio, list);
     } catch (error) {
+        if (seq !== portfolioRenderSeq) return;
         console.warn('Portfolio API unavailable; showing sample data:', error?.message || error);
-        if (isCurrent()) renderPortfolioFromMock(list);
+        renderPortfolioFromMock(list);
     }
 }
 

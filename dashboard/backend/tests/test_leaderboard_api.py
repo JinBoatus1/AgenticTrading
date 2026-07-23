@@ -155,7 +155,7 @@ def test_daily_leaderboard_api_uses_daily_window(client, monkeypatch):
     body = resp.json()
     assert body["period"] == "daily"
     assert body["phase_label"] == "Daily"
-    assert body["standings_label"] == "Daily Standings"
+    assert body["standings_label"] == "Ranking"
     assert body["window"]["start_date"] == day
     assert body["window"]["end_date"] == day
     assert body["total_entries"] == 2

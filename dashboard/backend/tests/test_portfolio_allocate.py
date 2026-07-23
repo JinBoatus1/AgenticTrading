@@ -23,6 +23,7 @@ from dashboard.backend.app import app
 from dashboard.backend.domain.backtesting.constants import (
     DEFAULT_AGENT_CASH_ALLOCATION,
     DEFAULT_PORTFOLIO_EQUITY,
+    MAX_AGENT_CASH_ALLOCATION,
 )
 
 
@@ -138,6 +139,20 @@ def test_allocate_and_reclaim_endpoints(client):
 def test_allocate_blocked_when_insufficient_cash(client):
     token, _ = _signup(client, email="poor@example.com")
     headers = _auth(token)
+
+    # Drain most of the $10k ledger with maxed sleeves ($3k each).
+    for i in range(3):
+        filled = client.post(
+            "/api/v1/agents",
+            headers=headers,
+            json={
+                "name": f"Drain{i}",
+                "model_name": "local-model",
+                "cash_allocation": float(MAX_AGENT_CASH_ALLOCATION),
+            },
+        )
+        assert filled.status_code == 200, filled.text
+
     created = client.post(
         "/api/v1/agents",
         headers=headers,
@@ -145,10 +160,12 @@ def test_allocate_blocked_when_insufficient_cash(client):
     )
     agent_id = created.json()["agent"]["agent_id"]
 
+    # Remaining unallocated is $1,000; request is within the per-agent max but
+    # still more than cash available → business-rule 400 (not pydantic 422).
     too_much = client.post(
         "/api/v1/portfolio/allocate",
         headers=headers,
-        json={"agent_id": agent_id, "amount": float(DEFAULT_PORTFOLIO_EQUITY) + 1},
+        json={"agent_id": agent_id, "amount": float(MAX_AGENT_CASH_ALLOCATION)},
     )
     assert too_much.status_code == 400
 
@@ -278,17 +295,21 @@ def test_preexisting_agent_allocation_can_be_lowered(env):
 
 
 def test_preexisting_sleeve_cannot_be_spent_twice(env):
-    """The $1k already in a legacy sleeve is not also available to allocate."""
+    """Cash already in a legacy sleeve is not also available to allocate."""
     client, agent_store, _ = env
     token, user = _signup(client, email="legacy-double@example.com")
     headers = _auth(token)
-    _preexisting_agent(agent_store, user["id"], 1000.0)
+    # Written straight to the store, as pre-#175 code (and the former $1M cap)
+    # allowed — legacy sleeves may exceed today's per-agent max.
+    _preexisting_agent(agent_store, user["id"], 8000.0)
     target = _preexisting_agent(agent_store, user["id"], 0.0, name="Target")
 
+    # $2k remains. A cap-sized request passes validation but must fail the
+    # cash check — unless the legacy sleeve was double-counted as available.
     resp = client.post(
         "/api/v1/portfolio/allocate",
         headers=headers,
-        json={"agent_id": target["agent_id"], "amount": 9500},
+        json={"agent_id": target["agent_id"], "amount": float(MAX_AGENT_CASH_ALLOCATION)},
     )
 
     assert resp.status_code == 400, resp.text
@@ -420,6 +441,19 @@ def test_concurrent_allocations_cannot_overspend(env):
     client, agent_store, _ = env
     token, user = _signup(client, email="race@example.com")
     headers = _auth(token)
+    # Drain $6k so only $4k remains: either cap-sized request below fits on
+    # its own, but the two together overspend — exactly the race window.
+    for i in range(2):
+        drained = client.post(
+            "/api/v1/agents",
+            headers=headers,
+            json={
+                "name": f"Drain{i}",
+                "model_name": "local-model",
+                "cash_allocation": float(MAX_AGENT_CASH_ALLOCATION),
+            },
+        )
+        assert drained.status_code == 200, drained.text
     agents = [
         client.post(
             "/api/v1/agents",
@@ -438,7 +472,7 @@ def test_concurrent_allocations_cannot_overspend(env):
             client.post(
                 "/api/v1/portfolio/allocate",
                 headers=headers,
-                json={"agent_id": agent_id, "amount": 8000},
+                json={"agent_id": agent_id, "amount": float(MAX_AGENT_CASH_ALLOCATION)},
             ).status_code
         )
 
@@ -453,7 +487,7 @@ def test_concurrent_allocations_cannot_overspend(env):
         float(a["cash_allocation"] or 0)
         for a in agent_store.list_agents(owner_user_id=user["id"])
     )
-    assert total_sleeves == 8000.0
+    assert total_sleeves == 3 * float(MAX_AGENT_CASH_ALLOCATION)
 
 
 def test_service_serialises_concurrent_allocations_for_one_user(env, monkeypatch):
@@ -478,6 +512,12 @@ def test_service_serialises_concurrent_allocations_for_one_user(env, monkeypatch
     client, agent_store, _ = env
     _, user = _signup(client, email="svc-race@example.com")
     uid = user["id"]
+    # Drain $6k so only $4k remains: either cap-sized allocation below fits on
+    # its own, but the two together overspend — exactly the race window.
+    for i in range(2):
+        _preexisting_agent(
+            agent_store, uid, float(MAX_AGENT_CASH_ALLOCATION), name=f"Drain{i}"
+        )
     agents = [
         _preexisting_agent(agent_store, uid, 0.0, name=f"Race{i}") for i in range(2)
     ]
@@ -500,7 +540,7 @@ def test_service_serialises_concurrent_allocations_for_one_user(env, monkeypatch
         barrier.wait()
         try:
             portfolio_service.allocate_to_agent(
-                owner_user_id=uid, agent=agent, amount=8000.0
+                owner_user_id=uid, agent=agent, amount=float(MAX_AGENT_CASH_ALLOCATION)
             )
         except InsufficientCashError:
             rejected.append(agent["agent_id"])
@@ -516,4 +556,5 @@ def test_service_serialises_concurrent_allocations_for_one_user(env, monkeypatch
         for a in agent_store.list_agents(owner_user_id=uid)
     )
     assert len(rejected) == 1, f"expected one rejection, got {rejected}"
-    assert total == 8000.0, f"over-allocated: {total} against a 10000 account"
+    expected = 3 * float(MAX_AGENT_CASH_ALLOCATION)
+    assert total == expected, f"over-allocated: {total} against a 10000 account"

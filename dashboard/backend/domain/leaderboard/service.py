@@ -107,14 +107,14 @@ def resolve_leaderboard_config(period: Optional[str] = "contest") -> Dict[str, A
             "period": "daily",
             "board_title": "Daily Leaderboard",
             "phase_label": "Daily",
-            "standings_label": "Daily Standings",
+            "standings_label": "Ranking",
         }
     return {
         **base,
         "period": "contest",
         "board_title": "Competition Leaderboard",
         "phase_label": "Preseason",
-        "standings_label": "Preseason Standings",
+        "standings_label": "Ranking",
     }
 
 
@@ -731,7 +731,7 @@ def get_leaderboard(
         "period": config.get("period", "contest"),
         "board_title": config.get("board_title", "Competition Leaderboard"),
         "phase_label": config.get("phase_label", "Preseason"),
-        "standings_label": config.get("standings_label", "Preseason Standings"),
+        "standings_label": config.get("standings_label", "Ranking"),
         "window": {
             "start_date": start_date,
             "end_date": end_date,
