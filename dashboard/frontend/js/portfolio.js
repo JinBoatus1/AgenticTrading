@@ -15,6 +15,7 @@ const PORTFOLIO_MOCK = {
 
 /** @type {null | { equity: number, cash_available: number, allocated: number }} */
 let livePortfolio = null;
+let portfolioRenderSeq = 0;
 
 const PF_WALLET_ICON =
     '<path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/>';
@@ -205,53 +206,93 @@ function buildAgentAllocationData(agents, totalPortfolioValue) {
     return { total, slices, overAllocated };
 }
 
+function pfAllocationSignature(data) {
+    return (data.slices || [])
+        .map((s) => `${s.label}:${Number(s.value) || 0}:${s.color}`)
+        .join('|');
+}
+
 function renderAllocationChart(key, data) {
     const canvas = document.getElementById(`${key}AllocationChart`);
     const legendEl = document.getElementById(`${key}AllocationLegend`);
     if (!canvas || typeof Chart === 'undefined') return;
 
+    // Avoid first paint at 0×0 (layout not settled) — that causes a size jump.
+    const wrap = canvas.parentElement;
+    if (!pfChartInstances[key] && wrap && wrap.clientWidth < 8) {
+        requestAnimationFrame(() => renderAllocationChart(key, data));
+        return;
+    }
+
     const labels = data.slices.map((s) => s.label);
     const values = data.slices.map((s) => s.value);
     const colors = data.slices.map((s) => s.color);
+    const signature = pfAllocationSignature(data);
+    canvas._pfSliceData = data;
 
     if (pfChartInstances[key]) {
-        pfChartInstances[key].destroy();
-    }
-
-    pfChartInstances[key] = new Chart(canvas.getContext('2d'), {
-        type: 'pie',
-        data: {
-            labels,
-            datasets: [
-                {
-                    data: values,
-                    backgroundColor: colors,
-                    borderColor: 'rgba(10, 14, 39, 0.95)',
-                    borderWidth: 2,
-                    hoverOffset: 4,
+        if (canvas._pfSignature === signature) {
+            // Same slices — refresh legend only, do not re-animate.
+        } else {
+            const chart = pfChartInstances[key];
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = values;
+            chart.data.datasets[0].backgroundColor = colors;
+            canvas._pfSignature = signature;
+            // Animate data morph; skip resize animation so layout settle doesn't twitch.
+            chart.update();
+        }
+    } else {
+        canvas._pfSignature = signature;
+        pfChartInstances[key] = new Chart(canvas.getContext('2d'), {
+            type: 'pie',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        data: values,
+                        backgroundColor: colors,
+                        borderColor: 'rgba(10, 14, 39, 0.95)',
+                        borderWidth: 2,
+                        hoverOffset: 4,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                resizeDelay: 80,
+                animation: {
+                    duration: 650,
+                    easing: 'easeOutQuart',
+                    animateRotate: true,
+                    animateScale: true,
                 },
-            ],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            rotation: -0.5 * Math.PI,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: (ctx) => {
-                            const slice = data.slices[ctx.dataIndex];
-                            const amount = slice.assignedCapital != null
-                                ? slice.assignedCapital
-                                : slice.value;
-                            return `${slice.label}: ${slice.pct}% · ${pfMoney(amount)}`;
+                transitions: {
+                    // Prevent layout/resize from replaying the entrance animation.
+                    resize: { animation: { duration: 0 } },
+                    show: { animations: { colors: false, numbers: { duration: 650 } } },
+                },
+                rotation: -0.5 * Math.PI,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const sliceData = canvas._pfSliceData || data;
+                                const slice = sliceData.slices[ctx.dataIndex];
+                                if (!slice) return '';
+                                const amount = slice.assignedCapital != null
+                                    ? slice.assignedCapital
+                                    : slice.value;
+                                return `${slice.label}: ${slice.pct}% · ${pfMoney(amount)}`;
+                            },
                         },
                     },
                 },
             },
-        },
-    });
+        });
+    }
 
     if (legendEl) {
         legendEl.innerHTML = data.slices
@@ -295,12 +336,15 @@ function renderPortfolioFromLive(portfolio, agents) {
 
 async function renderPortfolio(agents) {
     const list = agents || [];
+    const seq = ++portfolioRenderSeq;
     if (!isPortfolioSignedIn() || typeof API === 'undefined' || typeof API_BASE === 'undefined') {
+        if (seq !== portfolioRenderSeq) return;
         renderPortfolioFromMock(list);
         return;
     }
     try {
         const data = await API.get(`${API_BASE}/api/v1/portfolio`);
+        if (seq !== portfolioRenderSeq) return;
         const portfolio = data && data.portfolio;
         if (!portfolio) {
             renderPortfolioFromMock(list);
@@ -308,6 +352,7 @@ async function renderPortfolio(agents) {
         }
         renderPortfolioFromLive(portfolio, list);
     } catch (error) {
+        if (seq !== portfolioRenderSeq) return;
         console.warn('Portfolio API unavailable; showing sample data:', error?.message || error);
         renderPortfolioFromMock(list);
     }

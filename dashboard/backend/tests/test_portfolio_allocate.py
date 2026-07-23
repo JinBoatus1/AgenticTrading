@@ -13,6 +13,7 @@ from dashboard.backend.domain.agents.repository import AgentStore
 from dashboard.backend.domain.backtesting.constants import (
     DEFAULT_AGENT_CASH_ALLOCATION,
     DEFAULT_PORTFOLIO_EQUITY,
+    MAX_AGENT_CASH_ALLOCATION,
 )
 from dashboard.backend.domain.portfolios.repository import PortfolioStore
 from dashboard.backend.users import UserStore
@@ -132,6 +133,20 @@ def test_allocate_and_reclaim_endpoints(client):
 def test_allocate_blocked_when_insufficient_cash(client):
     token, _ = _signup(client, email="poor@example.com")
     headers = _auth(token)
+
+    # Drain most of the $10k ledger with maxed sleeves ($3k each).
+    for i in range(3):
+        filled = client.post(
+            "/api/v1/agents",
+            headers=headers,
+            json={
+                "name": f"Drain{i}",
+                "model_name": "local-model",
+                "cash_allocation": float(MAX_AGENT_CASH_ALLOCATION),
+            },
+        )
+        assert filled.status_code == 200, filled.text
+
     created = client.post(
         "/api/v1/agents",
         headers=headers,
@@ -139,10 +154,12 @@ def test_allocate_blocked_when_insufficient_cash(client):
     )
     agent_id = created.json()["agent"]["agent_id"]
 
+    # Remaining unallocated is $1,000; request is within the per-agent max but
+    # still more than cash available → business-rule 400 (not pydantic 422).
     too_much = client.post(
         "/api/v1/portfolio/allocate",
         headers=headers,
-        json={"agent_id": agent_id, "amount": float(DEFAULT_PORTFOLIO_EQUITY) + 1},
+        json={"agent_id": agent_id, "amount": float(MAX_AGENT_CASH_ALLOCATION)},
     )
     assert too_much.status_code == 400
 

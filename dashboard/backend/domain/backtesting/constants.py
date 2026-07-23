@@ -13,7 +13,7 @@ Capital scale (product):
   signed-in users this is a real ledger budget (unallocated cash ↔ agent
   sleeves via allocate/reclaim). Guests/demo still treat it as display-only.
 - Per-agent sleeve: default ``DEFAULT_AGENT_CASH_ALLOCATION`` ($1,000),
-  max ``MAX_AGENT_CASH_ALLOCATION`` ($1,000,000) — also capped by the
+  max ``MAX_AGENT_CASH_ALLOCATION`` ($3,000) — also capped by the
   account's remaining unallocated cash when the portfolio ledger is used.
 - Backtests / protocol use the agent's cash allocation (falling back to
   ``INITIAL_CAPITAL``) as **simulation** capital and do not move the ledger.
@@ -31,7 +31,7 @@ DEFAULT_PORTFOLIO_EQUITY = 10_000
 
 # Per-agent cash allocation bounds (also enforced by the agents API).
 DEFAULT_AGENT_CASH_ALLOCATION = 1000
-MAX_AGENT_CASH_ALLOCATION = 1_000_000
+MAX_AGENT_CASH_ALLOCATION = 3_000
 
 
 def resolve_initial_capital(cash_allocation: Optional[Any] = None) -> float:

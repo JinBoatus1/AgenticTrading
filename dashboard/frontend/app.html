@@ -568,8 +568,8 @@
                     <input id="externalAgentModel" type="text" maxlength="100" placeholder="gpt-4 / rule-based" autocomplete="off">
                 </label>
                 <label class="auth-field">
-                    <span>Initial cash (max $1,000,000)</span>
-                    <input id="externalAgentCashAllocation" type="number" min="0" max="1000000" step="1" value="1000" required aria-describedby="externalAgentCashHint">
+                    <span>Initial cash (max $3,000)</span>
+                    <input id="externalAgentCashAllocation" type="number" min="0" max="3000" step="100" value="1000" required aria-describedby="externalAgentCashHint">
                 </label>
                 <p id="externalAgentCashHint" class="credential-hint">Starting capital budget for this agent's backtests and trading sessions.</p>
                 <p id="createExternalAgentError" class="auth-error" hidden></p>
@@ -605,8 +605,8 @@
                     <input id="builtinAgentDescription" type="text" maxlength="280" placeholder="What is this agent's edge?" autocomplete="off">
                 </label>
                 <label class="auth-field">
-                    <span>Initial cash (max $1,000,000)</span>
-                    <input id="builtinAgentCashAllocation" type="number" min="0" max="1000000" step="1" value="1000" required aria-describedby="builtinAgentCashHint">
+                    <span>Initial cash (max $3,000)</span>
+                    <input id="builtinAgentCashAllocation" type="number" min="0" max="3000" step="100" value="1000" required aria-describedby="builtinAgentCashHint">
                 </label>
                 <p id="builtinAgentCashHint" class="credential-hint">Starting capital budget for this agent's backtests and trading sessions.</p>
                 <p id="createBuiltinAgentError" class="auth-error" hidden></p>
@@ -731,8 +731,8 @@
                 </label>
                 <textarea id="agentEditorDescription" class="agent-editor-description" rows="2" maxlength="280" placeholder="Optional description for this agent…" aria-label="Agent description"></textarea>
                 <label class="agent-editor-cash-field" for="agentEditorCashAllocation">
-                    <span class="agent-editor-cash-label">Initial cash (max $1,000,000)</span>
-                    <input id="agentEditorCashAllocation" class="agent-editor-cash-input" type="number" min="0" max="1000000" step="1" placeholder="0" aria-label="Initial cash">
+                    <span class="agent-editor-cash-label">Initial cash (max $3,000)</span>
+                    <input id="agentEditorCashAllocation" class="agent-editor-cash-input" type="number" min="0" max="3000" step="100" placeholder="0" aria-label="Initial cash">
                 </label>
             </div>
             <div class="agent-editor-header-actions">
@@ -1252,7 +1252,7 @@
             <div class="participants-empty-wrap">
                 <div class="participants-empty" id="participantsEmptyState">
                     <p class="participants-empty-title">Season hasn't started yet</p>
-                    <p class="participants-empty-text">Participating teams will appear here when the contest season opens. Preseason Standings on the Leaderboard are models and baselines only.</p>
+                    <p class="participants-empty-text">Participating teams will appear here when the contest season opens. The Ranking board shows models and baselines only.</p>
                 </div>
             </div>
             <div class="participants-grid" id="participantsGrid" hidden></div>
@@ -1269,7 +1269,7 @@
                 </div>
                 <div class="section-card">
                     <h3 class="section-title">Competition Leaderboard</h3>
-                    <p class="about-text">Preseason Standings are a <strong>backtest leaderboard</strong>, not live trading. Each entry is an hourly backtest over <strong>2026-04-15 → 2026-05-15</strong> (one-month window), comparing provided LLM models, baseline strategies, and market indices. Official rank is by final portfolio value.</p>
+                    <p class="about-text">Ranking is a <strong>backtest leaderboard</strong>, not live trading. Each entry is an hourly backtest over <strong>2026-04-15 → 2026-05-15</strong> (one-month window), comparing provided LLM models, baseline strategies, and market indices. Official rank is by final portfolio value.</p>
                 </div>
                 <div class="section-card compact">
                     <h3 class="section-title">Schedule</h3>
@@ -1302,7 +1302,7 @@
                 <div class="section-card compact">
                     <h3 class="section-title">Evaluation Metrics</h3>
                     <ul class="about-list">
-                        <li>Official rank by final portfolio value (Preseason Standings)</li>
+                        <li>Official rank by final portfolio value (Ranking)</li>
                         <li>Also reported: cumulative return, Sharpe, max drawdown</li>
                         <li>Entry types: Model, Baseline Strategy, Market Index</li>
                     </ul>
@@ -1391,7 +1391,7 @@
                 <!-- Left: Table -->
                 <section class="leaderboard-table-section compact">
                     <div class="table-header compact">
-                        <h3 id="leaderboardStandingsTitle">Preseason Standings</h3>
+                        <h3 id="leaderboardStandingsTitle">Ranking</h3>
                     </div>
                     <div class="table-wrapper compact">
                         <table class="leaderboard-table compact">
@@ -1479,11 +1479,11 @@
     <script src="market-events/marketEventRelativeTime.js"></script>
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
-    <script src="js/portfolio.js?v=9"></script>
-    <script src="js/agent-editor.js?v=8"></script>
-    <script src="app.js?v=25"></script>
-    <script src="js/leaderboard.js?v=13"></script>
-    <script src="home-page.js?v=33"></script>
+    <script src="js/portfolio.js?v=11"></script>
+    <script src="js/agent-editor.js?v=9"></script>
+    <script src="app.js?v=26"></script>
+    <script src="js/leaderboard.js?v=15"></script>
+    <script src="home-page.js?v=34"></script>
     <!-- Load order: must come after app.js (API/API_BASE/escapeHtml) and
          market-events/marketEventRelativeTime.js (formatMarketEventRelativeTime),
          both loaded above — not beside the market-events/* block, which loads

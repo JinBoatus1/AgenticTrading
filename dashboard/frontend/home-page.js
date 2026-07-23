@@ -763,13 +763,15 @@ function openHomeCreateAgent() {
     if (typeof openAddAgentModal === 'function') openAddAgentModal();
 }
 
-/** Demo / placeholder portfolio used by the home module until live broker data is wired. */
+/** Demo / placeholder portfolio used by the home module for guests. */
 const HOME_PORTFOLIO = {
     equity: 10000,
     dayPnl: 0,
     alloc: { cash: 6200, stocks: 2800, crypto: 1000 },
 };
 
+/** @type {null | { equity: number, cash_available: number, allocated: number }} */
+let homePortfolioLive = null;
 let homePortRange = '1D';
 let homePortChartState = null;
 
@@ -1081,15 +1083,57 @@ function renderHomePortfolioChart(equity = HOME_PORTFOLIO.equity, dayPnl = HOME_
     bindHomePortfolioChartHover();
 }
 
+function homePortfolioEquity() {
+    if (homePortfolioLive && Number.isFinite(Number(homePortfolioLive.equity))) {
+        return Number(homePortfolioLive.equity);
+    }
+    return HOME_PORTFOLIO.equity;
+}
+
+function homePortfolioDayPnl() {
+    // Paper trading P&L not wired yet — keep flat zero for live + demo.
+    return 0;
+}
+
+async function loadHomePortfolioLedger() {
+    if (!isHomeSignedIn() || typeof API === 'undefined' || typeof API_BASE === 'undefined') {
+        homePortfolioLive = null;
+        return null;
+    }
+    try {
+        const data = await API.get(`${API_BASE}/api/v1/portfolio`);
+        const portfolio = data && data.portfolio;
+        if (!portfolio) {
+            homePortfolioLive = null;
+            return null;
+        }
+        homePortfolioLive = {
+            equity: Number(portfolio.equity) || 0,
+            cash_available: Number(portfolio.cash_available) || 0,
+            allocated: Number(portfolio.allocated) || 0,
+        };
+        return homePortfolioLive;
+    } catch (error) {
+        console.warn('Home portfolio API unavailable:', error?.message || error);
+        homePortfolioLive = null;
+        return null;
+    }
+}
+
 function syncHomePortfolioAlloc(equity = HOME_PORTFOLIO.equity) {
     const total = Number(equity) || HOME_PORTFOLIO.equity;
+    if (homePortfolioLive) {
+        const cash = Math.max(0, Math.round(Number(homePortfolioLive.cash_available) || 0));
+        const invested = Math.max(0, Math.round(Number(homePortfolioLive.allocated) || 0));
+        return { cash, stocks: invested, crypto: 0, invested };
+    }
     const cash = Math.round(total * 0.62);
     const stocks = Math.round(total * 0.28);
     const crypto = Math.max(0, Math.round(total - cash - stocks));
     return { cash, stocks, crypto, invested: stocks + crypto };
 }
 
-function updateHomePortfolioModule() {
+async function updateHomePortfolioModule() {
     const user = getHomeAuthUser();
     const signedIn = isHomeSignedIn();
     const avatar = document.getElementById('homePortfolioAvatar');
@@ -1100,9 +1144,16 @@ function updateHomePortfolioModule() {
     const pnl = document.getElementById('homeMetricPnl');
     const demoBadge = document.getElementById('homePortfolioDemoBadge');
 
-    const equity = HOME_PORTFOLIO.equity;
-    const dayPnl = HOME_PORTFOLIO.dayPnl;
+    if (signedIn && user) {
+        await loadHomePortfolioLedger();
+    } else {
+        homePortfolioLive = null;
+    }
+
+    const equity = homePortfolioEquity();
+    const dayPnl = homePortfolioDayPnl();
     const dayPct = equity ? (dayPnl / equity) * 100 : 0;
+    const live = signedIn && !!homePortfolioLive;
     syncHomePortfolioAlloc(equity);
 
     if (!signedIn || !user) {
@@ -1118,9 +1169,9 @@ function updateHomePortfolioModule() {
         const label = user.display_name || user.email || 'Trader';
         if (avatar) avatar.textContent = homeInitials(label);
         if (nameEl) nameEl.textContent = label;
-        if (labelEl) labelEl.textContent = 'Total Equity';
+        if (labelEl) labelEl.textContent = live ? 'Total Equity' : 'Demo Portfolio · Total Equity';
         if (btn) btn.hidden = true;
-        if (demoBadge) demoBadge.hidden = true;
+        if (demoBadge) demoBadge.hidden = live;
     }
 
     if (equityEl) equityEl.textContent = homeFormatMoney(equity, 2);
@@ -1522,7 +1573,9 @@ function setHomeMarketTab(tab) {
 }
 
 function refreshHomeModules() {
-    updateHomePortfolioModule();
+    Promise.resolve(updateHomePortfolioModule()).catch((error) => {
+        console.warn('Home portfolio refresh failed:', error?.message || error);
+    });
     updateHomeAgentModule();
     loadHomeLeaderboardModule();
     loadHomeMarketNewsModule();
@@ -1629,7 +1682,7 @@ function initHomeModules() {
             document.querySelectorAll('[data-port-range]').forEach((b) => {
                 b.classList.toggle('is-active', b === btn);
             });
-            renderHomePortfolioChart(HOME_PORTFOLIO.equity, HOME_PORTFOLIO.dayPnl, homePortRange);
+            renderHomePortfolioChart(homePortfolioEquity(), homePortfolioDayPnl(), homePortRange);
         });
     });
 
