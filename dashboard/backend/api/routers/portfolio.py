@@ -1,21 +1,12 @@
 """Account-bound portfolio API (signed-in users only)."""
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from dashboard.backend.api.auth import get_current_user
 from dashboard.backend.domain.agents.service import agent_service
 from dashboard.backend.domain.backtesting.constants import MAX_AGENT_CASH_ALLOCATION
-from dashboard.backend.domain.portfolios.repository import (
-    CashExceedsEquityError,
-    InsufficientCashError,
-)
-from dashboard.backend.domain.portfolios.service import (
-    InsufficientSleeveError,
-    portfolio_service,
-)
+from dashboard.backend.domain.portfolios.service import portfolio_service
 
 router = APIRouter(prefix="/v1/portfolio", tags=["portfolio"])
 
@@ -54,9 +45,8 @@ async def allocate_cash(
             agent=agent,
             amount=body.amount,
         )
-    except InsufficientCashError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
+        # InsufficientCashError subclasses ValueError; both are caller errors.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     result["agent"] = agent_service.agent_with_stats(result["agent"])
     return result
@@ -75,9 +65,8 @@ async def reclaim_cash(
             agent=agent,
             amount=body.amount,
         )
-    except InsufficientSleeveError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except (CashExceedsEquityError, ValueError) as exc:
+    except ValueError as exc:
+        # InsufficientSleeveError subclasses ValueError; both are caller errors.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     result["agent"] = agent_service.agent_with_stats(result["agent"])
     return result

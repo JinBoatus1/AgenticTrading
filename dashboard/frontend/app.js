@@ -4199,10 +4199,10 @@ function showPlaygroundPanel(tab) {
         loadPaperTradingData();
     } else {
         currentMode = 'agents';
-        if (typeof renderPortfolio === 'function') {
-            Promise.resolve(renderPortfolio(allAgents.map(decorateAgent))).catch((error) => {
-                console.warn('renderPortfolio failed:', error?.message || error);
-            });
+        // Cache-only repaint so the panel is not blank while agents load;
+        // loadAgents() below does the authoritative fetch-and-render.
+        if (typeof window.repaintPortfolioFromCache === 'function') {
+            window.repaintPortfolioFromCache(allAgents.map(decorateAgent));
         }
         loadAgents();
     }

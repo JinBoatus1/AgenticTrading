@@ -18,11 +18,12 @@ from dashboard.backend.domain.backtesting.constants import DEFAULT_PORTFOLIO_EQU
 
 
 class InsufficientCashError(ValueError):
-    """Raised when an allocate would drive cash_available below zero."""
+    """Raised when a transfer would drive cash_available below zero.
 
-
-class CashExceedsEquityError(ValueError):
-    """Raised when a reclaim would drive cash_available above equity."""
+    Raised by ``PortfolioService``, not by the stores: whether a transfer fits
+    depends on the *agent sleeves*, which live in a different table, so the
+    portfolio row alone cannot answer the question. See ``service._reconcile``.
+    """
 
 
 def _utcnow_iso() -> str:
@@ -52,7 +53,10 @@ class PortfolioStore:
         self._init_schema()
 
     def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path))
+        # ``timeout`` is the busy-handler wait, not a connect deadline: without
+        # it a writer that meets a held write lock raises "database is locked"
+        # immediately instead of queuing behind it.
+        conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -132,46 +136,40 @@ class PortfolioStore:
                 raise
             return raced
 
-    def adjust_cash_available(self, owner_user_id: int, delta: float) -> Dict[str, Any]:
-        """Apply ``delta`` to cash_available (negative = allocate, positive = reclaim)."""
+    def set_cash_available(
+        self, owner_user_id: int, cash_available: float
+    ) -> Dict[str, Any]:
+        """Overwrite cash_available with an already-validated figure.
+
+        Deliberately a *blind* write rather than a read-modify-write delta:
+        ``service._reconcile`` derives the correct value from the agent sleeves
+        (a different table), so re-reading this row here would add a race
+        window without adding any information. Bounds are the service's job.
+        """
         self.get_or_create(owner_user_id)
         uid = int(owner_user_id)
-        delta_f = float(delta)
+        value = float(cash_available)
         now = _utcnow_iso()
         conn = self._get_connection()
         try:
-            row = conn.execute(
-                "SELECT equity, cash_available FROM user_portfolios WHERE owner_user_id = ?",
-                (uid,),
-            ).fetchone()
-            if row is None:
-                raise RuntimeError(f"portfolio missing for user {uid}")
-            equity = float(row["equity"])
-            cash = float(row["cash_available"])
-            new_cash = cash + delta_f
-            if new_cash < -1e-9:
-                raise InsufficientCashError(
-                    f"Insufficient unallocated cash "
-                    f"(have {cash:.2f}, need {-delta_f:.2f})."
-                )
-            if new_cash > equity + 1e-9:
-                raise CashExceedsEquityError(
-                    f"cash_available {new_cash:.2f} would exceed equity {equity:.2f}."
-                )
-            new_cash = min(max(new_cash, 0.0), equity)
+            # BEGIN IMMEDIATE takes the write lock up front. Python's sqlite3
+            # otherwise defers it to the UPDATE, leaving concurrent writers to
+            # collide mid-statement.
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 """
                 UPDATE user_portfolios
                 SET cash_available = ?, updated_at = ?
                 WHERE owner_user_id = ?
                 """,
-                (new_cash, now, uid),
+                (value, now, uid),
             )
             conn.commit()
         finally:
             conn.close()
         updated = self.get(uid)
-        assert updated is not None
+        if updated is None:  # pragma: no cover - the UPDATE above just committed
+            raise RuntimeError(f"portfolio for user {uid} vanished during update")
         return updated
 
 

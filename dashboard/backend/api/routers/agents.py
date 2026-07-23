@@ -27,6 +27,7 @@ from dashboard.backend.api.dependencies import (
     _require_agent_access,
     _require_owner_context,
 )
+from dashboard.backend.domain.portfolios.service import portfolio_service
 
 router = APIRouter(prefix="/v1/agents", tags=["agents"])
 
@@ -100,31 +101,25 @@ async def create_agent(
     )
 
     # Signed-in users fund the sleeve from their account portfolio (#175).
+    # Check before creating: the new sleeve *is* the debit, so there is nothing
+    # to roll back if the insert fails, and nothing to compensate.
     if ctx["user_id"] and cash > 0:
-        from dashboard.backend.domain.portfolios.repository import InsufficientCashError
-        from dashboard.backend.domain.portfolios.service import portfolio_service
-
         try:
-            portfolio_service.debit_for_new_agent(ctx["user_id"], cash)
-        except InsufficientCashError as exc:
+            portfolio_service.ensure_cash_for_new_agent(ctx["user_id"], cash)
+        except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    try:
-        agent = agent_service.create_agent(
-            name=body.name.strip(),
-            model_name=body.model_name.strip() or "local-model",
-            owner_user_id=ctx["user_id"],
-            owner_browser_session=ctx["browser_session"],
-            agent_type=agent_type,
-            description=(body.description.strip() if body.description else None),
-            cash_allocation=cash,
-        )
-    except Exception:
-        if ctx["user_id"] and cash > 0:
-            from dashboard.backend.domain.portfolios.service import portfolio_service
-
-            portfolio_service.credit(ctx["user_id"], cash)
-        raise
+    agent = agent_service.create_agent(
+        name=body.name.strip(),
+        model_name=body.model_name.strip() or "local-model",
+        owner_user_id=ctx["user_id"],
+        owner_browser_session=ctx["browser_session"],
+        agent_type=agent_type,
+        description=(body.description.strip() if body.description else None),
+        cash_allocation=cash,
+    )
+    if ctx["user_id"]:
+        portfolio_service.get_or_create_portfolio(ctx["user_id"])
     return {
         "agent": agent_service.agent_with_stats(agent),
         "session_id": agent["session_id"],
@@ -299,26 +294,27 @@ async def update_agent(
 
     cash_allocation_arg = body.cash_allocation if cash_allocation_provided else _UNSET
 
-    # When a signed-in owner changes cash_allocation, move portfolio ledger cash (#175).
+    # When a signed-in owner changes cash_allocation, the portfolio ledger has
+    # to follow (#175). Validate it *first* -- writing nothing -- so a rejected
+    # allocation cannot leave the other fields half-applied, and hand the sleeve
+    # write to the service afterwards so the ledger and the sleeve move once.
+    ledger_new_amount = None
     if cash_allocation_provided and ctx.get("user_id"):
         existing = agent_service.get_agent(agent_id)
         if existing and existing.get("owner_user_id") == ctx["user_id"]:
-            from dashboard.backend.domain.portfolios.repository import InsufficientCashError
-            from dashboard.backend.domain.portfolios.service import (
-                InsufficientSleeveError,
-                portfolio_service,
+            ledger_new_amount = float(
+                body.cash_allocation if body.cash_allocation is not None else 0
             )
-
             try:
-                portfolio_service.set_agent_allocation(
+                portfolio_service.check_agent_allocation(
                     owner_user_id=ctx["user_id"],
                     agent=existing,
-                    new_amount=float(body.cash_allocation or 0),
+                    new_amount=ledger_new_amount,
                 )
-                # Sleeve already updated by set_agent_allocation — avoid double write.
-                cash_allocation_arg = _UNSET
-            except (InsufficientCashError, InsufficientSleeveError, ValueError) as exc:
+            except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+            # The service owns this write; don't also pass it to update_agent.
+            cash_allocation_arg = _UNSET
 
     try:
         agent = agent_service.update_agent(
@@ -331,6 +327,13 @@ async def update_agent(
         )
     except AgentNotFoundError:
         raise HTTPException(status_code=404, detail="Agent not found")
+
+    if ledger_new_amount is not None:
+        agent = portfolio_service.set_agent_allocation(
+            owner_user_id=ctx["user_id"],
+            agent=agent,
+            new_amount=ledger_new_amount,
+        )["agent"]
     return {"agent": agent}
 
 
@@ -346,14 +349,12 @@ async def delete_agent(
     sleeve = float(agent.get("cash_allocation") or 0)
     owner_user_id = agent.get("owner_user_id")
     agent_service.delete_agent(agent_id)
-    # Return reclaimable cash to the account ledger after the row is gone (#175).
-    if owner_user_id and sleeve > 0:
-        from dashboard.backend.domain.portfolios.service import portfolio_service
-
-        portfolio_service.reclaim_all_on_delete(
-            owner_user_id=int(owner_user_id),
-            cash_allocation=sleeve,
-        )
+    # Refresh the account ledger now the sleeve is gone from the sum (#175).
+    # Reconciling cannot fail here -- unlike crediting the sleeve back, which
+    # overshoots equity on any agent that never debited the ledger in the first
+    # place, and would 500 a request whose agent row is already deleted.
+    if owner_user_id:
+        portfolio_service.reclaim_all_on_delete(owner_user_id=int(owner_user_id))
     return {"status": "deleted", "agent_id": agent_id, "reclaimed": sleeve}
 
 

@@ -9,13 +9,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 import dashboard.backend.api.auth as auth_module
+import dashboard.backend.domain.agents.repository as agent_repo
 import dashboard.backend.domain.portfolios.repository as portfolio_repo
 import dashboard.backend.domain.portfolios.service as portfolio_service_module
 import dashboard.backend.users as users_module
 from dashboard.backend.app import app
 from dashboard.backend.domain.backtesting.constants import DEFAULT_PORTFOLIO_EQUITY
 
-# These four are imported as *modules*, not `from ... import UserStore`, because
+# These five are imported as *modules*, not `from ... import UserStore`, because
 # the fixture below has to monkeypatch attributes on the module objects. Keeping
 # a single import form per module also keeps CodeQL's py/import-and-import-from
 # quiet.
@@ -25,8 +26,10 @@ from dashboard.backend.domain.backtesting.constants import DEFAULT_PORTFOLIO_EQU
 def temp_stores(monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
+        content_db = root / "content.db"
         user_store = users_module.UserStore(db_path=root / "users.db")
-        portfolio_store = portfolio_repo.PortfolioStore(db_path=root / "content.db")
+        portfolio_store = portfolio_repo.PortfolioStore(db_path=content_db)
+        agent_store = agent_repo.AgentStore(db_path=content_db)
 
         monkeypatch.setattr(users_module, "user_store", user_store)
         # api/auth.py binds user_store at import (`from ...users import user_store`),
@@ -36,6 +39,11 @@ def temp_stores(monkeypatch):
         monkeypatch.setattr(auth_module, "user_store", user_store)
         monkeypatch.setattr(portfolio_repo, "portfolio_store", portfolio_store)
         monkeypatch.setattr(portfolio_service_module, "portfolio_store", portfolio_store)
+        # cash_available is derived from the agent sleeves (service._reconcile),
+        # so the agent store has to be isolated too -- otherwise agents another
+        # test left in the session-wide DB under the same low user id get summed
+        # into these accounts' allocations.
+        monkeypatch.setattr(agent_repo, "agent_store", agent_store)
         yield user_store, portfolio_store
 
 
