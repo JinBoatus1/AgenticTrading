@@ -316,15 +316,7 @@ function buildAgentAllocationData(agents, totalPortfolioValue) {
 
     const slices = [];
 
-    if (unassigned > 0) {
-        slices.push({
-            label: 'Unassigned',
-            value: unassigned,
-            pct: portfolioPct(unassigned, total),
-            color: UNASSIGNED_SLICE_COLOR,
-        });
-    }
-
+    // Agents first, Unassigned last (legend + pie order).
     assignedAgents.forEach((agent, index) => {
         const assignedCapital = Number(agent.cash_allocation);
         const chartValue = assignedCapital * chartScale;
@@ -336,6 +328,15 @@ function buildAgentAllocationData(agents, totalPortfolioValue) {
             color: AGENT_SLICE_COLORS[index % AGENT_SLICE_COLORS.length],
         });
     });
+
+    if (unassigned > 0) {
+        slices.push({
+            label: 'Unassigned',
+            value: unassigned,
+            pct: portfolioPct(unassigned, total),
+            color: UNASSIGNED_SLICE_COLOR,
+        });
+    }
 
     if (!slices.length) {
         slices.push({
