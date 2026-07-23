@@ -2999,7 +2999,7 @@ function showTickerStatus(message) {
     stopTickerScroll();
     tickerTrack.dataset.tickerReady = '0';
     tickerTrack.style.transform = 'none';
-    tickerTrack.innerHTML = `<div class="ticker-placeholder">${message}</div>`;
+    tickerTrack.innerHTML = `<div class="ticker-placeholder">${escapeHtml(message)}</div>`;
 }
 
 /**

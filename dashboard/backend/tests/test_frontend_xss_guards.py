@@ -124,6 +124,19 @@ def test_paper_trading_error_escapes_the_exception_text():
         assert "escapeHtml(message)" in line, line
 
 
+def test_ticker_status_escapes_the_server_supplied_error():
+    """``showTickerStatus`` renders ``data.error`` from the market-quotes route.
+
+    Not exception text, so CodeQL stayed quiet — but it is the same
+    server-controlled-string-into-innerHTML sink.
+    """
+    body = _extract_function(_APP_JS.read_text(encoding="utf-8"), "showTickerStatus")
+    assignments = _inner_html_assignments(body)
+    assert assignments
+    for line in assignments:
+        assert "escapeHtml(message)" in line, line
+
+
 def test_leaderboard_error_escapes_the_exception_text():
     """``displayLeaderboardError`` is called with a bare ``error.message``."""
     src = _LEADERBOARD_JS.read_text(encoding="utf-8")
