@@ -8,23 +8,25 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+import dashboard.backend.api.auth as auth_module
+import dashboard.backend.domain.portfolios.repository as portfolio_repo
+import dashboard.backend.domain.portfolios.service as portfolio_service_module
+import dashboard.backend.users as users_module
 from dashboard.backend.app import app
 from dashboard.backend.domain.backtesting.constants import DEFAULT_PORTFOLIO_EQUITY
-from dashboard.backend.domain.portfolios.repository import PortfolioStore
-from dashboard.backend.users import UserStore
+
+# These four are imported as *modules*, not `from ... import UserStore`, because
+# the fixture below has to monkeypatch attributes on the module objects. Keeping
+# a single import form per module also keeps CodeQL's py/import-and-import-from
+# quiet.
 
 
 @pytest.fixture
 def temp_stores(monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
-        user_store = UserStore(db_path=root / "users.db")
-        portfolio_store = PortfolioStore(db_path=root / "content.db")
-
-        import dashboard.backend.users as users_module
-        import dashboard.backend.api.auth as auth_module
-        import dashboard.backend.domain.portfolios.repository as portfolio_repo
-        import dashboard.backend.domain.portfolios.service as portfolio_service_module
+        user_store = users_module.UserStore(db_path=root / "users.db")
+        portfolio_store = portfolio_repo.PortfolioStore(db_path=root / "content.db")
 
         monkeypatch.setattr(users_module, "user_store", user_store)
         # api/auth.py binds user_store at import (`from ...users import user_store`),

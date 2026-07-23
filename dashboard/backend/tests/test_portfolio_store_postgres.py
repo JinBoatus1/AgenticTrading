@@ -82,22 +82,22 @@ def test_unreachable_postgres_portfolio_store_raises_instead_of_falling_back():
     """Fail loud — see the agent-store twin of this test."""
     import psycopg
 
-    from dashboard.backend.domain.portfolios.repository_postgres import (
-        PostgresPortfolioStore,
-    )
+    import dashboard.backend.domain.portfolios.repository_postgres as repo_pg_module
 
     with pytest.raises(psycopg.OperationalError):
-        PostgresPortfolioStore("postgresql://u:p@127.0.0.1:1/nope?connect_timeout=2")
+        repo_pg_module.PostgresPortfolioStore(
+            "postgresql://u:p@127.0.0.1:1/nope?connect_timeout=2"
+        )
 
 
 def test_malformed_url_is_rejected_before_psycopg_can_echo_it():
     """See the agent-store twin of this test (test_agent_store_postgres.py)."""
-    from dashboard.backend.domain.portfolios.repository_postgres import (
-        PostgresPortfolioStore,
-    )
+    import dashboard.backend.domain.portfolios.repository_postgres as repo_pg_module
 
     with pytest.raises(ValueError) as excinfo:
-        PostgresPortfolioStore('"postgresql://u:sup3r-s3cret@ep-x.neon.tech/atl"')
+        repo_pg_module.PostgresPortfolioStore(
+            '"postgresql://u:sup3r-s3cret@ep-x.neon.tech/atl"'
+        )
     assert "sup3r-s3cret" not in str(excinfo.value)
 
 
@@ -106,11 +106,9 @@ def test_malformed_url_is_rejected_before_psycopg_can_echo_it():
 @pytest.fixture
 def pg_portfolio_store():
     require_local_postgres_url(TEST_POSTGRES_URL)
-    from dashboard.backend.domain.portfolios.repository_postgres import (
-        PostgresPortfolioStore,
-    )
+    import dashboard.backend.domain.portfolios.repository_postgres as repo_pg_module
 
-    store = PostgresPortfolioStore(TEST_POSTGRES_URL)
+    store = repo_pg_module.PostgresPortfolioStore(TEST_POSTGRES_URL)
     with store._get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM user_portfolios")
@@ -176,9 +174,11 @@ def test_public_payload_matches_the_sqlite_tier_postgres(pg_portfolio_store, tmp
     The API returns this dict verbatim, so a key that exists on only one tier
     is a contract break visible solely in prod (SQLite is the default here).
     """
-    from dashboard.backend.domain.portfolios.repository import PortfolioStore
+    import dashboard.backend.domain.portfolios.repository as repo_module
 
-    sqlite_row = PortfolioStore(db_path=tmp_path / "parity.db").get_or_create(9)
+    sqlite_row = repo_module.PortfolioStore(
+        db_path=tmp_path / "parity.db"
+    ).get_or_create(9)
     pg_row = pg_portfolio_store.get_or_create(9)
 
     assert sorted(pg_row) == sorted(sqlite_row)
