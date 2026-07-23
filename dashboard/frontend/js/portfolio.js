@@ -1,17 +1,12 @@
 /*
  * portfolio.js — "My Portfolio" section for the My Agents page.
  *
- * Renders four summary cards and four allocation donut charts using the
- * existing Chart.js library (loaded in index.html). Everything here is a
- * static, frontend-only mockup — no API, database, broker, or auth calls.
- *
- * TODO: Replace mock portfolio data with backend API data later.
+ * Signed-in users load GET /api/v1/portfolio (account-bound $10k ledger).
+ * Guests / demo keep the SAMPLE DATA mock below.
  */
 
 // ---------------------------------------------------------------------------
-// Mock data
-// TODO: Replace mock portfolio data with backend API data later.
-// Portfolio budget defaults to $10,000; agents allocate up to $1,000,000 each.
+// Mock data (guest / demo only)
 // ---------------------------------------------------------------------------
 const PORTFOLIO_MOCK = {
     summary: {
@@ -49,6 +44,9 @@ const PORTFOLIO_MOCK = {
         },
     },
 };
+
+/** @type {null | { equity: number, cash_available: number, allocated: number }} */
+let livePortfolio = null;
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -231,7 +229,55 @@ function portfolioPct(value, totalPortfolioValue) {
 }
 
 function getTotalPortfolioValue() {
+    if (livePortfolio) return Number(livePortfolio.equity) || 0;
     return Number(PORTFOLIO_MOCK.summary.totalValue) || 0;
+}
+
+function setPortfolioSampleBadgeVisible(visible) {
+    const badge = document.getElementById('portfolioSampleBadge');
+    if (!badge) return;
+    // Inline style on the badge beats the UA [hidden] rule — toggle display.
+    badge.style.display = visible ? 'inline-block' : 'none';
+}
+
+function isPortfolioSignedIn() {
+    try {
+        const tokenKey = typeof AUTH_TOKEN_KEY === 'string' ? AUTH_TOKEN_KEY : 'auth-token';
+        const token = localStorage.getItem(tokenKey);
+        if (!token) return false;
+        if (typeof getStoredAuthUser === 'function') return !!getStoredAuthUser();
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function summaryFromLivePortfolio(portfolio) {
+    const equity = Number(portfolio.equity) || 0;
+    const cash = Number(portfolio.cash_available) || 0;
+    return {
+        totalValue: equity,
+        dayPnl: 0,
+        dayPnlPct: 0,
+        totalReturn: 0,
+        totalReturnPct: 0,
+        cashAvailable: cash,
+    };
+}
+
+function cashOnlyAssetAllocation(cashAvailable) {
+    const cash = Number(cashAvailable) || 0;
+    return {
+        total: cash,
+        slices: [{ label: 'Cash', pct: 100, value: cash, color: '#64748b' }],
+    };
+}
+
+function emptyHoldingsAllocation() {
+    return {
+        total: 0,
+        slices: [{ label: 'None', pct: 0, value: 0, color: '#64748b' }],
+    };
 }
 
 function buildAgentAllocationData(agents, totalPortfolioValue) {
@@ -304,20 +350,57 @@ function buildAgentAllocationData(agents, totalPortfolioValue) {
 }
 
 function updateAgentAllocationFromAgents(agents) {
-    renderAllocationChart('agent', buildAgentAllocationData(agents, getTotalPortfolioValue()));
+    // Until allocate (#175) wires the ledger, signed-in pie is 100% Unassigned.
+    const agentSlices = livePortfolio ? [] : agents;
+    renderAllocationChart('agent', buildAgentAllocationData(agentSlices, getTotalPortfolioValue()));
 }
 
-// ---------------------------------------------------------------------------
-// Public entry point — called when the My Agents tab becomes visible.
-// ---------------------------------------------------------------------------
-function renderPortfolio(agents) {
-    // TODO: Replace mock portfolio data with backend API data later.
+function renderPortfolioFromMock(agents) {
+    livePortfolio = null;
+    setPortfolioSampleBadgeVisible(true);
     const data = PORTFOLIO_MOCK;
     renderPortfolioSummary(data.summary);
     renderAllocationChart('asset', data.allocations.asset);
     renderAllocationChart('stock', data.allocations.stock);
     renderAllocationChart('crypto', data.allocations.crypto);
     renderAllocationChart('agent', buildAgentAllocationData(agents, getTotalPortfolioValue()));
+}
+
+function renderPortfolioFromLive(portfolio, agents) {
+    livePortfolio = {
+        equity: Number(portfolio.equity) || 0,
+        cash_available: Number(portfolio.cash_available) || 0,
+        allocated: Number(portfolio.allocated) || 0,
+    };
+    setPortfolioSampleBadgeVisible(false);
+    renderPortfolioSummary(summaryFromLivePortfolio(livePortfolio));
+    renderAllocationChart('asset', cashOnlyAssetAllocation(livePortfolio.cash_available));
+    renderAllocationChart('stock', emptyHoldingsAllocation());
+    renderAllocationChart('crypto', emptyHoldingsAllocation());
+    updateAgentAllocationFromAgents(agents);
+}
+
+// ---------------------------------------------------------------------------
+// Public entry point — called when the My Agents tab becomes visible.
+// ---------------------------------------------------------------------------
+async function renderPortfolio(agents) {
+    const list = agents || [];
+    if (!isPortfolioSignedIn() || typeof API === 'undefined' || typeof API_BASE === 'undefined') {
+        renderPortfolioFromMock(list);
+        return;
+    }
+    try {
+        const data = await API.get(`${API_BASE}/api/v1/portfolio`);
+        const portfolio = data && data.portfolio;
+        if (!portfolio) {
+            renderPortfolioFromMock(list);
+            return;
+        }
+        renderPortfolioFromLive(portfolio, list);
+    } catch (error) {
+        console.warn('Portfolio API unavailable; showing sample data:', error?.message || error);
+        renderPortfolioFromMock(list);
+    }
 }
 
 window.renderPortfolio = renderPortfolio;

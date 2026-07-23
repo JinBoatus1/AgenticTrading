@@ -105,6 +105,7 @@ EXPECTED_FULL_CONTRACT = {
     ("GET", "/api/v1/environments"),
     ("GET", "/api/v1/environments/{environment_id}"),
     ("GET", "/api/v1/leaderboard"),
+    ("GET", "/api/v1/portfolio"),
     ("POST", "/api/v1/runs"),
     ("GET", "/api/v1/runs/{run_id}"),
     ("GET", "/api/v1/runs/{run_id}/decisions"),

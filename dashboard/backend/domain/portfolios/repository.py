@@ -1,0 +1,137 @@
+"""SQLite portfolio store for account-bound cash ledgers.
+
+Selected when ``CONTENT_DATABASE_URL`` is unset. Postgres twin:
+``repository_postgres.PostgresPortfolioStore``.
+"""
+
+from __future__ import annotations
+
+import os
+import sqlite3
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from dashboard.backend.database import DB_PATH
+from dashboard.backend.db_url import describe_database_url
+from dashboard.backend.domain.backtesting.constants import DEFAULT_PORTFOLIO_EQUITY
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _public_portfolio(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
+    data = dict(row)
+    equity = float(data.get("equity") or 0)
+    cash_available = float(data.get("cash_available") or 0)
+    return {
+        "owner_user_id": int(data["owner_user_id"]),
+        "equity": equity,
+        "cash_available": cash_available,
+        "allocated": max(equity - cash_available, 0.0),
+        "created_at": data.get("created_at"),
+        "updated_at": data.get("updated_at"),
+    }
+
+
+class PortfolioStore:
+    """Persist one portfolio row per signed-in user."""
+
+    def __init__(self, db_path: Path | None = None):
+        self.db_path = Path(db_path or DB_PATH)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_schema()
+
+    def _get_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_schema(self) -> None:
+        conn = self._get_connection()
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_portfolios (
+                owner_user_id INTEGER PRIMARY KEY,
+                equity REAL NOT NULL,
+                cash_available REAL NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+
+    def get(self, owner_user_id: int) -> Optional[Dict[str, Any]]:
+        # Re-run IF NOT EXISTS so a hot-reload / shared DB never 500s on a
+        # missing table (CREATE is cheap and idempotent).
+        self._init_schema()
+        conn = self._get_connection()
+        row = conn.execute(
+            "SELECT * FROM user_portfolios WHERE owner_user_id = ?",
+            (int(owner_user_id),),
+        ).fetchone()
+        conn.close()
+        return _public_portfolio(row) if row else None
+
+    def create(
+        self,
+        owner_user_id: int,
+        *,
+        equity: float = DEFAULT_PORTFOLIO_EQUITY,
+    ) -> Dict[str, Any]:
+        self._init_schema()
+        now = _utcnow_iso()
+        equity_f = float(equity)
+        conn = self._get_connection()
+        conn.execute(
+            """
+            INSERT INTO user_portfolios (
+                owner_user_id, equity, cash_available, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (int(owner_user_id), equity_f, equity_f, now, now),
+        )
+        conn.commit()
+        conn.close()
+        created = self.get(owner_user_id)
+        assert created is not None
+        return created
+
+    def get_or_create(
+        self,
+        owner_user_id: int,
+        *,
+        equity: float = DEFAULT_PORTFOLIO_EQUITY,
+    ) -> Dict[str, Any]:
+        existing = self.get(owner_user_id)
+        if existing is not None:
+            return existing
+        try:
+            return self.create(owner_user_id, equity=equity)
+        except sqlite3.IntegrityError:
+            # Concurrent bootstrap — return the winner's row.
+            raced = self.get(owner_user_id)
+            if raced is None:
+                raise
+            return raced
+
+
+def _build_portfolio_store():
+    database_url = os.getenv("CONTENT_DATABASE_URL")
+    if database_url:
+        from dashboard.backend.domain.portfolios.repository_postgres import (
+            PostgresPortfolioStore,
+        )
+
+        print(
+            f"portfolio_store backend: postgres ({describe_database_url(database_url)})"
+        )
+        return PostgresPortfolioStore(database_url)
+    print("portfolio_store backend: sqlite (ephemeral on Render)")
+    return PortfolioStore()
+
+
+portfolio_store = _build_portfolio_store()
