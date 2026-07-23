@@ -10,6 +10,7 @@ logging are unchanged; only the module location moved.
 
 import json
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -22,6 +23,15 @@ from dashboard.backend.paths import CREDENTIALS_DIR
 
 TICKER_CACHE_TTL_SECONDS = 30
 _ticker_cache: Dict[str, Tuple[float, List[Dict]]] = {}
+
+# Symbols are interpolated into Alpaca URL paths, so anything outside a real
+# ticker's alphabet (letters, digits, "." and "-", e.g. BRK.B / BF-B) could
+# steer the request to a different endpoint under the server's API key.
+_SYMBOL_RE = re.compile(r"^[A-Za-z0-9.\-]{1,12}$")
+
+
+def _is_valid_symbol(symbol: str) -> bool:
+    return bool(_SYMBOL_RE.match(symbol or ""))
 
 
 def _extract_price_from_quote(quote: dict) -> Optional[float]:
@@ -125,6 +135,9 @@ class AlpacaMarketData:
             Dict with keys: symbol, price, changePercent, timestamp
             changePercent is percentage change vs previous day's close
         """
+        if not _is_valid_symbol(symbol):
+            print(f"❌ Rejected invalid symbol for quote fetch: {symbol!r}")
+            return None
         try:
             # Use Alpaca Data API endpoint
             url = f"{self.data_api_url}/v2/stocks/{symbol}/quotes/latest"
@@ -225,6 +238,9 @@ class AlpacaMarketData:
         2. If IEX fails, try SIP with delayed end time (15+ mins ago)
         3. If both fail, return None
         """
+        if not _is_valid_symbol(symbol):
+            print(f"❌ Rejected invalid symbol for previous-close fetch: {symbol!r}")
+            return None
         try:
             from datetime import datetime, timedelta
             

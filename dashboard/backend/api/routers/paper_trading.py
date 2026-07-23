@@ -61,9 +61,10 @@ async def get_paper_account():
                 "timestamp": datetime.now().isoformat()
             }
     except Exception as e:
+        print(f"/paper/account fetch failed: {e!r}")
         return {
             "success": False,
-            "error": str(e),
+            "error": "Failed to fetch account",
             "timestamp": datetime.now().isoformat()
         }
 
@@ -117,9 +118,10 @@ async def get_paper_positions():
             "cached": False
         }
     except Exception as e:
+        print(f"/paper/positions fetch failed: {e!r}")
         return {
             "success": False,
-            "error": str(e),
+            "error": "Failed to fetch positions",
             "positions": [],
             "timestamp": datetime.now().isoformat()
         }
@@ -175,9 +177,10 @@ async def get_paper_trades(limit: int = 50):
             "cached": False
         }
     except Exception as e:
+        print(f"/paper/trades fetch failed: {e!r}")
         return {
             "success": False,
-            "error": str(e),
+            "error": "Failed to fetch trades",
             "trades": [],
             "timestamp": datetime.now().isoformat()
         }
@@ -240,9 +243,10 @@ async def get_paper_portfolio_history(timeframe: str = "1D"):
                 "timestamp": datetime.now().isoformat()
             }
     except Exception as e:
+        print(f"/paper/portfolio-history fetch failed: {e!r}")
         return {
             "success": False,
-            "error": str(e),
+            "error": "Failed to fetch portfolio history",
             "equity_curve": [],
             "timestamp": datetime.now().isoformat()
         }
@@ -269,9 +273,11 @@ async def start_paper_session(agent_name: str = "Agent"):
         if account:
             initial_equity = account.get("equity", 100000)
             
-            # Create run record in database
+            # Create run record in database. The paper flow has no separate
+            # protocol session, so the run doubles as its own session.
             db.insert_run(
                 run_id=run_id,
+                session_id=run_id,
                 agent_name=agent_name,
                 mode="paper",
                 start_date=datetime.now().isoformat(),
@@ -293,9 +299,10 @@ async def start_paper_session(agent_name: str = "Agent"):
                 "timestamp": datetime.now().isoformat()
             }
     except Exception as e:
+        print(f"/paper/start-session failed: {e!r}")
         return {
             "success": False,
-            "error": str(e),
+            "error": "Failed to start paper trading session",
             "timestamp": datetime.now().isoformat()
         }
 
@@ -352,9 +359,10 @@ async def get_paper_baselines(days: int = 31):
                 "timestamp": datetime.now().isoformat()
             }
     except Exception as e:
+        print(f"/paper/baselines fetch failed: {e!r}")
         return {
             "success": False,
-            "error": str(e),
+            "error": "Failed to fetch baselines",
             "baselines": {},
             "timestamp": datetime.now().isoformat()
         }

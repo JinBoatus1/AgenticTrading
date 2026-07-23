@@ -156,3 +156,98 @@ def test_chat_bubble_never_assigns_unescaped_text_to_inner_html():
             assert "renderAlgoChatHtml(" in line, line.strip()
     # The pre-fix sink — raw text straight into innerHTML — must stay gone.
     assert "innerHTML = text.replace(" not in " ".join(src.split())
+
+
+# ---------------------------------------------------------------------------
+# Leaderboard table & detail panel (CodeQL js/incomplete-sanitization #4).
+# ``entry.model`` / ``entry.team_name`` come from the leaderboard API — agent
+# names are user-registered, so the table is a stored-XSS surface. The row and
+# detail templates must escape every string field, and the inline onclick id
+# needs JS-string escaping *before* HTML-attribute escaping (backslash first,
+# or a trailing "\" un-escapes the closing quote).
+# ---------------------------------------------------------------------------
+
+_HOSTILE_ENTRY = {
+    "entry_id": "x'); globalThis.pwned = 1; ('",
+    "team_name": "<img src=x onerror=alert(1)>",
+    "model": '<svg onload=alert(2)> "quoted" & more',
+    "team_badge": "<script>alert(3)</script>",
+    "cumulative_return": 0.1,
+    "portfolio_value": 100000,
+    "sharpe_ratio": 1.5,
+    "max_drawdown": -0.2,
+    "rank": 1,
+}
+
+
+def _run_leaderboard_driver(js_body: str) -> dict:
+    app_src = _APP_JS.read_text(encoding="utf-8")
+    src = _LEADERBOARD_JS.read_text(encoding="utf-8")
+    driver = "\n".join(
+        [
+            _extract_function(app_src, "escapeHtml"),
+            _extract_function(src, "formatEntryBadge"),
+            _extract_function(src, "formatLeaderboardNumber"),
+            _extract_function(src, "renderLeaderboardRowHtml"),
+            _extract_function(src, "renderLeaderboardDetailHtml"),
+            "const entry = JSON.parse(process.argv[1]);",
+            js_body,
+        ]
+    )
+    proc = subprocess.run(
+        ["node", "-e", driver, json.dumps(_HOSTILE_ENTRY)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+@requires_node
+def test_leaderboard_row_escapes_every_string_field():
+    out = _run_leaderboard_driver(
+        "console.log(JSON.stringify({html: renderLeaderboardRowHtml(entry)}));"
+    )
+    html = out["html"]
+    for raw in ("<img", "<svg", "<script"):
+        assert raw not in html, html
+    assert "&lt;svg" in html  # the label rendered, escaped, not dropped
+
+
+@requires_node
+def test_leaderboard_row_onclick_round_trips_hostile_ids():
+    # Decode the onclick attribute exactly as a browser would, execute it with
+    # a recording stub, and prove the hostile id arrives intact as a *string*
+    # argument instead of executing.
+    out = _run_leaderboard_driver(
+        """
+const html = renderLeaderboardRowHtml(entry);
+const attr = /onclick="([^"]*)"/.exec(html)[1];
+const decoded = attr
+  .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+let captured = null;
+new Function('selectLeaderboardTeam', decoded)((id) => { captured = id; });
+console.log(JSON.stringify({captured, pwned: globalThis.pwned ?? null}));
+"""
+    )
+    assert out["pwned"] is None
+    assert out["captured"] == _HOSTILE_ENTRY["entry_id"]
+
+
+@requires_node
+def test_leaderboard_detail_panel_escapes_string_fields():
+    out = _run_leaderboard_driver(
+        "console.log(JSON.stringify({html: renderLeaderboardDetailHtml(entry, 12)}));"
+    )
+    html = out["html"]
+    for raw in ("<img", "<svg", "<script"):
+        assert raw not in html, html
+
+
+def test_leaderboard_table_and_detail_use_the_renderers():
+    """Source guard (node-free): the templates must stay in the pure renderers."""
+    src = _LEADERBOARD_JS.read_text(encoding="utf-8")
+    assert "renderLeaderboardRowHtml" in _extract_function(src, "populateLeaderboardTable")
+    assert "renderLeaderboardDetailHtml(" in _extract_function(src, "selectLeaderboardTeam")

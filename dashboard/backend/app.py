@@ -328,10 +328,14 @@ async def serve_market_events_js(file_name: str):
 @app.get("/images/{file_name}", include_in_schema=False)
 async def serve_image(file_name: str):
     """Serve image files from the images directory."""
-    image_path = frontend_path / "images" / file_name
-    if not image_path.exists():
+    if "/" in file_name or "\\" in file_name:
         raise HTTPException(status_code=404, detail="Image not found")
-    
+
+    image_path = (frontend_path / "images" / file_name).resolve()
+    images_dir = (frontend_path / "images").resolve()
+    if not image_path.is_file() or images_dir not in image_path.parents:
+        raise HTTPException(status_code=404, detail="Image not found")
+
     # Determine media type based on file extension
     ext = image_path.suffix.lower()
     media_types = {

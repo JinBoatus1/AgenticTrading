@@ -576,31 +576,28 @@ function getFilteredLeaderboardEntries() {
   return entries;
 }
 
-function populateLeaderboardTable() {
-  const tbody = document.getElementById('leaderboardTableBody');
-  if (!tbody) return;
+// `entry.model` / `entry.team_name` are user-registered agent names, so every
+// string field must go through `escapeHtml` (a global from app.js, loaded
+// first). The onclick id additionally needs JS-string escaping — backslash
+// before quote, or a trailing "\" would un-escape the closing quote — and the
+// JS-escaped result is then HTML-escaped for the attribute context.
+function renderLeaderboardRowHtml(entry) {
+  const safeId = escapeHtml(
+    String(entry.entry_id || entry.team_name).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+  );
+  const entryLabel = escapeHtml(entry.model || entry.team_name || '—');
+  const ret = Number(entry.cumulative_return || 0);
+  const retClass = ret >= 0 ? 'return-positive' : 'return-negative';
+  const ddRaw = Number(entry.max_drawdown || 0);
+  const dd = (Math.abs(ddRaw) * 100).toFixed(2);
 
-  const filtered = getFilteredLeaderboardEntries();
-  if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-secondary);">No leaderboard entries yet. Baselines compute on first load (requires market data).</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = filtered.map((entry) => {
-    const safeId = String(entry.entry_id || entry.team_name).replace(/'/g, "\\'");
-    const entryLabel = entry.model || entry.team_name || '—';
-    const ret = Number(entry.cumulative_return || 0);
-    const retClass = ret >= 0 ? 'return-positive' : 'return-negative';
-    const ddRaw = Number(entry.max_drawdown || 0);
-    const dd = (Math.abs(ddRaw) * 100).toFixed(2);
-
-    return `
+  return `
       <tr onclick="selectLeaderboardTeam('${safeId}')">
-        <td class="rank-cell">${entry.rank}</td>
+        <td class="rank-cell">${escapeHtml(entry.rank)}</td>
         <td>
           <div class="team-name-badge">
             <span>${entryLabel}</span>
-            <span class="team-badge">${formatEntryBadge(entry.team_badge)}</span>
+            <span class="team-badge">${escapeHtml(formatEntryBadge(entry.team_badge))}</span>
           </div>
         </td>
         <td style="text-align: right; font-family: var(--font-mono);">$${formatLeaderboardNumber(entry.portfolio_value)}</td>
@@ -611,30 +608,33 @@ function populateLeaderboardTable() {
         <td style="text-align: right; font-family: var(--font-mono);">${dd}%</td>
       </tr>
     `;
-  }).join('');
 }
 
-function selectLeaderboardTeam(entryId) {
-  const entries = leaderboardPayload?.entries || [];
-  selectedLeaderboardEntry =
-    entries.find((e) => String(e.entry_id) === String(entryId)) ||
-    entries.find((e) => e.team_name === entryId);
-  if (!selectedLeaderboardEntry) return;
+function populateLeaderboardTable() {
+  const tbody = document.getElementById('leaderboardTableBody');
+  if (!tbody) return;
 
-  const entry = selectedLeaderboardEntry;
-  const detailPanel = document.getElementById('selectedTeamDetail');
-  if (detailPanel) {
-    const ret = Number(entry.cumulative_return || 0);
-    const retColor = ret >= 0 ? 'var(--success-color)' : 'var(--danger-color)';
-    const entryLabel = entry.model || entry.team_name || '—';
-    detailPanel.innerHTML = `
+  const filtered = getFilteredLeaderboardEntries();
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-secondary);">No leaderboard entries yet. Baselines compute on first load (requires market data).</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(renderLeaderboardRowHtml).join('');
+}
+
+function renderLeaderboardDetailHtml(entry, totalEntries) {
+  const ret = Number(entry.cumulative_return || 0);
+  const retColor = ret >= 0 ? 'var(--success-color)' : 'var(--danger-color)';
+  const entryLabel = escapeHtml(entry.model || entry.team_name || '—');
+  return `
       <div class="team-detail-row">
         <span class="team-detail-label">Entry</span>
         <span class="team-detail-value">${entryLabel}</span>
       </div>
       <div class="team-detail-row">
         <span class="team-detail-label">Type</span>
-        <span class="team-detail-value">${formatEntryBadge(entry.team_badge || (entry.entry_type === 'baseline' ? 'Baseline Strategy' : 'Agent'))}</span>
+        <span class="team-detail-value">${escapeHtml(formatEntryBadge(entry.team_badge || (entry.entry_type === 'baseline' ? 'Baseline Strategy' : 'Agent')))}</span>
       </div>
       <div class="team-detail-row">
         <span class="team-detail-label">Value</span>
@@ -654,9 +654,22 @@ function selectLeaderboardTeam(entryId) {
       </div>
       <div class="team-detail-row">
         <span class="team-detail-label">Rank</span>
-        <span class="team-detail-value">${entry.rank} / ${leaderboardPayload?.total_entries || '—'}</span>
+        <span class="team-detail-value">${escapeHtml(entry.rank)} / ${escapeHtml(totalEntries || '—')}</span>
       </div>
     `;
+}
+
+function selectLeaderboardTeam(entryId) {
+  const entries = leaderboardPayload?.entries || [];
+  selectedLeaderboardEntry =
+    entries.find((e) => String(e.entry_id) === String(entryId)) ||
+    entries.find((e) => e.team_name === entryId);
+  if (!selectedLeaderboardEntry) return;
+
+  const entry = selectedLeaderboardEntry;
+  const detailPanel = document.getElementById('selectedTeamDetail');
+  if (detailPanel) {
+    detailPanel.innerHTML = renderLeaderboardDetailHtml(entry, leaderboardPayload?.total_entries);
   }
 
   // Selecting an entry also forces it visible and re-emphasizes it on the chart.
