@@ -11,37 +11,8 @@
 const PORTFOLIO_MOCK = {
     summary: {
         totalValue: 10000,
-        dayPnl: 0,
-        dayPnlPct: 0,
-        totalReturn: 0,
-        totalReturnPct: 0,
         cashAvailable: 7000,
-    },
-    allocations: {
-        asset: {
-            total: 10000,
-            slices: [
-                { label: 'Stocks', pct: 25, value: 2500, color: '#22d3ee' },
-                { label: 'Crypto', pct: 5, value: 500, color: '#a855f7' },
-                { label: 'Cash',   pct: 70, value: 7000, color: '#64748b' },
-            ],
-        },
-        stock: {
-            total: 2500,
-            slices: [
-                { label: 'AAPL',  pct: 40, value: 1000, color: '#22d3ee' },
-                { label: 'MSFT',  pct: 30, value: 750, color: '#38bdf8' },
-                { label: 'NVDA',  pct: 20, value: 500, color: '#34d399' },
-                { label: 'Other', pct: 10, value: 250, color: '#475569' },
-            ],
-        },
-        crypto: {
-            total: 500,
-            slices: [
-                { label: 'BTC',   pct: 60, value: 300, color: '#f59e0b' },
-                { label: 'ETH',   pct: 40, value: 200, color: '#818cf8' },
-            ],
-        },
+        allocated: 3000,
     },
 };
 
@@ -74,36 +45,32 @@ function pfSignedPct(value) {
 // PortfolioSummaryCard
 // ---------------------------------------------------------------------------
 function buildSummaryCards(summary) {
+    const total = Number(summary.totalValue) || 0;
+    const available = Number(summary.cashAvailable) || 0;
+    const allocated = summary.allocated != null
+        ? Number(summary.allocated)
+        : Math.max(total - available, 0);
     return [
         {
-            label: 'Total Portfolio Value',
-            value: pfMoney(summary.totalValue),
-            sub: `vs last close ${pfSignedMoney(summary.dayPnl)} (${pfSignedPct(summary.dayPnlPct)})`,
-            tone: summary.dayPnl >= 0 ? 'positive' : 'negative',
+            label: 'Total Portfolio',
+            value: pfMoney(total),
+            sub: 'Account equity',
+            tone: 'muted',
             icon: 'wallet',
         },
         {
-            label: 'Day P/L',
-            value: pfSignedMoney(summary.dayPnl),
-            sub: `${pfSignedPct(summary.dayPnlPct)} vs last close`,
-            tone: summary.dayPnl >= 0 ? 'positive' : 'negative',
-            valueTone: summary.dayPnl >= 0 ? 'positive' : 'negative',
-            icon: 'pulse',
-        },
-        {
-            label: 'Total Return',
-            value: pfSignedMoney(summary.totalReturn),
-            sub: `${pfSignedPct(summary.totalReturnPct)} all time`,
-            tone: summary.totalReturn >= 0 ? 'positive' : 'negative',
-            valueTone: summary.totalReturn >= 0 ? 'positive' : 'negative',
-            icon: 'trend',
-        },
-        {
             label: 'Cash Available',
-            value: pfMoney(summary.cashAvailable),
-            sub: 'Available to trade',
+            value: pfMoney(available),
+            sub: 'Still unallocated',
             tone: 'muted',
             icon: 'cash',
+        },
+        {
+            label: 'Allocated',
+            value: pfMoney(allocated),
+            sub: 'Assigned to agents',
+            tone: 'muted',
+            icon: 'allocate',
         },
     ];
 }
@@ -113,6 +80,7 @@ const PF_ICONS = {
     pulse: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
     trend: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
     cash: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
+    allocate: '<circle cx="12" cy="12" r="9"/><path d="M12 3v9l7 4"/>',
 };
 
 function renderPortfolioSummary(summary) {
@@ -255,28 +223,13 @@ function isPortfolioSignedIn() {
 function summaryFromLivePortfolio(portfolio) {
     const equity = Number(portfolio.equity) || 0;
     const cash = Number(portfolio.cash_available) || 0;
+    const allocated = portfolio.allocated != null
+        ? Number(portfolio.allocated)
+        : Math.max(equity - cash, 0);
     return {
         totalValue: equity,
-        dayPnl: 0,
-        dayPnlPct: 0,
-        totalReturn: 0,
-        totalReturnPct: 0,
         cashAvailable: cash,
-    };
-}
-
-function cashOnlyAssetAllocation(cashAvailable) {
-    const cash = Number(cashAvailable) || 0;
-    return {
-        total: cash,
-        slices: [{ label: 'Cash', pct: 100, value: cash, color: '#64748b' }],
-    };
-}
-
-function emptyHoldingsAllocation() {
-    return {
-        total: 0,
-        slices: [{ label: 'None', pct: 0, value: 0, color: '#64748b' }],
+        allocated,
     };
 }
 
@@ -357,11 +310,7 @@ function updateAgentAllocationFromAgents(agents) {
 function renderPortfolioFromMock(agents) {
     livePortfolio = null;
     setPortfolioSampleBadgeVisible(true);
-    const data = PORTFOLIO_MOCK;
-    renderPortfolioSummary(data.summary);
-    renderAllocationChart('asset', data.allocations.asset);
-    renderAllocationChart('stock', data.allocations.stock);
-    renderAllocationChart('crypto', data.allocations.crypto);
+    renderPortfolioSummary(PORTFOLIO_MOCK.summary);
     renderAllocationChart('agent', buildAgentAllocationData(agents, getTotalPortfolioValue()));
 }
 
@@ -373,9 +322,6 @@ function renderPortfolioFromLive(portfolio, agents) {
     };
     setPortfolioSampleBadgeVisible(false);
     renderPortfolioSummary(summaryFromLivePortfolio(livePortfolio));
-    renderAllocationChart('asset', cashOnlyAssetAllocation(livePortfolio.cash_available));
-    renderAllocationChart('stock', emptyHoldingsAllocation());
-    renderAllocationChart('crypto', emptyHoldingsAllocation());
     updateAgentAllocationFromAgents(agents);
 }
 

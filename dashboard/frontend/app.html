@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=53">
+    <link rel="stylesheet" href="styles.css?v=54">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
     (function () {
@@ -652,47 +652,11 @@
                 </div>
             </div>
 
-            <!-- Summary cards (populated by portfolio.js from mock data) -->
+            <!-- Summary cards: Total / Available / Allocated -->
             <div id="portfolioSummaryGrid" class="portfolio-summary-grid"></div>
 
-            <!-- Allocation pie charts -->
-            <div class="allocation-grid">
-                <section class="section-card allocation-card">
-                    <h3 class="allocation-title">Asset Allocation</h3>
-                    <div class="allocation-body">
-                        <div class="allocation-chart-wrap">
-                            <canvas id="assetAllocationChart"></canvas>
-                        </div>
-                        <div class="allocation-detail">
-                            <div class="allocation-total" id="assetAllocationTotal"></div>
-                            <ul class="allocation-legend" id="assetAllocationLegend"></ul>
-                        </div>
-                    </div>
-                </section>
-                <section class="section-card allocation-card">
-                    <h3 class="allocation-title">Stock Allocation</h3>
-                    <div class="allocation-body">
-                        <div class="allocation-chart-wrap">
-                            <canvas id="stockAllocationChart"></canvas>
-                        </div>
-                        <div class="allocation-detail">
-                            <div class="allocation-total" id="stockAllocationTotal"></div>
-                            <ul class="allocation-legend" id="stockAllocationLegend"></ul>
-                        </div>
-                    </div>
-                </section>
-                <section class="section-card allocation-card">
-                    <h3 class="allocation-title">Crypto Allocation</h3>
-                    <div class="allocation-body">
-                        <div class="allocation-chart-wrap">
-                            <canvas id="cryptoAllocationChart"></canvas>
-                        </div>
-                        <div class="allocation-detail">
-                            <div class="allocation-total" id="cryptoAllocationTotal"></div>
-                            <ul class="allocation-legend" id="cryptoAllocationLegend"></ul>
-                        </div>
-                    </div>
-                </section>
+            <!-- How allocated capital is split across agents -->
+            <div class="allocation-grid allocation-grid--single">
                 <section class="section-card allocation-card">
                     <h3 class="allocation-title">Capital Allocation by Agent</h3>
                     <div class="allocation-body">
@@ -1517,7 +1481,7 @@
     <script src="market-events/marketEventRelativeTime.js"></script>
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
-    <script src="js/portfolio.js?v=5"></script>
+    <script src="js/portfolio.js?v=6"></script>
     <script src="js/agent-editor.js?v=8"></script>
     <script src="app.js?v=25"></script>
     <script src="js/leaderboard.js?v=13"></script>

@@ -6824,7 +6824,7 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market
    =========================================================================== */
 .portfolio-summary-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 16px;
 }
@@ -6901,6 +6901,10 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 24px;
+}
+
+.allocation-grid--single {
+    grid-template-columns: minmax(280px, 440px);
 }
 
 .allocation-card {
@@ -7526,8 +7530,9 @@ html[data-nav-page="home"] #homeView .dashboard-bottom-grid .home-module--market
 
 /* Responsive */
 @media (max-width: 1100px) {
-    .portfolio-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .portfolio-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .allocation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .allocation-grid--single { grid-template-columns: minmax(280px, 440px); }
 }
 
 @media (max-width: 760px) {
