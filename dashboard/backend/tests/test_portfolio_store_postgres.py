@@ -189,3 +189,55 @@ def test_public_payload_matches_the_sqlite_tier_postgres(pg_portfolio_store, tmp
         # ISO-8601 string, not a datetime the encoder would render differently.
         assert isinstance(pg_row[key], str), key
         assert isinstance(sqlite_row[key], str), key
+
+
+@pg_only
+def test_set_cash_available_persists_and_bootstraps_postgres(pg_portfolio_store):
+    """The write path #175 added — prod's only implementation of it."""
+    # Bootstraps the row itself rather than requiring a prior get_or_create.
+    updated = pg_portfolio_store.set_cash_available(11, 6250.5)
+
+    assert updated["cash_available"] == 6250.5
+    assert updated["equity"] == float(DEFAULT_PORTFOLIO_EQUITY)
+    assert updated["allocated"] == float(DEFAULT_PORTFOLIO_EQUITY) - 6250.5
+    # Re-read on a fresh connection: psycopg's context manager must have
+    # committed, not merely closed.
+    assert pg_portfolio_store.get(11)["cash_available"] == 6250.5
+
+
+@pg_only
+def test_set_cash_available_accepts_the_full_range_postgres(pg_portfolio_store):
+    pg_portfolio_store.get_or_create(12)
+
+    assert pg_portfolio_store.set_cash_available(12, 0.0)["cash_available"] == 0.0
+    restored = pg_portfolio_store.set_cash_available(12, float(DEFAULT_PORTFOLIO_EQUITY))
+    assert restored["cash_available"] == float(DEFAULT_PORTFOLIO_EQUITY)
+    assert restored["allocated"] == 0.0
+
+
+@pg_only
+def test_set_cash_available_touches_one_users_row_only_postgres(pg_portfolio_store):
+    pg_portfolio_store.get_or_create(13)
+    pg_portfolio_store.get_or_create(14)
+
+    pg_portfolio_store.set_cash_available(13, 100.0)
+
+    assert pg_portfolio_store.get(13)["cash_available"] == 100.0
+    assert pg_portfolio_store.get(14)["cash_available"] == float(
+        DEFAULT_PORTFOLIO_EQUITY
+    )
+
+
+@pg_only
+def test_set_cash_available_payload_matches_the_sqlite_tier(pg_portfolio_store, tmp_path):
+    """Tier parity for the write path, mirroring the read-path test above."""
+    import dashboard.backend.domain.portfolios.repository as repo_module
+
+    sqlite_row = repo_module.PortfolioStore(
+        db_path=tmp_path / "parity-write.db"
+    ).set_cash_available(15, 2500.0)
+    pg_row = pg_portfolio_store.set_cash_available(15, 2500.0)
+
+    assert sorted(pg_row) == sorted(sqlite_row)
+    for key in ("owner_user_id", "equity", "cash_available", "allocated"):
+        assert pg_row[key] == sqlite_row[key], key

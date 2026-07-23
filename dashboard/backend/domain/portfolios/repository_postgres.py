@@ -12,7 +12,10 @@ from psycopg.rows import dict_row
 
 from dashboard.backend.db_url import require_postgres_url
 from dashboard.backend.domain.backtesting.constants import DEFAULT_PORTFOLIO_EQUITY
-from dashboard.backend.domain.portfolios.repository import _public_portfolio, _utcnow_iso
+from dashboard.backend.domain.portfolios.repository import (
+    _public_portfolio,
+    _utcnow_iso,
+)
 
 
 class PostgresPortfolioStore:
@@ -108,3 +111,32 @@ class PostgresPortfolioStore:
             if raced is None:
                 raise
             return raced
+
+    def set_cash_available(
+        self, owner_user_id: int, cash_available: float
+    ) -> Dict[str, Any]:
+        """Overwrite cash_available with an already-validated figure.
+
+        Blind write, mirroring the SQLite twin: ``service._reconcile`` derives
+        the value from the agent sleeves (a different table), so a
+        ``SELECT ... FOR UPDATE`` here would lock a row whose contents this
+        statement does not depend on. Bounds are the service's job.
+        """
+        self.get_or_create(owner_user_id)
+        uid = int(owner_user_id)
+        value = float(cash_available)
+        now = _utcnow_iso()
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE user_portfolios
+                    SET cash_available = %s, updated_at = %s
+                    WHERE owner_user_id = %s
+                    """,
+                    (value, now, uid),
+                )
+        updated = self.get(uid)
+        if updated is None:  # pragma: no cover - the UPDATE above just committed
+            raise RuntimeError(f"portfolio for user {uid} vanished during update")
+        return updated

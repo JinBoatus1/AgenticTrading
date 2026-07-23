@@ -9,13 +9,14 @@ for backward compatibility (``bha.INITIAL_CAPITAL``).
 here.
 
 Capital scale (product):
-- Portfolio-view equity: ``DEFAULT_PORTFOLIO_EQUITY`` ($10,000) — a display
-  default only, NOT a cap on the sum of agent allocations
-- Per-agent starting cash: default ``DEFAULT_AGENT_CASH_ALLOCATION`` ($1,000),
-  max ``MAX_AGENT_CASH_ALLOCATION`` ($1,000,000) — so a single agent may
-  allocate far above the portfolio-view figure above
+- Account portfolio equity: ``DEFAULT_PORTFOLIO_EQUITY`` ($10,000). For
+  signed-in users this is a real ledger budget (unallocated cash ↔ agent
+  sleeves via allocate/reclaim). Guests/demo still treat it as display-only.
+- Per-agent sleeve: default ``DEFAULT_AGENT_CASH_ALLOCATION`` ($1,000),
+  max ``MAX_AGENT_CASH_ALLOCATION`` ($1,000,000) — also capped by the
+  account's remaining unallocated cash when the portfolio ledger is used.
 - Backtests / protocol use the agent's cash allocation (falling back to
-  ``INITIAL_CAPITAL``)
+  ``INITIAL_CAPITAL``) as **simulation** capital and do not move the ledger.
 """
 
 from __future__ import annotations
@@ -25,9 +26,7 @@ from typing import Any, Optional
 # Default starting capital for a backtest when no agent allocation is set.
 INITIAL_CAPITAL = 1000
 
-# Portfolio-view equity default (display/simulation). NOT a cap on agent cash
-# allocations — a single agent may allocate up to MAX_AGENT_CASH_ALLOCATION,
-# which is 100x this figure.
+# Account portfolio equity ($10k). Real ledger budget for signed-in users.
 DEFAULT_PORTFOLIO_EQUITY = 10_000
 
 # Per-agent cash allocation bounds (also enforced by the agents API).
