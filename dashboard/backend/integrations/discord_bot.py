@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import os
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -20,6 +21,14 @@ from dashboard.backend.domain.chat.service import (
     synthesize_strategy_prompt,
 )
 from dashboard.backend.infrastructure.llm.token_cost import is_free_model
+from dashboard.backend.integrations.discord_jobs import (
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_NOTIFIED,
+    STATUS_NOTIFY_FAILED,
+    STATUS_WATCHING,
+    get_job_store,
+)
 
 
 def _model_override(model_name: Optional[str]) -> Optional[str]:
@@ -60,6 +69,12 @@ def selected_agent_for(user_id: str) -> Optional[dict[str, Any]]:
 # Stable namespace so each Discord user maps to a fixed backtest session UUID
 # (the /backtest routes require a valid UUID X-Session-Id).
 _SESSION_NAMESPACE = uuid.UUID("8f1b2c3d-0000-4000-8000-a9b8c7d6e5f4")
+
+# Background watchers: poll longer than Discord's ~15m interaction token so
+# results still post to the channel when the API's 30m backtest budget is used.
+_POLL_INTERVAL_SEC = 5
+_MAX_POLLS = 360  # 30 minutes
+_active_watchers: set[str] = set()
 
 
 def api_base() -> str:
@@ -436,6 +451,263 @@ class StrategyRunBacktestView(discord.ui.View):
         )
 
 
+def format_backtest_summary(
+    metrics: dict[str, Any],
+    *,
+    label: str,
+    agent_id: Optional[str] = None,
+    agent_name: Optional[str] = None,
+    share_url: Optional[str] = None,
+) -> tuple[str, Optional[str]]:
+    """Build the Discord result text. Returns (summary, run_id)."""
+
+    def pct(v: Any) -> str:
+        return "—" if v is None else f"{float(v) * 100:.2f}%"
+
+    def num(v: Any) -> str:
+        return "—" if v is None else f"{float(v):.2f}"
+
+    run_id = metrics.get("run_id")
+    summary = (
+        f"**Backtest complete** · `{label}`\n"
+        f"Window: {metrics.get('start_date', '?')} → {metrics.get('end_date', '?')}  ·  "
+        f"model: {metrics.get('llm_model', '?')}\n"
+        f"Return: **{pct(metrics.get('total_return'))}**  ·  "
+        f"Sharpe: {num(metrics.get('sharpe_ratio'))}  ·  "
+        f"Max DD: {pct(metrics.get('max_drawdown'))}  ·  "
+        f"Trades: {metrics.get('num_trades', 0)}\n"
+        f"Final equity: ${float(metrics.get('final_equity') or 0):,.0f}"
+    )
+    dash_url = dashboard_backtest_url(agent_id=agent_id, run_id=run_id)
+    summary += f"\nDashboard: {dash_url}"
+    if share_url:
+        summary += f"\nView: {share_url}"
+    if agent_id and agent_name:
+        summary += (
+            f"\nSaved to **{agent_name}**'s card — open the Dashboard link above."
+        )
+    return summary, run_id if isinstance(run_id, str) else None
+
+
+async def _edit_ack(
+    interaction: Optional[discord.Interaction],
+    content: str,
+) -> None:
+    if interaction is None:
+        return
+    try:
+        await interaction.edit_original_response(content=content)
+    except Exception as exc:
+        print("Discord ack edit failed:", repr(exc))
+
+
+async def _post_channel_result(
+    *,
+    channel_id: int,
+    discord_user_id: str,
+    content: str,
+    chart: Optional[discord.File] = None,
+) -> None:
+    """Post final results in-channel (survives interaction-token expiry)."""
+    channel = bot.get_channel(channel_id)
+    if channel is None:
+        channel = await bot.fetch_channel(channel_id)
+    mention = f"<@{discord_user_id}>"
+    kwargs: dict[str, Any] = {"content": f"{mention}\n{content}"}
+    if chart is not None:
+        kwargs["file"] = chart
+    await channel.send(**kwargs)  # type: ignore[union-attr]
+
+
+async def watch_and_deliver_backtest(
+    job_id: str,
+    *,
+    interaction: Optional[discord.Interaction] = None,
+) -> None:
+    """Poll API status for a persisted job and post results when done."""
+    if job_id in _active_watchers:
+        return
+    _active_watchers.add(job_id)
+    store = get_job_store()
+    try:
+        job = store.get(job_id)
+        if job is None:
+            return
+        if job.status in (STATUS_NOTIFIED, STATUS_NOTIFY_FAILED):
+            return
+
+        store.update(job_id, status=STATUS_WATCHING)
+        headers = {"X-Session-Id": job.session_id}
+        terminal_error: Optional[str] = None
+
+        for i in range(_MAX_POLLS):
+            await asyncio.sleep(_POLL_INTERVAL_SEC)
+            try:
+                status = await api_get("/backtest/status", headers=headers)
+            except Exception:
+                continue
+
+            if status.get("running"):
+                # Best-effort progress on the ephemeral ACK while the token lives.
+                if interaction is not None and (i + 1) % 12 == 0:
+                    elapsed = (i + 1) * _POLL_INTERVAL_SEC
+                    await _edit_ack(
+                        interaction,
+                        (
+                            f"Backtest running (`{job.label}`)… "
+                            f"({elapsed}s elapsed). Results will post here when done."
+                        ),
+                    )
+                continue
+
+            if status.get("error"):
+                terminal_error = str(status["error"])[:1500]
+                break
+
+            if status.get("success") or status.get("runs_count"):
+                break
+        else:
+            terminal_error = (
+                "Backtest is still running after 30 minutes. "
+                "Check the dashboard later, or ask an admin to inspect the API worker."
+            )
+
+        if terminal_error:
+            store.update(job_id, status=STATUS_FAILED, error=terminal_error)
+            fail_text = f"**Backtest failed** · `{job.label}`\n{terminal_error}"
+            try:
+                await _post_channel_result(
+                    channel_id=job.channel_id,
+                    discord_user_id=job.discord_user_id,
+                    content=fail_text,
+                )
+                await _edit_ack(
+                    interaction,
+                    f"Backtest failed (`{job.label}`). Details posted in-channel.",
+                )
+                store.update(job_id, status=STATUS_NOTIFIED, notified_at=time.time())
+            except Exception as exc:
+                print("Discord failure notify failed:", repr(exc))
+                store.update(job_id, status=STATUS_NOTIFY_FAILED, error=str(exc))
+            return
+
+        # Resolve metrics for THIS run. Prefer the exact id we minted up front.
+        # The "/runs/latest/metrics" fallback is deliberately identity-gated:
+        # Discord sessions are stable per user, so "latest" can be a PRIOR
+        # backtest from this same session and would post stale numbers under a
+        # fresh run. Accept it only when it *is* this run, or when we have no
+        # live_run_id to key on (legacy jobs). (PR #163 completion-race finding.)
+        metrics: Optional[dict[str, Any]] = None
+        if job.live_run_id:
+            try:
+                metrics = await api_get(f"/runs/{job.live_run_id}", headers=headers)
+            except Exception:
+                metrics = None
+        if metrics is None:
+            try:
+                latest = await api_get("/runs/latest/metrics", headers=headers)
+            except Exception:
+                latest = None
+            if latest is not None and (
+                not job.live_run_id or latest.get("run_id") == job.live_run_id
+            ):
+                metrics = latest
+        if metrics is None:
+            err = "Backtest finished, but metrics for this run could not be read."
+            store.update(job_id, status=STATUS_FAILED, error=err)
+            try:
+                await _post_channel_result(
+                    channel_id=job.channel_id,
+                    discord_user_id=job.discord_user_id,
+                    content=(
+                        f"**Backtest finished** · `{job.label}`\n{err}\n"
+                        "Check the dashboard."
+                    ),
+                )
+                store.update(
+                    job_id,
+                    status=STATUS_NOTIFIED,
+                    notified_at=time.time(),
+                )
+            except Exception as notify_exc:
+                store.update(
+                    job_id, status=STATUS_NOTIFY_FAILED, error=str(notify_exc)
+                )
+            return
+
+        summary, run_id = format_backtest_summary(
+            metrics,
+            label=job.label,
+            agent_id=job.agent_id,
+            agent_name=job.agent_name,
+            share_url=job.share_url,
+        )
+        run_id = run_id or job.live_run_id
+        store.update(job_id, status=STATUS_COMPLETED, run_id=run_id)
+
+        chart: Optional[discord.File] = None
+        if run_id:
+            try:
+                png = await api_get_bytes(f"/runs/{run_id}/plot.png", headers=headers)
+                chart = discord.File(io.BytesIO(png), filename=f"backtest_{run_id}.png")
+            except Exception as exc:
+                print("Discord /backtest plot failed:", repr(exc))
+
+        # Delivery is at-least-once: we post, then mark NOTIFIED. If the process
+        # dies in that gap the job stays open and resume_open_backtest_jobs()
+        # re-posts on restart (a possible duplicate message, never a lost one).
+        # Exactly-once would need a transactional send+mark we don't have here;
+        # a duplicate result post is an acceptable failure mode for this feature.
+        try:
+            await _post_channel_result(
+                channel_id=job.channel_id,
+                discord_user_id=job.discord_user_id,
+                content=summary,
+                chart=chart,
+            )
+            await _edit_ack(
+                interaction,
+                (
+                    f"Backtest complete (`{job.label}`). "
+                    "Results (+ chart) were posted in this channel."
+                ),
+            )
+            store.update(
+                job_id,
+                status=STATUS_NOTIFIED,
+                run_id=run_id,
+                notified_at=time.time(),
+            )
+        except Exception as exc:
+            print("Discord result notify failed:", repr(exc))
+            store.update(job_id, status=STATUS_NOTIFY_FAILED, error=str(exc))
+    finally:
+        _active_watchers.discard(job_id)
+
+
+def schedule_backtest_watch(
+    job_id: str,
+    *,
+    interaction: Optional[discord.Interaction] = None,
+) -> None:
+    """Fire-and-forget watcher; safe to call from slash handlers and resume."""
+    asyncio.create_task(
+        watch_and_deliver_backtest(job_id, interaction=interaction),
+        name=f"discord-backtest-{job_id}",
+    )
+
+
+async def resume_open_backtest_jobs() -> None:
+    """On bot startup, re-attach watchers for unfinished persisted jobs."""
+    store = get_job_store()
+    open_jobs = store.list_open()
+    if not open_jobs:
+        return
+    print(f"Resuming {len(open_jobs)} Discord backtest job(s)…")
+    for job in open_jobs:
+        schedule_backtest_watch(job.job_id)
+
+
 async def execute_backtest(
     interaction: discord.Interaction,
     discord_user_id: str,
@@ -445,9 +717,11 @@ async def execute_backtest(
     start: Optional[str] = None,
     end: Optional[str] = None,
 ) -> None:
-    """Shared backtest runner for ``/backtest`` and strategy buttons.
+    """Start a backtest and return immediately; results post when the job finishes.
 
-    The interaction must already be deferred.
+    The interaction must already be deferred. Final metrics + chart are posted
+    in-channel (mentioning the user) so delivery survives Discord's 15-minute
+    interaction token and long LLM backtests.
     """
     selected = selected_agent_for(discord_user_id)
     session_id = session_for(discord_user_id)
@@ -506,92 +780,40 @@ async def execute_backtest(
         return
 
     effective_session = started.get("session_id") or session_id
-    headers = {"X-Session-Id": effective_session}
+    live_run_id = started.get("live_run_id") or started.get("run_id")
+    attached_agent_id = payload.get("agent_id")
+    agent_name = selected.get("name") if selected and attached_agent_id else None
 
-    await interaction.edit_original_response(
-        content=(
-            f"Backtest started (`{label}`) with real Alpaca bars + hosted model. "
-            "Running… this can take a few minutes."
-        )
-    )
-
-    max_polls = 130
-    for i in range(max_polls):
-        await asyncio.sleep(5)
-        try:
-            status = await api_get("/backtest/status", headers=headers)
-        except Exception:
-            continue
-
-        if status.get("running"):
-            if (i + 1) % 6 == 0:
-                await interaction.edit_original_response(
-                    content=f"Backtest running (`{label}`)… ({(i + 1) * 5}s elapsed)"
-                )
-            continue
-
-        if status.get("error"):
-            await interaction.edit_original_response(
-                content=f"Backtest failed: {status['error'][:1500]}"
-            )
-            return
-
-        if status.get("success") or status.get("runs_count"):
-            break
-    else:
+    if interaction.channel_id is None:
         await interaction.edit_original_response(
             content=(
-                "Backtest is taking longer than expected. "
-                "Check results later on the dashboard."
+                "Backtest started, but this context has no channel to post results to. "
+                "Check the dashboard when it finishes."
             )
         )
         return
 
-    try:
-        m = await api_get("/runs/latest/metrics", headers=headers)
-    except Exception:
-        await interaction.edit_original_response(
-            content="Backtest finished, but metrics could not be read. Check the dashboard."
-        )
-        return
-
-    def pct(v: Any) -> str:
-        return "—" if v is None else f"{float(v) * 100:.2f}%"
-
-    def num(v: Any) -> str:
-        return "—" if v is None else f"{float(v):.2f}"
-
-    summary = (
-        f"**Backtest complete** · `{label}`\n"
-        f"Window: {m.get('start_date', '?')} → {m.get('end_date', '?')}  ·  "
-        f"model: {m.get('llm_model', '?')}\n"
-        f"Return: **{pct(m.get('total_return'))}**  ·  Sharpe: {num(m.get('sharpe_ratio'))}  ·  "
-        f"Max DD: {pct(m.get('max_drawdown'))}  ·  Trades: {m.get('num_trades', 0)}\n"
-        f"Final equity: ${float(m.get('final_equity') or 0):,.0f}"
+    job = get_job_store().create_job(
+        discord_user_id=discord_user_id,
+        channel_id=int(interaction.channel_id),
+        guild_id=interaction.guild_id,
+        session_id=effective_session,
+        label=label,
+        live_run_id=live_run_id,
+        agent_id=attached_agent_id,
+        agent_name=agent_name,
+        share_url=share_url,
     )
-    run_id = m.get("run_id")
-    # Only a builtin agent gets agent_id attached to the run (see payload above).
-    # Key the deep link + "saved to card" line off what was actually sent so we
-    # never claim a run landed on an agent's card when it didn't.
-    attached_agent_id = payload.get("agent_id")
-    # Always include a clickable Playground URL (Vercel in prod; full deep link when ids exist).
-    dash_url = dashboard_backtest_url(agent_id=attached_agent_id, run_id=run_id)
-    summary += f"\nDashboard: {dash_url}"
-    if share_url:
-        summary += f"\nView: {share_url}"
-    if attached_agent_id and selected and selected.get("name"):
-        summary += (
-            f"\nSaved to **{selected['name']}**'s card — open the Dashboard link above."
-        )
-    await interaction.edit_original_response(content=summary)
 
-    if run_id:
-        try:
-            png = await api_get_bytes(f"/runs/{run_id}/plot.png", headers=headers)
-            chart = discord.File(io.BytesIO(png), filename=f"backtest_{run_id}.png")
-            await interaction.followup.send(file=chart, ephemeral=True)
-        except Exception as exc:
-            print("Discord /backtest plot failed:", repr(exc))
+    run_hint = f" · run `{live_run_id}`" if live_run_id else ""
+    await interaction.edit_original_response(
+        content=(
+            f"Backtest queued (`{label}`){run_hint} with real Alpaca bars + hosted model.\n"
+            "I'll post the results (+ chart) in this channel when it finishes — "
+            "no need to keep this message open."
+        )
+    )
+    schedule_backtest_watch(job.job_id, interaction=interaction)
 
 
 class RestrictedCommandTree(app_commands.CommandTree):
@@ -657,6 +879,9 @@ class AgenticTradingDiscordBot(commands.Bot):
                 "Free chat: DMs, @mention, or reply-to-bot. "
                 "Set DISCORD_CHANNEL_ID for open chat in specific channels."
             )
+
+        # Re-attach watchers for jobs that were mid-flight when the bot restarted.
+        await resume_open_backtest_jobs()
 
 
 bot = AgenticTradingDiscordBot()

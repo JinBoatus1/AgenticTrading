@@ -1,6 +1,8 @@
 /**
- * agent-editor.js — Fullscreen agent pipeline editor (sub-agent chain).
- * Pipeline config: localStorage. Agent name/description: PATCH /api/v1/agents/{id}.
+ * agent-editor.js — Fullscreen agent Configure screen.
+ * Simple mode: capital + one plain-language instruction (stored as a 1-step
+ * pipeline) + model. Advanced mode: the multi-step sub-agent chain.
+ * Agent fields: PATCH /api/v1/agents/{id}. Pipeline cache: localStorage.
  */
 (function () {
   'use strict';
@@ -9,6 +11,23 @@
   const NAME_OVERRIDE_PREFIX = 'agent-name-override:';
   const CASH_OVERRIDE_PREFIX = 'agent-cash-allocation:';
   const API_BASE = window.location.origin;
+
+  // The Simple-mode contract (preset key + trading-actions output format) has a
+  // single source of truth in app.js, published on `window`. app.js loads AFTER
+  // this file, so read lazily at call time — every use below is inside an
+  // event-driven function, by which point window.* is populated. The fallbacks
+  // only matter if app.js somehow failed to load (whole app is broken anyway).
+  function simplePresetKey() {
+    return (
+      (typeof window !== 'undefined' && window.SIMPLE_INSTRUCTION_PRESET_KEY) ||
+      'simple_instruction'
+    );
+  }
+  function simpleOutputFormat() {
+    return (
+      (typeof window !== 'undefined' && window.SIMPLE_INSTRUCTION_OUTPUT_FORMAT) || ''
+    );
+  }
 
   // Demo/mock agents (see MOCK_AGENTS in app.js) only exist in the frontend —
   // they have no database row, so PATCH would 404. We persist their edits
@@ -81,6 +100,7 @@
   let saveStatusTimer = null;
   let isDirty = false;
   let savedSnapshot = '';
+  let editorMode = 'simple';
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -146,6 +166,35 @@
     return loadPipeline(agent.agent_id);
   }
 
+  function isSimplePipeline(pipeline) {
+    return (
+      !Array.isArray(pipeline) ||
+      pipeline.length === 0 ||
+      (pipeline.length === 1 && pipeline[0].presetKey === simplePresetKey())
+    );
+  }
+
+  // The pipeline the agent ACTUALLY has (backend row, then local cache) — with
+  // NO default-5-step substitution, so a fresh agent opens in Simple mode.
+  // Demo agents keep resolvePipeline's default behavior.
+  function loadStoredPipeline(agent) {
+    if (Array.isArray(agent.pipeline) && agent.pipeline.length) {
+      return agent.pipeline.map(normalizeLoadedSubAgent);
+    }
+    try {
+      const raw = localStorage.getItem(storageKey(agent.agent_id));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.subAgents) && parsed.subAgents.length) {
+          return parsed.subAgents.map(normalizeLoadedSubAgent);
+        }
+      }
+    } catch {
+      /* fall through to empty */
+    }
+    return [];
+  }
+
   function loadPipeline(agentId) {
     try {
       const raw = localStorage.getItem(storageKey(agentId));
@@ -177,18 +226,52 @@
       if (!Number.isFinite(value) || value < 0) {
         throw new Error('Initial cash must be zero or greater.');
       }
-      if (value > 3000) {
-        throw new Error('Initial cash cannot exceed $3,000.');
+      if (value > 1000000) {
+        throw new Error('Initial cash cannot exceed $1,000,000.');
       }
       cash_allocation = Math.round(value);
     } else {
       cash_allocation = 1000;
     }
+    const modelSelect = document.getElementById('agentEditorModelSelect');
+    let subAgentsOut;
+    let sendPipeline;
+    if (editorMode === 'simple') {
+      const instruction = (
+        document.getElementById('agentEditorSimpleInstruction')?.value || ''
+      ).trim();
+      if (instruction) {
+        const existing =
+          subAgents.length === 1 && subAgents[0].presetKey === simplePresetKey()
+            ? subAgents[0]
+            : null;
+        subAgentsOut = [
+          {
+            id: existing ? existing.id : newSubAgentId(),
+            presetKey: simplePresetKey(),
+            label: 'Trading instruction',
+            prompt: instruction,
+            outputFormat: simpleOutputFormat(),
+          },
+        ];
+        sendPipeline = true;
+      } else {
+        // Empty instruction never touches the stored pipeline: not sent to the
+        // server, not cached locally, not folded into currentAgent.
+        subAgentsOut = subAgents;
+        sendPipeline = false;
+      }
+    } else {
+      subAgentsOut = collectPipelineFromDom();
+      sendPipeline = true;
+    }
     return {
       name: nameInput ? nameInput.value.trim() : '',
       description: descInput ? descInput.value.trim() : '',
       cash_allocation,
-      subAgents: collectPipelineFromDom(),
+      model_name: modelSelect ? modelSelect.value : '',
+      subAgents: subAgentsOut,
+      sendPipeline,
     };
   }
 
@@ -414,6 +497,34 @@
     refreshAddSelect();
   }
 
+  function updateSimpleReplaceNote() {
+    const note = document.getElementById('agentEditorSimpleReplaceNote');
+    if (note) note.hidden = !(editorMode === 'simple' && !isSimplePipeline(subAgents));
+  }
+
+  function setEditorMode(mode) {
+    editorMode = mode === 'advanced' ? 'advanced' : 'simple';
+    const simplePanel = document.getElementById('agentEditorSimplePanel');
+    const advancedPanel = document.getElementById('agentEditorAdvancedPanel');
+    const resetBtn = document.getElementById('agentEditorResetBtn');
+    if (simplePanel) simplePanel.hidden = editorMode !== 'simple';
+    if (advancedPanel) advancedPanel.hidden = editorMode !== 'advanced';
+    if (resetBtn) resetBtn.hidden = editorMode !== 'advanced';
+    const modeSimpleBtn = document.getElementById('agentEditorModeSimple');
+    const modeAdvancedBtn = document.getElementById('agentEditorModeAdvanced');
+    modeSimpleBtn?.classList.toggle('active', editorMode === 'simple');
+    modeAdvancedBtn?.classList.toggle('active', editorMode === 'advanced');
+    modeSimpleBtn?.setAttribute('aria-pressed', editorMode === 'simple' ? 'true' : 'false');
+    modeAdvancedBtn?.setAttribute('aria-pressed', editorMode === 'advanced' ? 'true' : 'false');
+    if (editorMode === 'advanced' && subAgents.length === 0) {
+      // First look at Advanced on a fresh agent: start from the default chain.
+      subAgents = defaultPipeline();
+      renderPipeline();
+    }
+    updateSimpleReplaceNote();
+    markDirtyFromInput();
+  }
+
   function fillHeader(agent) {
     const nameInput = document.getElementById('agentEditorNameInput');
     const descInput = document.getElementById('agentEditorDescription');
@@ -426,9 +537,34 @@
       cashInput.value = agent.cash_allocation != null ? String(agent.cash_allocation) : '';
     }
     if (meta) {
-      const type = agent.agent_type === 'builtin' ? 'Built-in' : 'External';
-      meta.textContent = `${agent.model_name || 'local-model'} · ${type}`;
+      meta.textContent = agent.agent_type === 'builtin' ? 'Built-in agent' : 'External agent';
     }
+  }
+
+  function populateModelSelect(agent) {
+    const select = document.getElementById('agentEditorModelSelect');
+    if (!select) return;
+    select.innerHTML = '';
+    const seen = new Set();
+    const source = document.getElementById('builtinAgentModel');
+    if (source) {
+      Array.from(source.options).forEach((opt) => {
+        const clone = document.createElement('option');
+        clone.value = opt.value;
+        clone.textContent = opt.textContent;
+        select.appendChild(clone);
+        seen.add(opt.value);
+      });
+    }
+    const current = agent.model_name || 'local-model';
+    if (!seen.has(current)) {
+      // External / legacy models aren't in the curated list — keep them selectable.
+      const opt = document.createElement('option');
+      opt.value = current;
+      opt.textContent = current;
+      select.insertBefore(opt, select.firstChild);
+    }
+    select.value = current;
   }
 
   function serializePipeline(steps) {
@@ -441,13 +577,14 @@
     }));
   }
 
-  async function patchAgent(agent, name, description, pipeline, cash_allocation) {
+  async function patchAgent(agent, name, description, pipeline, cash_allocation, model_name) {
     const payload = {
       name,
       description: description || null,
-      pipeline: serializePipeline(pipeline),
       cash_allocation,
     };
+    if (pipeline) payload.pipeline = serializePipeline(pipeline);
+    if (model_name) payload.model_name = model_name;
     const endpoint = `${API_BASE}/api/v1/agents/${encodeURIComponent(agent.agent_id)}`;
 
     async function requestWithHeaders(extraHeaders) {
@@ -598,9 +735,23 @@
     if (!agent || !agent.agent_id) return;
 
     currentAgent = { ...agent };
-    subAgents = resolvePipeline(agent);
+    if (isDemoAgent(agent.agent_id)) {
+      subAgents = resolvePipeline(agent); // demo agents keep the legacy default chain
+    } else {
+      subAgents = loadStoredPipeline(agent);
+    }
     fillHeader(agent);
+    populateModelSelect(agent);
+    const instructionEl = document.getElementById('agentEditorSimpleInstruction');
+    if (instructionEl) {
+      const simpleStep =
+        subAgents.length === 1 && subAgents[0].presetKey === simplePresetKey()
+          ? subAgents[0]
+          : null;
+      instructionEl.value = simpleStep ? simpleStep.prompt : '';
+    }
     renderPipeline();
+    setEditorMode(isSimplePipeline(subAgents) ? 'simple' : 'advanced');
     refreshRunHistory(currentAgent);
 
     const view = document.getElementById('agentEditorView');
@@ -652,6 +803,8 @@
     }
 
     subAgents = state.subAgents;
+    renderPipeline();
+    updateSimpleReplaceNote();
     const saveBtn = document.getElementById('agentEditorSaveBtn');
     if (saveBtn) {
       saveBtn.disabled = true;
@@ -677,7 +830,7 @@
           description: state.description,
           cash_allocation: state.cash_allocation,
         };
-        savePipelineLocal(currentAgent.agent_id, subAgents);
+        if (state.sendPipeline) savePipelineLocal(currentAgent.agent_id, subAgents);
         if (localStorage.getItem('active-agent-id') === currentAgent.agent_id) {
           localStorage.setItem('active-agent-name', state.name);
         }
@@ -700,11 +853,14 @@
         currentAgent,
         state.name,
         state.description,
-        subAgents,
-        state.cash_allocation
+        state.sendPipeline ? subAgents : null,
+        state.cash_allocation,
+        state.model_name
       );
-      currentAgent = { ...currentAgent, ...updated, pipeline: subAgents };
-      savePipelineLocal(currentAgent.agent_id, subAgents);
+      currentAgent = state.sendPipeline
+        ? { ...currentAgent, ...updated, pipeline: subAgents }
+        : { ...currentAgent, ...updated };
+      if (state.sendPipeline) savePipelineLocal(currentAgent.agent_id, subAgents);
       localStorage.removeItem(`${NAME_OVERRIDE_PREFIX}${currentAgent.agent_id}`);
 
       if (localStorage.getItem('active-agent-id') === currentAgent.agent_id) {
@@ -718,7 +874,7 @@
         new CustomEvent('agent-editor-saved', { detail: { agent: currentAgent } })
       );
     } catch (error) {
-      savePipelineLocal(currentAgent.agent_id, subAgents);
+      if (state.sendPipeline) savePipelineLocal(currentAgent.agent_id, subAgents);
       localStorage.setItem(
         `${NAME_OVERRIDE_PREFIX}${currentAgent.agent_id}`,
         JSON.stringify({ name: state.name, description: state.description })
@@ -789,6 +945,8 @@
     document.getElementById('agentEditorSaveBtn')?.addEventListener('click', () => save());
     document.getElementById('agentEditorAddBtn')?.addEventListener('click', addSubAgent);
     document.getElementById('agentEditorResetBtn')?.addEventListener('click', resetPipeline);
+    document.getElementById('agentEditorModeSimple')?.addEventListener('click', () => setEditorMode('simple'));
+    document.getElementById('agentEditorModeAdvanced')?.addEventListener('click', () => setEditorMode('advanced'));
 
     document.getElementById('agentEditorAddSelect')?.addEventListener('change', (e) => {
       const customName = document.getElementById('agentEditorCustomName');

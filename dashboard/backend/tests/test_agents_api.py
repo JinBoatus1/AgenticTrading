@@ -381,3 +381,111 @@ def test_builtin_listing_batches_run_stats_queries(client, monkeypatch):
     assert len(listing.json()["agents"]) == 3
     assert calls["per_session"] == 0, "listing still queries per agent (N+1)"
     assert calls["batch"] == 1, "listing must fetch all stats in one query"
+
+
+def test_cash_allocation_cap_is_one_million(client):
+    """Demo 1: the per-agent cap was raised 3,000 -> 1,000,000."""
+    from dashboard.backend.domain.backtesting.constants import (
+        MAX_AGENT_CASH_ALLOCATION,
+        resolve_initial_capital,
+    )
+
+    assert MAX_AGENT_CASH_ALLOCATION == 1_000_000
+    # Clamp behavior follows the constant.
+    assert resolve_initial_capital(1_000_000) == 1_000_000.0
+    assert resolve_initial_capital(2_000_000) == 1_000_000.0
+
+    browser_session = str(uuid.uuid4())
+    headers = {"X-Session-Id": browser_session, "X-Browser-Id": browser_session}
+
+    ok = client.post(
+        "/api/v1/agents",
+        json={
+            "name": "Whale",
+            "agent_type": "builtin",
+            "cash_allocation": 1_000_000,
+        },
+        headers=headers,
+    )
+    assert ok.status_code == 200
+    assert ok.json()["agent"]["cash_allocation"] == 1_000_000
+
+    too_big = client.post(
+        "/api/v1/agents",
+        json={"name": "Too big", "agent_type": "builtin", "cash_allocation": 1_000_001},
+        headers=headers,
+    )
+    assert too_big.status_code == 422
+
+
+def test_patch_agent_model_name(client):
+    """Demo 1: the Configure screen can change the model after creation."""
+    browser_session = str(uuid.uuid4())
+    headers = {"X-Session-Id": browser_session, "X-Browser-Id": browser_session}
+
+    created = client.post(
+        "/api/v1/agents",
+        json={
+            "name": "Model Swapper",
+            "model_name": "anthropic/claude-haiku-4-5",
+            "agent_type": "builtin",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200
+    agent_id = created.json()["agent"]["agent_id"]
+
+    patched = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"model_name": "deepseek/deepseek-v4-pro"},
+        headers=headers,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["agent"]["model_name"] == "deepseek/deepseek-v4-pro"
+
+    # Absent field leaves the model untouched.
+    renamed = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"name": "Still Swapped"},
+        headers=headers,
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["agent"]["model_name"] == "deepseek/deepseek-v4-pro"
+
+    # Empty string is rejected by validation.
+    empty = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"model_name": ""},
+        headers=headers,
+    )
+    assert empty.status_code == 422
+
+    # Whitespace-only is also rejected: min_length=1 counts the raw length, so
+    # "   " would otherwise pass and then strip to "" in a NOT NULL column.
+    blank_model = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"model_name": "   "},
+        headers=headers,
+    )
+    assert blank_model.status_code == 422
+
+    # The same blank guard covers name (identical strip-to-empty hazard).
+    blank_name = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"name": "   "},
+        headers=headers,
+    )
+    assert blank_name.status_code == 422
+
+    # The model was never mutated by the rejected requests.
+    unchanged = client.get(f"/api/v1/agents/{agent_id}", headers=headers)
+    assert unchanged.json()["agent"]["model_name"] == "deepseek/deepseek-v4-pro"
+
+    # model_name alone is a valid update (not "No fields to update").
+    only_model = client.patch(
+        f"/api/v1/agents/{agent_id}",
+        json={"model_name": "openai/gpt-5.5"},
+        headers=headers,
+    )
+    assert only_model.status_code == 200
+    assert only_model.json()["agent"]["model_name"] == "openai/gpt-5.5"

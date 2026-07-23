@@ -10,7 +10,7 @@ unchanged; only the module location moved.
 from typing import List, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from dashboard.backend.domain.backtesting.constants import (
     DEFAULT_AGENT_CASH_ALLOCATION,
@@ -57,6 +57,7 @@ class PipelineStep(BaseModel):
 
 class UpdateAgentBody(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    model_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     description: Optional[str] = Field(default=None, max_length=280)
     pipeline: Optional[List[PipelineStep]] = Field(default=None, max_length=50)
     cash_allocation: Optional[float] = Field(
@@ -64,6 +65,18 @@ class UpdateAgentBody(BaseModel):
         ge=0,
         le=MAX_AGENT_CASH_ALLOCATION,
     )
+
+    @field_validator("name", "model_name")
+    @classmethod
+    def _reject_blank(cls, value: Optional[str]) -> Optional[str]:
+        # ``min_length=1`` counts the raw length, so a whitespace-only value
+        # ("   ") passes it and then strips to "" in the route below — an empty
+        # write into a NOT NULL column. Reject it as a 422 instead of storing "".
+        # (Create is deliberately lenient here: ``CreateAgentBody.model_name``
+        # coerces empties to "local-model" rather than 422-ing.)
+        if value is not None and not value.strip():
+            raise ValueError("must not be blank")
+        return value
 
 
 @router.post("")
@@ -243,7 +256,13 @@ async def update_agent(
     fields_set = body.model_fields_set
     pipeline_provided = "pipeline" in fields_set
     cash_allocation_provided = "cash_allocation" in fields_set
-    if body.name is None and body.description is None and not pipeline_provided and not cash_allocation_provided:
+    if (
+        body.name is None
+        and body.model_name is None
+        and body.description is None
+        and not pipeline_provided
+        and not cash_allocation_provided
+    ):
         raise HTTPException(status_code=400, detail="No fields to update")
 
     if pipeline_provided:
@@ -261,6 +280,7 @@ async def update_agent(
         agent = agent_service.update_agent(
             agent_id,
             name=body.name.strip() if body.name is not None else None,
+            model_name=body.model_name.strip() if body.model_name is not None else None,
             description=body.description,
             pipeline=pipeline_arg,
             cash_allocation=cash_allocation_arg,

@@ -218,6 +218,24 @@ def test_update_agent_partial_updates_postgres(pg_agent_store):
 
 
 @pg_only
+def test_update_agent_model_name_postgres(pg_agent_store):
+    created = pg_agent_store.create_agent(
+        name="Model Swap PG",
+        model_name="anthropic/claude-haiku-4-5",
+        owner_user_id=None,
+        owner_browser_session="pg-model-swap",
+    )
+    updated = pg_agent_store.update_agent(
+        created["agent_id"], model_name="deepseek/deepseek-v4-pro"
+    )
+    assert updated["model_name"] == "deepseek/deepseek-v4-pro"
+
+    # Omitting model_name leaves it unchanged.
+    renamed = pg_agent_store.update_agent(created["agent_id"], name="Renamed")
+    assert renamed["model_name"] == "deepseek/deepseek-v4-pro"
+
+
+@pg_only
 def test_cash_allocation_round_trips_as_a_float_postgres(pg_agent_store):
     """Pin the feature's only non-TEXT column against a real Postgres.
 

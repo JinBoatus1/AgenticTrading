@@ -86,7 +86,24 @@ def test_bot_builds_dashboard_backtest_deep_link():
     assert "Dashboard:" in src
     assert "agentic-trading-lab.vercel.app" in src
     assert "onrender.com" in src  # prod API detection / never deep-link that host
-    assert "dashboard_backtest_url(agent_id=attached_agent_id, run_id=run_id)" in src
+    assert "dashboard_backtest_url(agent_id=agent_id, run_id=run_id)" in src
+
+
+def test_bot_decouples_backtest_wait_from_interaction():
+    """Discord must ACK immediately and deliver results via a background job.
+
+    Long LLM backtests exceed Discord's ~15m interaction token; polling inside
+    the slash handler used to drop the chart. Results post in-channel instead.
+    """
+    src = _source()
+    assert "schedule_backtest_watch" in src
+    assert "watch_and_deliver_backtest" in src
+    assert "get_job_store().create_job" in src
+    assert "_post_channel_result" in src
+    assert "resume_open_backtest_jobs" in src
+    # Old blocking poll budget must not live inside execute_backtest anymore.
+    assert "max_polls = 130" not in src
+    assert "I'll post the results" in src
 
 
 def test_bot_sends_per_user_id_on_strategy_post():

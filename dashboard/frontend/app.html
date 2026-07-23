@@ -580,8 +580,8 @@
                     <input id="externalAgentModel" type="text" maxlength="100" placeholder="gpt-4 / rule-based" autocomplete="off">
                 </label>
                 <label class="auth-field">
-                    <span>Initial cash (max $3,000)</span>
-                    <input id="externalAgentCashAllocation" type="number" min="0" max="3000" step="1" value="1000" required aria-describedby="externalAgentCashHint">
+                    <span>Initial cash (max $1,000,000)</span>
+                    <input id="externalAgentCashAllocation" type="number" min="0" max="1000000" step="1" value="1000" required aria-describedby="externalAgentCashHint">
                 </label>
                 <p id="externalAgentCashHint" class="credential-hint">Starting capital budget for this agent's backtests and trading sessions.</p>
                 <p id="createExternalAgentError" class="auth-error" hidden></p>
@@ -617,8 +617,8 @@
                     <input id="builtinAgentDescription" type="text" maxlength="280" placeholder="What is this agent's edge?" autocomplete="off">
                 </label>
                 <label class="auth-field">
-                    <span>Initial cash (max $3,000)</span>
-                    <input id="builtinAgentCashAllocation" type="number" min="0" max="3000" step="1" value="1000" required aria-describedby="builtinAgentCashHint">
+                    <span>Initial cash (max $1,000,000)</span>
+                    <input id="builtinAgentCashAllocation" type="number" min="0" max="1000000" step="1" value="1000" required aria-describedby="builtinAgentCashHint">
                 </label>
                 <p id="builtinAgentCashHint" class="credential-hint">Starting capital budget for this agent's backtests and trading sessions.</p>
                 <p id="createBuiltinAgentError" class="auth-error" hidden></p>
@@ -727,13 +727,6 @@
                         <a id="agentsSectionDiscordBtn" class="discord-nav-btn discord-nav-btn-sm" data-discord-link href="https://discord.gg/9HnQ6XDG98" target="_blank" rel="noopener noreferrer">Open Discord</a>
                     </div>
                     <div class="agent-toolbar">
-                        <select id="agentFilterSelect" class="agent-toolbar-select" aria-label="Filter agents">
-                            <option value="all">All Agents</option>
-                            <option value="builtin">Built-in</option>
-                            <option value="external">External</option>
-                            <option value="active">Active</option>
-                            <option value="registered">Registered</option>
-                        </select>
                         <div class="agent-toolbar-search">
                             <svg class="agent-toolbar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                             <input id="agentSearchInput" type="search" placeholder="Search agents..." aria-label="Search agents">
@@ -749,8 +742,24 @@
                         <button id="addAgentBtnToolbar" class="home-btn home-btn-primary agent-toolbar-add" type="button">Add Agent +</button>
                     </div>
                 </div>
-                <div id="agentsGrid" class="agents-grid"></div>
-                <p id="agentsEmptyState" class="control-helper" hidden>No agents yet. Run a backtest with the CLI, or click <strong>Add Agent</strong> to register one.</p>
+                <div id="agentsCategories">
+                    <section class="agents-category" data-category="builtin">
+                        <div class="agents-category-head">
+                            <h3 class="agents-category-title">Foundation Models</h3>
+                            <p class="agents-category-sub">A prompting game — give it money, an instruction, and a model, then backtest.</p>
+                        </div>
+                        <div id="agentsGridBuiltin" class="agents-grid"></div>
+                        <p id="agentsEmptyBuiltin" class="control-helper" hidden>No foundation agents yet. Click <strong>Add Agent</strong> to create one.</p>
+                    </section>
+                    <section class="agents-category" data-category="external">
+                        <div class="agents-category-head">
+                            <h3 class="agents-category-title">External Agents</h3>
+                            <p class="agents-category-sub">Bring your own agent and connect it with an API key.</p>
+                        </div>
+                        <div id="agentsGridExternal" class="agents-grid"></div>
+                        <p id="agentsEmptyExternal" class="control-helper" hidden>No external agents match your search.</p>
+                    </section>
+                </div>
                 <p id="agentsErrorState" class="control-helper" hidden style="color:#f87171;">Couldn't reach the server to load agents. Check your connection and try again.</p>
             </div>
         </div>
@@ -766,13 +775,21 @@
             <div class="agent-editor-title-wrap">
                 <input id="agentEditorNameInput" class="agent-editor-name-input" type="text" maxlength="100" placeholder="Agent name" aria-label="Agent name" autocomplete="off">
                 <p id="agentEditorMeta" class="agent-editor-meta"></p>
+                <label class="agent-editor-model-field" for="agentEditorModelSelect">
+                    <span class="agent-editor-model-label">Model</span>
+                    <select id="agentEditorModelSelect" class="agent-editor-model-select" aria-label="Agent model"></select>
+                </label>
                 <textarea id="agentEditorDescription" class="agent-editor-description" rows="2" maxlength="280" placeholder="Optional description for this agent…" aria-label="Agent description"></textarea>
                 <label class="agent-editor-cash-field" for="agentEditorCashAllocation">
-                    <span class="agent-editor-cash-label">Initial cash (max $3,000)</span>
-                    <input id="agentEditorCashAllocation" class="agent-editor-cash-input" type="number" min="0" max="3000" step="1" placeholder="0" aria-label="Initial cash">
+                    <span class="agent-editor-cash-label">Initial cash (max $1,000,000)</span>
+                    <input id="agentEditorCashAllocation" class="agent-editor-cash-input" type="number" min="0" max="1000000" step="1" placeholder="0" aria-label="Initial cash">
                 </label>
             </div>
             <div class="agent-editor-header-actions">
+                <div class="agent-editor-mode-toggle" role="group" aria-label="Editor mode">
+                    <button id="agentEditorModeSimple" class="agent-editor-mode-btn" type="button" aria-pressed="true">Simple</button>
+                    <button id="agentEditorModeAdvanced" class="agent-editor-mode-btn" type="button" aria-pressed="false">Advanced</button>
+                </div>
                 <span id="agentEditorDirtyBadge" class="agent-editor-dirty-badge" hidden>Unsaved changes</span>
                 <button id="agentEditorResetBtn" class="home-btn home-btn-secondary agent-editor-reset-btn" type="button">Reset pipeline</button>
                 <button id="agentEditorSaveBtn" class="home-btn home-btn-primary" type="button">Save</button>
@@ -781,24 +798,32 @@
         <div class="agent-editor-body">
             <div class="agent-editor-layout">
                 <div class="agent-editor-main">
-                    <div class="agent-editor-intro section-card compact">
-                        <div class="agent-editor-intro-head">
-                            <div>
-                                <h3 class="agent-editor-intro-title">Sub-agent pipeline</h3>
-                                <p class="agent-editor-intro-text">Configure sub-agents in order. Each step defines a task prompt and the output format passed to the next model.</p>
-                            </div>
-                            <span id="agentEditorStepCount" class="agent-editor-step-count">0 steps</span>
-                        </div>
+                    <div id="agentEditorSimplePanel" class="agent-editor-simple section-card compact" hidden>
+                        <h3 class="agent-editor-intro-title">Trading instruction</h3>
+                        <p class="agent-editor-intro-text">Tell the agent how to trade in plain language. Each market hour it sees prices and its portfolio, follows your instruction, and decides what to buy or sell.</p>
+                        <textarea id="agentEditorSimpleInstruction" rows="6" maxlength="8000" placeholder="e.g. Spread the money across a few of the strongest available stocks. Buy on meaningful dips and take profits after strong run-ups." aria-label="Trading instruction"></textarea>
+                        <p id="agentEditorSimpleReplaceNote" class="agent-editor-simple-note" hidden>This agent currently uses a custom pipeline. Saving in Simple mode replaces it with this one instruction.</p>
                     </div>
-                    <div id="agentEditorPipeline" class="agent-editor-pipeline" role="list"></div>
-                    <div class="agent-editor-add-row section-card compact">
-                        <label class="agent-editor-add-label" for="agentEditorAddSelect">Add sub-agent</label>
-                        <div class="agent-editor-add-controls">
-                            <select id="agentEditorAddSelect" class="agent-editor-add-select" aria-label="Select sub-agent type to add">
-                                <option value="">— Select type —</option>
-                            </select>
-                            <input id="agentEditorCustomName" class="agent-editor-custom-name" type="text" maxlength="80" placeholder="Custom name (optional)" hidden aria-label="Custom sub-agent name">
-                            <button id="agentEditorAddBtn" class="home-btn home-btn-secondary" type="button">+ Add</button>
+                    <div id="agentEditorAdvancedPanel">
+                        <div class="agent-editor-intro section-card compact">
+                            <div class="agent-editor-intro-head">
+                                <div>
+                                    <h3 class="agent-editor-intro-title">Sub-agent pipeline</h3>
+                                    <p class="agent-editor-intro-text">Configure sub-agents in order. Each step defines a task prompt and the output format passed to the next model.</p>
+                                </div>
+                                <span id="agentEditorStepCount" class="agent-editor-step-count">0 steps</span>
+                            </div>
+                        </div>
+                        <div id="agentEditorPipeline" class="agent-editor-pipeline" role="list"></div>
+                        <div class="agent-editor-add-row section-card compact">
+                            <label class="agent-editor-add-label" for="agentEditorAddSelect">Add sub-agent</label>
+                            <div class="agent-editor-add-controls">
+                                <select id="agentEditorAddSelect" class="agent-editor-add-select" aria-label="Select sub-agent type to add">
+                                    <option value="">— Select type —</option>
+                                </select>
+                                <input id="agentEditorCustomName" class="agent-editor-custom-name" type="text" maxlength="80" placeholder="Custom name (optional)" hidden aria-label="Custom sub-agent name">
+                                <button id="agentEditorAddBtn" class="home-btn home-btn-secondary" type="button">+ Add</button>
+                            </div>
                         </div>
                     </div>
                     <p id="agentEditorSaveStatus" class="agent-editor-save-status" hidden></p>
@@ -1538,10 +1563,10 @@
     <script src="market-events/MarketEventCard.js"></script>
     <script src="market-events/MarketEventFeed.js"></script>
     <script src="js/portfolio.js?v=2"></script>
-    <script src="js/agent-editor.js?v=7"></script>
-    <script src="app.js?v=21"></script>
+    <script src="js/agent-editor.js?v=8"></script>
+    <script src="app.js?v=24"></script>
     <script src="js/leaderboard.js?v=13"></script>
-    <script src="home-page.js?v=32"></script>
+    <script src="home-page.js?v=33"></script>
     <!-- Load order: must come after app.js (API/API_BASE/escapeHtml) and
          market-events/marketEventRelativeTime.js (formatMarketEventRelativeTime),
          both loaded above — not beside the market-events/* block, which loads

@@ -181,6 +181,7 @@ class AgentService:
         agent_id: str,
         *,
         name: Optional[str] = None,
+        model_name: Optional[str] = None,
         description: Optional[str] = None,
         pipeline: Any = _UNSET,
         cash_allocation: Any = _UNSET,
@@ -188,6 +189,7 @@ class AgentService:
         agent = self.agents.update_agent(
             agent_id,
             name=name,
+            model_name=model_name,
             description=description,
             pipeline=pipeline,
             cash_allocation=cash_allocation,

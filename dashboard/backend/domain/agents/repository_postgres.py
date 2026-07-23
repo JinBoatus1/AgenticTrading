@@ -416,6 +416,7 @@ class PostgresAgentStore:
         agent_id: str,
         *,
         name: Optional[str] = None,
+        model_name: Optional[str] = None,
         description: Optional[str] = None,
         pipeline: Any = _UNSET,
         cash_allocation: Any = _UNSET,
@@ -431,6 +432,9 @@ class PostgresAgentStore:
         if name is not None:
             sets.append("name = %s")
             params.append(name.strip())
+        if model_name is not None:
+            sets.append("model_name = %s")
+            params.append(model_name.strip())
         if description is not None:
             sets.append("description = %s")
             params.append(description.strip() if description else None)
