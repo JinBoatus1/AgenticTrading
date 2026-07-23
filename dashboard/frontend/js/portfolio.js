@@ -74,28 +74,31 @@ function pfSignedPct(value) {
 // PortfolioSummaryCard
 // ---------------------------------------------------------------------------
 function buildSummaryCards(summary) {
+    const noPnl = !!summary.pnlUnavailable;
     return [
         {
             label: 'Total Portfolio Value',
             value: pfMoney(summary.totalValue),
-            sub: `vs last close ${pfSignedMoney(summary.dayPnl)} (${pfSignedPct(summary.dayPnlPct)})`,
-            tone: summary.dayPnl >= 0 ? 'positive' : 'negative',
+            sub: noPnl
+                ? 'Account cash ledger'
+                : `vs last close ${pfSignedMoney(summary.dayPnl)} (${pfSignedPct(summary.dayPnlPct)})`,
+            tone: noPnl || summary.dayPnl >= 0 ? 'positive' : 'negative',
             icon: 'wallet',
         },
         {
             label: 'Day P/L',
-            value: pfSignedMoney(summary.dayPnl),
-            sub: `${pfSignedPct(summary.dayPnlPct)} vs last close`,
-            tone: summary.dayPnl >= 0 ? 'positive' : 'negative',
-            valueTone: summary.dayPnl >= 0 ? 'positive' : 'negative',
+            value: noPnl ? '—' : pfSignedMoney(summary.dayPnl),
+            sub: noPnl ? 'Not tracked yet' : `${pfSignedPct(summary.dayPnlPct)} vs last close`,
+            tone: noPnl ? 'muted' : summary.dayPnl >= 0 ? 'positive' : 'negative',
+            valueTone: noPnl ? '' : summary.dayPnl >= 0 ? 'positive' : 'negative',
             icon: 'pulse',
         },
         {
             label: 'Total Return',
-            value: pfSignedMoney(summary.totalReturn),
-            sub: `${pfSignedPct(summary.totalReturnPct)} all time`,
-            tone: summary.totalReturn >= 0 ? 'positive' : 'negative',
-            valueTone: summary.totalReturn >= 0 ? 'positive' : 'negative',
+            value: noPnl ? '—' : pfSignedMoney(summary.totalReturn),
+            sub: noPnl ? 'Not tracked yet' : `${pfSignedPct(summary.totalReturnPct)} all time`,
+            tone: noPnl ? 'muted' : summary.totalReturn >= 0 ? 'positive' : 'negative',
+            valueTone: noPnl ? '' : summary.totalReturn >= 0 ? 'positive' : 'negative',
             icon: 'trend',
         },
         {
@@ -271,6 +274,11 @@ function summaryFromLivePortfolio(portfolio) {
         totalReturn: 0,
         totalReturnPct: 0,
         cashAvailable: cash,
+        // The ledger tracks cash only — no marks, no history, so there is no
+        // P/L to report. Flagged rather than left at 0 so the cards can say
+        // "not available" instead of rendering a fabricated "+$0.00 (0.00%)"
+        // that reads as a real, flat day.
+        pnlUnavailable: true,
     };
 }
 
@@ -364,9 +372,7 @@ function buildAgentAllocationData(agents, totalPortfolioValue) {
 }
 
 function updateAgentAllocationFromAgents(agents) {
-    // Until allocate (#175) wires the ledger, signed-in pie is 100% Unassigned.
-    const agentSlices = livePortfolio ? [] : agents;
-    renderAllocationChart('agent', buildAgentAllocationData(agentSlices, getTotalPortfolioValue()));
+    renderAllocationChart('agent', buildAgentAllocationData(agents, getTotalPortfolioValue()));
 }
 
 function renderPortfolioFromMock(agents) {
@@ -397,14 +403,26 @@ function renderPortfolioFromLive(portfolio, agents) {
 // ---------------------------------------------------------------------------
 // Public entry point — called when the My Agents tab becomes visible.
 // ---------------------------------------------------------------------------
+
+// Renders are async and callers do not await them, so two can be in flight at
+// once (switching to My Agents starts one, and the loadAgents() that follows
+// starts another with a fresher agent list). Responses are not guaranteed to
+// arrive in request order, so without this token a slower earlier request can
+// repaint the panel with stale agents after the newer one has already landed.
+let portfolioRenderToken = 0;
+
 async function renderPortfolio(agents) {
     const list = agents || [];
+    const token = ++portfolioRenderToken;
+    const isCurrent = () => token === portfolioRenderToken;
+
     if (!isPortfolioSignedIn() || typeof API === 'undefined' || typeof API_BASE === 'undefined') {
         renderPortfolioFromMock(list);
         return;
     }
     try {
         const data = await API.get(`${API_BASE}/api/v1/portfolio`);
+        if (!isCurrent()) return;
         const portfolio = data && data.portfolio;
         if (!portfolio) {
             renderPortfolioFromMock(list);
@@ -413,9 +431,28 @@ async function renderPortfolio(agents) {
         renderPortfolioFromLive(portfolio, list);
     } catch (error) {
         console.warn('Portfolio API unavailable; showing sample data:', error?.message || error);
-        renderPortfolioFromMock(list);
+        if (isCurrent()) renderPortfolioFromMock(list);
     }
 }
 
+/**
+ * Repaint the panel from whatever is already cached — no network.
+ *
+ * Lets the My Agents tab paint instantly on a revisit while the authoritative
+ * refresh rides along with loadAgents(), instead of both firing their own
+ * GET /api/v1/portfolio on every tab switch.
+ */
+function repaintPortfolioFromCache(agents) {
+    const list = agents || [];
+    if (livePortfolio) {
+        renderPortfolioFromLive(livePortfolio, list);
+    } else if (!isPortfolioSignedIn()) {
+        renderPortfolioFromMock(list);
+    }
+    // Signed in but nothing cached yet: leave it be — the render that
+    // loadAgents() kicks off is about to paint the real figures.
+}
+
 window.renderPortfolio = renderPortfolio;
+window.repaintPortfolioFromCache = repaintPortfolioFromCache;
 window.updateAgentAllocationFromAgents = updateAgentAllocationFromAgents;
