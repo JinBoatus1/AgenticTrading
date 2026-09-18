@@ -47,7 +47,7 @@ downsample_daily = _baselines.downsample_daily
 fetch_hourly_bars = _baselines.fetch_hourly_bars
 
 LEADERBOARD_MODE = "leaderboard"
-VALID_PERIODS = ("contest", "daily")
+VALID_PERIODS = ("contest", "daily", "live")
 _SKIP_CACHE_PATH = DATA_DIR / "leaderboard_skip_cache.json"
 _DAILY_REFRESH_STATE_PATH = DATA_DIR / "leaderboard_daily_refresh.json"
 _daily_refresh_lock = threading.Lock()
@@ -474,13 +474,24 @@ def verify_daily_refresh_secret(provided: Optional[str]) -> None:
 
 
 def resolve_leaderboard_config(period: Optional[str] = "contest") -> Dict[str, Any]:
-    """Return the effective leaderboard config for ``contest`` or ``daily``.
+    """Return the effective leaderboard config for ``contest``, ``daily``, or ``live``.
 
     Daily reuses the same strategy roster as the contest board, but caches under
     a separate session and a rolling 1-day (last completed weekday) window.
+    Live uses the current Eastern calendar month, cached under ``leaderboard-live``,
+    with ``end_date`` equal to the last completed cash session (not month-end).
     """
     base = load_leaderboard_config()
     period_key = _normalize_period(period)
+    if period_key == "live":
+        from dashboard.backend.domain.leaderboard.live import live_freeze_config
+
+        freeze = live_freeze_config()
+        if freeze is None:
+            raise RuntimeError(
+                "Live leaderboard has no completed cash session this month yet"
+            )
+        return freeze
     if period_key == "daily":
         start_date, end_date = daily_window_dates()
         # Drop fixed contest reference so mean-variance gets a fresh prior month.
@@ -622,6 +633,34 @@ def _find_cached_run(strategy_id: str, start_date: str, end_date: str, session_i
         ):
             return run
     return None
+
+
+def _find_live_month_run(
+    strategy_id: str,
+    month_start: str,
+    freeze_end: str,
+    session_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Latest live-month snapshot that does not extend past ``freeze_end``.
+
+    Each freeze close writes its own ``agent_runs`` row (``start_date`` is
+    month-open, ``end_date`` is that freeze). GET must keep serving yesterday's
+    snapshot after the clock rolls, until the next operator deploy lands.
+    """
+    best: Optional[Dict[str, Any]] = None
+    for run in db.get_runs_by_session(session_id) or []:
+        if (
+            run.get("mode") != LEADERBOARD_MODE
+            or run.get("llm_model") != strategy_id
+            or run.get("start_date") != month_start
+        ):
+            continue
+        end = str(run.get("end_date") or "")
+        if not end or end > freeze_end:
+            continue
+        if best is None or end > str(best.get("end_date") or ""):
+            best = run
+    return best
 
 
 def _symbols_for_config(config: Dict[str, Any]) -> List[str]:
@@ -1027,6 +1066,7 @@ def deploy_model_run(
     end_date: Optional[str] = None,
     allow_fallback: bool = False,
     period: Optional[str] = "contest",
+    config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Compute and persist one (expensive) leaderboard model entry.
 
@@ -1037,7 +1077,7 @@ def deploy_model_run(
     shorter window (writes a separate cached run for that window). Pass
     ``period="daily"`` to target the rolling daily board window.
     """
-    config = resolve_leaderboard_config(period)
+    config = config or resolve_leaderboard_config(period)
     session_id = config["session_id"]
     start_date = start_date or config["start_date"]
     end_date = end_date or config["end_date"]
@@ -1185,6 +1225,10 @@ def get_leaderboard(
     period: Optional[str] = "contest",
 ) -> Dict[str, Any]:
     """Return ranked leaderboard entries with chart-ready equity curves."""
+    if _normalize_period(period) == "live":
+        from dashboard.backend.domain.leaderboard.live import get_live_leaderboard
+
+        return get_live_leaderboard()
     config = resolve_leaderboard_config(period)
     meta = ensure_leaderboard_runs(force_refresh=force_refresh, config=config)
     session_id = config["session_id"]

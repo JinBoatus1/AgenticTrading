@@ -36,7 +36,7 @@ def is_exempt(path: str) -> bool:
         return True
     if any(path.endswith(ext) for ext in EXEMPT_EXTENSIONS):
         return True
-    if path.startswith(('/static/', '/public/', '/assets/', '/js/', '/market-events/', '/images/')):
+    if path.startswith(('/static/', '/public/', '/assets/', '/js/', '/data/', '/market-events/', '/images/')):
         return True
     return False
 
